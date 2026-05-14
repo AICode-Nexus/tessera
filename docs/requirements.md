@@ -165,6 +165,10 @@ v0.1 包含：
 - `core` 事件协议。
 - OpenAI-compatible provider。
 - Ollama provider。
+- Provider capability schema。
+- reasoning delta 可选事件。
+- cache / usage / latency / cost telemetry 的 trace 字段。
+- manual route decision 记录，为后续 Auto router 预留。
 - `secrets` 环境变量读取和本地安全存储占位。
 - Headless `cli chat`。
 - `cli doctor --json`。
@@ -181,6 +185,8 @@ v0.1 不包含：
 - 多 agent runtime。
 - Swarm runtime。
 - MCP 完整生态。
+- Auto model router。
+- YOLO / trusted workspace 自动批准模式。
 - 自动改代码。
 - 自动执行 shell。
 - 复杂多窗口布局。

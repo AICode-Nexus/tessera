@@ -1,0 +1,9 @@
+[package]
+name = "tessera-tui"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ratatui.workspace = true
+tessera-protocol = { path = "../protocol" }
