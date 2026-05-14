@@ -29,6 +29,14 @@ enum Commands {
         #[arg(long)]
         data_dir: Option<PathBuf>,
     },
+    Tui {
+        #[arg(long, default_value = "mock")]
+        provider: String,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -60,6 +68,15 @@ async fn main() -> anyhow::Result<()> {
             let outcome =
                 tessera_cli::run_chat_with_config(data_dir, &config, &provider, prompt).await?;
             println!("{}", outcome.assistant_text);
+        }
+        Commands::Tui {
+            provider,
+            config,
+            data_dir,
+        } => {
+            let config = tessera_cli::resolve_config(config)?;
+            let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
+            tessera_cli::run_tui_with_config(data_dir, config, provider).await?;
         }
     }
 

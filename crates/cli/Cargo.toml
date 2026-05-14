@@ -18,6 +18,7 @@ tessera-core = { path = "../core" }
 tessera-protocol = { path = "../protocol" }
 tessera-providers = { path = "../providers" }
 tessera-storage = { path = "../storage" }
+tessera-tui = { path = "../tui" }
 tokio.workspace = true
 
 [dev-dependencies]

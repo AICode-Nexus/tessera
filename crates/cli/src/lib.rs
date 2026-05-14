@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{ConversationEngine, ConversationOutcome, ConversationRequest};
 use tessera_protocol::{ModelProfileId, ProviderId};
@@ -9,6 +11,7 @@ use tessera_providers::{
     ChatProvider,
 };
 use tessera_storage::TraceStore;
+use tessera_tui::ChatViewState;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DoctorReport {
@@ -20,6 +23,8 @@ pub struct DoctorReport {
 }
 
 pub type Result<T> = anyhow::Result<T>;
+
+static TRACE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 pub fn run_doctor(data_dir: impl AsRef<Path>) -> Result<DoctorReport> {
     run_doctor_with_config(data_dir, &TesseraConfig::default_with_mock())
@@ -110,6 +115,30 @@ pub async fn run_chat_with_config(
     }
 }
 
+pub async fn run_tui_with_config(
+    data_dir: PathBuf,
+    config: TesseraConfig,
+    provider_id: String,
+) -> Result<()> {
+    let state = ChatViewState::new(provider_id.clone());
+    tessera_tui::run_terminal_chat(state, move |prompt| {
+        let data_dir = data_dir.clone();
+        let config = config.clone();
+        let provider_id = provider_id.clone();
+        async move {
+            let outcome = run_chat_with_config(data_dir, &config, &provider_id, prompt)
+                .await
+                .map_err(|error| error.to_string())?;
+            outcome
+                .store
+                .read_trace_records(&outcome.trace_id)
+                .map_err(|error| error.to_string())
+        }
+    })
+    .await?;
+    Ok(())
+}
+
 async fn run_chat_for_provider<P>(
     data_dir: impl AsRef<Path>,
     profile: &ProviderProfile,
@@ -123,7 +152,7 @@ where
     let engine = ConversationEngine::new(provider, store);
     let outcome = engine
         .run_chat(ConversationRequest {
-            trace_id: format!("trace_{}", profile.id),
+            trace_id: next_trace_id(&profile.id),
             provider_id: ProviderId::from(profile.id.as_str()),
             profile_id: ModelProfileId::from(profile.id.as_str()),
             model: profile.default_model.clone(),
@@ -164,4 +193,23 @@ pub fn resolve_config(explicit: Option<PathBuf>) -> Result<TesseraConfig> {
         Some(path) => Ok(TesseraConfig::load_from_path(path)?),
         None => Ok(TesseraConfig::default_with_mock()),
     }
+}
+
+fn next_trace_id(provider_id: &str) -> String {
+    let provider = provider_id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let counter = TRACE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("trace_{provider}_{timestamp}_{counter}")
 }

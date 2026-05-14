@@ -51,6 +51,32 @@ async fn chat_command_path_routes_to_configured_mock_profile() {
 }
 
 #[tokio::test]
+async fn config_routed_chat_uses_unique_trace_ids_across_runs() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-routed".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+
+    let first = run_chat_with_config(temp.path(), &config, "offline", "hello")
+        .await
+        .unwrap();
+    let second = run_chat_with_config(temp.path(), &config, "offline", "hello again")
+        .await
+        .unwrap();
+
+    assert_ne!(first.trace_id, second.trace_id);
+    assert!(first.trace_id.starts_with("trace_offline_"));
+    assert!(second.trace_id.starts_with("trace_offline_"));
+}
+
+#[tokio::test]
 async fn chat_command_path_rejects_unknown_provider_profile() {
     let temp = tempfile::tempdir().unwrap();
     let config = TesseraConfig::default_with_mock();
