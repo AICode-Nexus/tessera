@@ -16,9 +16,14 @@ v0.1 允许的核心依赖方向：
 cli  -> core -> providers
 cli  -> core -> storage
 cli  -> config
+cli  -> tui      # only for local binary command dispatch
 
 tui  -> core
 tui  -> config
+
+future gui -> client/core/runtime_api
+future gui -> config
+future client -> protocol
 
 core -> protocol
 core -> storage
@@ -42,9 +47,13 @@ storage -> tui
 tui -> providers
 tui -> storage internals
 cli -> providers internals
+gui -> providers
+gui -> storage internals
+gui -> tui
+gui -> cli internals
 ```
 
-CLI 和 TUI 都只能通过 core 使用 provider 和 storage。这样才能保证只有一个真实 runtime 来源。
+CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli -> tui` 只允许作为本地二进制的命令入口编排，不允许把 TUI 状态变成 CLI 或 core 的运行时状态。这样才能保证只有一个真实 runtime 来源。
 
 ## 3. Crate 职责
 
@@ -246,6 +255,56 @@ v0.1 secret 只解析环境变量引用，不做完整 keychain。
 
 TUI 是 view，不是 runtime。
 
+### future client
+
+职责：
+
+- UI-neutral intent。
+- status / message / task projection。
+- trace record 到 view model 的纯函数转换。
+- keymap、command palette 和 GUI action 的共享 command schema。
+
+允许依赖：
+
+- protocol。
+- serde。
+
+禁止：
+
+- Ratatui widget。
+- GUI toolkit widget。
+- provider SDK。
+- storage internals。
+- 真实 runtime 状态机。
+
+`client` 只有在 TUI 和 GUI 都需要复用同一套状态投影时才独立成 crate。
+
+### future gui
+
+职责：
+
+- 桌面或 Web shell。
+- 布局、菜单、快捷键、可访问性和渲染。
+- 展示 core/runtime API 事件和 trace projection。
+
+允许依赖：
+
+- future `client`。
+- protocol。
+- config。
+- core public API 或 future runtime_api client。
+- 选定 GUI toolkit。
+
+禁止：
+
+- 调 provider SDK。
+- 直接读写 SQLite internals。
+- 直接执行 shell/file/git/http tool。
+- 依赖 TUI crate。
+- 持有真实 runtime 状态机。
+
+GUI 是 client shell，不是第二套 runtime。
+
 ## 4. 暂不独立成 Crate 的能力
 
 以下能力 v0.1 只保留类型或配置占位：
@@ -260,6 +319,8 @@ TUI 是 view，不是 runtime。
 - swarm。
 - learning。
 - runtime_api。
+- gui。
+- client。
 - diagnostics。
 - snapshots。
 - sandbox。
@@ -334,6 +395,18 @@ HTTP/SSE 和未来 ACP/editor integration 都不能拥有第二套 runtime。
 - `since_seq` 是增量读取基础。
 - 默认只绑定 localhost。
 
+### GUI client
+
+GUI 和 TUI 必须共享同一套 client projection。
+
+推荐边界：
+
+- `client` 先从当前 TUI view-state reducer 中抽出 UI-neutral 部分。
+- `tui` 只保留 terminal 输入和 Ratatui widgets。
+- `gui` 只保留 desktop/web shell 和 toolkit widgets。
+- live event bridge 由 core/runtime API 提供，TUI/GUI shell 负责订阅，`client` 只做事件到 view model 的纯函数投影。
+- 完成 client model 前，GUI spike 只能读 mock/replay 数据。
+
 ### distribution
 
 分发不是 v0.1 实现项，但架构上要避免只适合源码运行。
@@ -362,6 +435,7 @@ HTTP/SSE 和未来 ACP/editor integration 都不能拥有第二套 runtime。
 AI 或人类开发者修改代码时必须遵守：
 
 - 不把核心逻辑写进 `tui`。
+- 不把核心逻辑写进未来 `gui`。
 - 不把 provider 私有结构传出 `providers`。
 - 不在 `providers` 中执行工具。
 - 不在 `storage` 中调用模型。
@@ -378,6 +452,12 @@ AI 或人类开发者修改代码时必须遵守：
 后果：CLI、TUI、runtime API 行为分裂。
 
 正确做法：TUI 发送用户输入给 core，core 调 provider，provider 输出事件。
+
+### 错误：GUI 重新实现一套聊天 runtime
+
+后果：CLI、TUI、GUI、runtime API 的行为和 trace 不一致。
+
+正确做法：GUI 只消费 shared client projection 和 core/runtime API 事件。
 
 ### 错误：Provider 直接写 Trace
 
@@ -404,5 +484,7 @@ AI 或人类开发者修改代码时必须遵守：
 - `protocol` 没有 workspace 内部依赖。
 - `providers` 不依赖 `core`、`storage`、`tui`。
 - `tui` 不依赖 provider SDK。
+- future `gui` 不依赖 provider SDK、storage internals 或 TUI。
 - `cli` 和 `tui` 共享 core runtime。
+- CLI、TUI、future GUI 共享同一套 client/runtime 语义。
 - storage 可以从 JSONL 重建 SQLite 索引。

@@ -10,11 +10,11 @@ This repository now has the v0.1 Rust workspace scaffold and a mock-driven runti
 
 - Model-agnostic provider architecture.
 - Rust-first, quality-focused local runtime.
-- Headless core with replaceable TUI, CLI, and runtime API surfaces.
+- Headless core with replaceable CLI, TUI, future GUI, and runtime API surfaces.
 - Auditable tool execution through policy gates.
 - Replayable runs with durable thread, turn, item, task, and artifact records.
 - Agent-ready architecture with skills, memory, multi-agent workflows, swarm scheduling, and learning proposals.
-- Multi-task and multi-window TUI model without coupling UI state to runtime execution.
+- Multi-task and multi-window client model without coupling UI state to runtime execution.
 
 ## Documents
 
@@ -22,6 +22,7 @@ This repository now has the v0.1 Rust workspace scaffold and a mock-driven runti
 - [Architecture](docs/architecture.md)
 - [Technical Architecture](docs/technical-architecture.md)
 - [DeepSeek-TUI Lessons](docs/deepseek-tui-lessons.md)
+- [GUI-Ready Architecture](docs/gui-ready-architecture.md)
 - [v0.1 Plan](docs/v0.1-plan.md)
 - [Global Plan](docs/global-plan.md)
 - [Protocol v0](docs/protocol-v0.md)
@@ -35,7 +36,8 @@ The current implementation contract is still architecture-led:
 
 - Keep the first implementation limited to `protocol`, `core`, `providers`, `storage`, `config`, `cli`, and `tui`.
 - Keep future tools, agents, memory, skills, learning, and swarm support as protocol-ready extensions, not v0.1 runtime features.
-- Keep CLI and TUI on top of the same headless runtime.
+- Keep CLI, TUI, and future GUI on top of the same headless runtime.
+- Keep client UI state in UI-neutral reducers and view models before choosing a GUI toolkit.
 - Treat JSONL trace as the durable event truth and SQLite as a rebuildable index.
 - Access SQLite through `rusqlite`; build it with bundled SQLite for local release portability.
 
@@ -79,4 +81,4 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 - No tool execution.
 - No agent runtime.
 
-The next milestone is to add TUI profile switching and then verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.
+The next milestone is to add TUI profile switching, keep the shared client view-model boundary GUI-ready, and then verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.

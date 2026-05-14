@@ -25,6 +25,7 @@
 - [x] `CHANGELOG.md` 建立，阶段性变化已记录。
 - [x] 已提交并 push 到 `origin/main`：`43918fe feat: scaffold v0.1 runtime`。
 - [x] SQLite 通过 `rusqlite/bundled` 集成，降低本地发布时对系统 `libsqlite3` 的依赖。
+- [x] GUI-ready 方向写入架构：未来 GUI 必须复用 headless runtime、client intent 和 UI-neutral view model。
 
 ## 2. v0.1 Runtime Checklist
 
@@ -91,6 +92,13 @@
 - [ ] `/new`、`/save`、`/export`。
 - [x] TUI 只订阅 core 事件，不直接依赖 provider SDK 或 SQLite internals。
 
+### GUI Preparation
+
+- [x] GUI 不另起 runtime：架构约束已写入 `docs/gui-ready-architecture.md`、`docs/technical-architecture.md` 和 `docs/crate-boundaries.md`。
+- [~] UI-neutral view model：当前 TUI view-state reducer 已能被抽象为共享 client model，但还未拆出独立 `client` crate。
+- [ ] GUI 技术选型 spike：在 Tauri / egui / GPUI 中基于分发、可访问性、渲染复杂度和 AI 可维护性做一轮小样验证。
+- [ ] Live event bridge：CLI/TUI/GUI 共享同一套 core event stream，而不是完成后各自读取 trace。
+
 ### Quality Gates
 
 - [x] `PATH="$HOME/.cargo/bin:$PATH" cargo fmt --all -- --check`。
@@ -114,14 +122,16 @@
 7. [ ] 真实 provider smoke 验证：当前环境 OpenAI-compatible env 未设置，Ollama `localhost:11434` 不可达。
 8. [x] 最小 TUI chat loop：view/input/event reducer、terminal event loop、CLI `tui` 入口已完成。
 9. [ ] TUI profile switch 入口。
-10. [ ] cancellation / timeout / backpressure 基础语义。
-11. [ ] v0.1 release checklist 和 tag 计划。
+10. [ ] GUI-ready client model 边界：把当前 TUI view-state 中可共享的 intent、message projection 和 status projection 固化为 UI-neutral API。
+11. [ ] cancellation / timeout / backpressure 基础语义。
+12. [ ] v0.1 release checklist 和 tag 计划。
 
 ## 4. v0.2 Checklist
 
 - [ ] Context workbench 初版。
 - [ ] Read-only runtime API。
 - [ ] Task registry v1。
+- [ ] GUI shell spike：只接 mock/read-only runtime，不引入第二套 provider 或 storage 访问路径。
 - [ ] Usage/cache/cost telemetry summary。
 - [ ] Model router 草案，只记录 route decision，不默认自动路由。
 - [ ] Artifact handle projection。
