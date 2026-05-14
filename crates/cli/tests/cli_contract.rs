@@ -1,6 +1,6 @@
 use tessera_cli::{
-    resolve_config, resolve_data_dir_with_config, run_chat_mock, run_chat_with_config, run_doctor,
-    DoctorReport,
+    build_tui_state_with_config, resolve_config, resolve_data_dir_with_config, run_chat_mock,
+    run_chat_with_config, run_doctor, DoctorReport,
 };
 use tessera_config::{ProviderProfile, TesseraConfig};
 
@@ -85,6 +85,45 @@ async fn chat_command_path_rejects_unknown_provider_profile() {
         Ok(_) => panic!("expected missing provider profile to fail"),
         Err(error) => error.to_string(),
     };
+
+    assert!(error.contains("provider profile not found"));
+}
+
+#[test]
+fn tui_state_uses_configured_profiles_for_switching() {
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![
+            ProviderProfile {
+                id: "offline".to_string(),
+                kind: "mock".to_string(),
+                default_model: "mock-chat".to_string(),
+                base_url: None,
+                api_key_env: None,
+            },
+            ProviderProfile {
+                id: "local".to_string(),
+                kind: "ollama".to_string(),
+                default_model: "llama3".to_string(),
+                base_url: None,
+                api_key_env: None,
+            },
+        ],
+    };
+
+    let state = build_tui_state_with_config(&config, "local").unwrap();
+
+    assert_eq!(state.active_profile, "local");
+    assert_eq!(state.available_profiles, vec!["offline", "local"]);
+}
+
+#[test]
+fn tui_state_rejects_unknown_initial_profile() {
+    let config = TesseraConfig::default_with_mock();
+
+    let error = build_tui_state_with_config(&config, "missing")
+        .unwrap_err()
+        .to_string();
 
     assert!(error.contains("provider profile not found"));
 }

@@ -120,13 +120,12 @@ pub async fn run_tui_with_config(
     config: TesseraConfig,
     provider_id: String,
 ) -> Result<()> {
-    let state = ChatViewState::new(provider_id.clone());
-    tessera_tui::run_terminal_chat(state, move |prompt| {
+    let state = build_tui_state_with_config(&config, &provider_id)?;
+    tessera_tui::run_terminal_chat(state, move |selected_provider_id, prompt| {
         let data_dir = data_dir.clone();
         let config = config.clone();
-        let provider_id = provider_id.clone();
         async move {
-            let outcome = run_chat_with_config(data_dir, &config, &provider_id, prompt)
+            let outcome = run_chat_with_config(data_dir, &config, &selected_provider_id, prompt)
                 .await
                 .map_err(|error| error.to_string())?;
             outcome
@@ -137,6 +136,26 @@ pub async fn run_tui_with_config(
     })
     .await?;
     Ok(())
+}
+
+pub fn build_tui_state_with_config(
+    config: &TesseraConfig,
+    provider_id: &str,
+) -> Result<ChatViewState> {
+    if !config
+        .providers
+        .iter()
+        .any(|profile| profile.id == provider_id)
+    {
+        return Err(anyhow::anyhow!("provider profile not found: {provider_id}"));
+    }
+
+    let profile_ids = config
+        .providers
+        .iter()
+        .map(|profile| profile.id.clone())
+        .collect::<Vec<_>>();
+    Ok(ChatViewState::with_profiles(provider_id, profile_ids))
 }
 
 async fn run_chat_for_provider<P>(

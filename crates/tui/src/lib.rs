@@ -29,14 +29,19 @@ pub struct ChatMessage {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TuiUserIntent {
-    SubmitPrompt { prompt: String },
+pub enum ClientIntent {
+    SubmitPrompt { profile_id: String, prompt: String },
+    SwitchProfile { profile_id: String },
 }
+
+pub type TuiUserIntent = ClientIntent;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TerminalInput {
     Char(char),
     Backspace,
+    NextProfile,
+    PreviousProfile,
     Submit,
     Quit,
 }
@@ -44,7 +49,7 @@ pub enum TerminalInput {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TerminalAction {
     Render,
-    Submit(TuiUserIntent),
+    Dispatch(ClientIntent),
     Quit,
     Ignore,
 }
@@ -52,6 +57,7 @@ pub enum TerminalAction {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChatViewState {
     pub active_profile: String,
+    pub available_profiles: Vec<String>,
     pub reasoning_visible: bool,
     pub cache_summary: String,
     pub cost_summary: String,
@@ -61,8 +67,30 @@ pub struct ChatViewState {
 
 impl ChatViewState {
     pub fn new(active_profile: impl Into<String>) -> Self {
+        let active_profile = active_profile.into();
+        Self::with_profiles(active_profile.clone(), [active_profile])
+    }
+
+    pub fn with_profiles<I, S>(active_profile: impl Into<String>, profiles: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let active_profile = active_profile.into();
+        let mut available_profiles = Vec::new();
+        for profile in profiles {
+            let profile = profile.into();
+            if !profile.trim().is_empty() && !available_profiles.contains(&profile) {
+                available_profiles.push(profile);
+            }
+        }
+        if !available_profiles.contains(&active_profile) {
+            available_profiles.insert(0, active_profile.clone());
+        }
+
         Self {
-            active_profile: active_profile.into(),
+            active_profile,
+            available_profiles,
             reasoning_visible: false,
             cache_summary: "cache 0/0".to_string(),
             cost_summary: "CNY 0.0000".to_string(),
@@ -75,13 +103,16 @@ impl ChatViewState {
         self.input = input.into();
     }
 
-    pub fn submit_input(&mut self) -> Option<TuiUserIntent> {
+    pub fn submit_input(&mut self) -> Option<ClientIntent> {
         let prompt = self.input.trim().to_string();
         if prompt.is_empty() {
             return None;
         }
         self.input.clear();
-        Some(TuiUserIntent::SubmitPrompt { prompt })
+        Some(ClientIntent::SubmitPrompt {
+            profile_id: self.active_profile.clone(),
+            prompt,
+        })
     }
 
     pub fn handle_terminal_input(&mut self, input: TerminalInput) -> TerminalAction {
@@ -94,12 +125,48 @@ impl ChatViewState {
                 self.input.pop();
                 TerminalAction::Render
             }
+            TerminalInput::NextProfile => self
+                .cycle_profile(1)
+                .map(TerminalAction::Dispatch)
+                .unwrap_or(TerminalAction::Ignore),
+            TerminalInput::PreviousProfile => self
+                .cycle_profile(-1)
+                .map(TerminalAction::Dispatch)
+                .unwrap_or(TerminalAction::Ignore),
             TerminalInput::Submit => self
                 .submit_input()
-                .map(TerminalAction::Submit)
+                .map(TerminalAction::Dispatch)
                 .unwrap_or(TerminalAction::Ignore),
             TerminalInput::Quit => TerminalAction::Quit,
         }
+    }
+
+    pub fn active_profile_position(&self) -> (usize, usize) {
+        let total = self.available_profiles.len().max(1);
+        let index = self
+            .available_profiles
+            .iter()
+            .position(|profile| profile == &self.active_profile)
+            .map(|index| index + 1)
+            .unwrap_or(1);
+        (index, total)
+    }
+
+    fn cycle_profile(&mut self, offset: isize) -> Option<ClientIntent> {
+        let total = self.available_profiles.len();
+        if total <= 1 {
+            return None;
+        }
+        let current = self
+            .available_profiles
+            .iter()
+            .position(|profile| profile == &self.active_profile)
+            .unwrap_or(0);
+        let next = (current as isize + offset).rem_euclid(total as isize) as usize;
+        self.active_profile = self.available_profiles[next].clone();
+        Some(ClientIntent::SwitchProfile {
+            profile_id: self.active_profile.clone(),
+        })
     }
 
     pub fn apply_event(&mut self, frame: &EventFrame) {
@@ -242,9 +309,11 @@ pub fn status_line(state: &ChatViewState) -> Line<'static> {
     } else {
         "reasoning:off"
     };
+    let (profile_index, profile_total) = state.active_profile_position();
     Line::from(vec![
         Span::raw("profile "),
         Span::raw(state.active_profile.clone()),
+        Span::raw(format!(" [{profile_index}/{profile_total}]")),
         Span::raw(" | "),
         Span::raw(reasoning),
         Span::raw(" | "),
@@ -288,6 +357,8 @@ pub fn map_key_event(event: KeyEvent) -> Option<TerminalInput> {
     match event.code {
         KeyCode::Enter => Some(TerminalInput::Submit),
         KeyCode::Backspace => Some(TerminalInput::Backspace),
+        KeyCode::Tab => Some(TerminalInput::NextProfile),
+        KeyCode::BackTab => Some(TerminalInput::PreviousProfile),
         KeyCode::Esc => Some(TerminalInput::Quit),
         KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(TerminalInput::Quit)
@@ -329,7 +400,7 @@ pub async fn run_terminal_chat<F, Fut>(
     mut submit_prompt: F,
 ) -> io::Result<ChatViewState>
 where
-    F: FnMut(String) -> Fut,
+    F: FnMut(String, String) -> Fut,
     Fut: Future<Output = Result<Vec<TraceRecord>, String>>,
 {
     enable_raw_mode()?;
@@ -354,7 +425,7 @@ async fn run_terminal_chat_loop<B, F, Fut>(
 ) -> io::Result<ChatViewState>
 where
     B: ratatui::backend::Backend,
-    F: FnMut(String) -> Fut,
+    F: FnMut(String, String) -> Fut,
     Fut: Future<Output = Result<Vec<TraceRecord>, String>>,
 {
     loop {
@@ -374,21 +445,24 @@ where
         match state.handle_terminal_input(input) {
             TerminalAction::Render | TerminalAction::Ignore => {}
             TerminalAction::Quit => return Ok(state),
-            TerminalAction::Submit(TuiUserIntent::SubmitPrompt { prompt }) => {
-                match submit_prompt(prompt).await {
-                    Ok(records) => {
-                        for record in records {
-                            state.apply_trace_record(&record);
+            TerminalAction::Dispatch(intent) => match intent {
+                ClientIntent::SubmitPrompt { profile_id, prompt } => {
+                    match submit_prompt(profile_id, prompt).await {
+                        Ok(records) => {
+                            for record in records {
+                                state.apply_trace_record(&record);
+                            }
                         }
+                        Err(error) => state.messages.push(ChatMessage {
+                            role: ChatMessageRole::Assistant,
+                            content: format!("Error: {error}"),
+                            item_id: None,
+                            streaming: false,
+                        }),
                     }
-                    Err(error) => state.messages.push(ChatMessage {
-                        role: ChatMessageRole::Assistant,
-                        content: format!("Error: {error}"),
-                        item_id: None,
-                        streaming: false,
-                    }),
                 }
-            }
+                ClientIntent::SwitchProfile { .. } => {}
+            },
         }
     }
 }

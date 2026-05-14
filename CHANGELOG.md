@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added SQLite runtime object queries, index rebuild from JSONL, and a golden trace replay gate.
 - Added a minimal TUI chat view-state reducer for input intents and streamed core event rendering.
 - Added a `tessera tui` terminal loop with crossterm input, Ratatui rendering, and trace-record replay back into the TUI state.
+- Added TUI profile switching through GUI-ready `ClientIntent` dispatch so prompt submission uses the currently selected provider profile.
 - Added a GUI-ready architecture note so future desktop/web clients reuse the same headless runtime, client intents, and UI-neutral view model instead of forking runtime behavior from CLI/TUI.
 - Added `tessera doctor --json` and `tessera chat --provider mock --prompt ...`.
 - Added a minimal Ratatui status-line surface for profile, reasoning, cache, and cost placeholders.

@@ -1,7 +1,7 @@
 use tessera_protocol::{EventFrame, ItemId, RunEvent};
 use tessera_tui::{
     chat_window_lines, draw_terminal_frame, map_key_event, status_line, ChatMessageRole,
-    ChatViewState, TerminalAction, TerminalInput, TuiUserIntent,
+    ChatViewState, ClientIntent, TerminalAction, TerminalInput,
 };
 
 fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
@@ -43,7 +43,8 @@ fn tui_chat_loop_submits_input_and_renders_core_events() {
 
     assert_eq!(
         state.submit_input(),
-        Some(TuiUserIntent::SubmitPrompt {
+        Some(ClientIntent::SubmitPrompt {
+            profile_id: "mock-default".to_string(),
             prompt: "hello tui".to_string()
         })
     );
@@ -161,7 +162,8 @@ fn terminal_input_edits_and_submits_prompt() {
 
     assert_eq!(
         state.handle_terminal_input(TerminalInput::Submit),
-        TerminalAction::Submit(TuiUserIntent::SubmitPrompt {
+        TerminalAction::Dispatch(ClientIntent::SubmitPrompt {
+            profile_id: "mock-default".to_string(),
             prompt: "h".to_string()
         })
     );
@@ -188,6 +190,51 @@ fn terminal_key_mapping_handles_submit_backspace_and_quit() {
         map_key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
         Some(TerminalInput::Char('x'))
     );
+    assert_eq!(
+        map_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+        Some(TerminalInput::NextProfile)
+    );
+    assert_eq!(
+        map_key_event(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)),
+        Some(TerminalInput::PreviousProfile)
+    );
+}
+
+#[test]
+fn profile_switch_cycles_available_profiles_as_client_intents() {
+    let mut state =
+        ChatViewState::with_profiles("mock-default", ["mock-default", "offline", "local-llm"]);
+
+    assert_eq!(
+        state.handle_terminal_input(TerminalInput::NextProfile),
+        TerminalAction::Dispatch(ClientIntent::SwitchProfile {
+            profile_id: "offline".to_string()
+        })
+    );
+    assert_eq!(state.active_profile, "offline");
+
+    assert_eq!(
+        state.handle_terminal_input(TerminalInput::PreviousProfile),
+        TerminalAction::Dispatch(ClientIntent::SwitchProfile {
+            profile_id: "mock-default".to_string()
+        })
+    );
+    assert_eq!(state.active_profile, "mock-default");
+}
+
+#[test]
+fn prompt_submit_uses_current_profile_after_switch() {
+    let mut state = ChatViewState::with_profiles("mock-default", ["mock-default", "offline"]);
+    state.handle_terminal_input(TerminalInput::NextProfile);
+    state.set_input("hello selected profile");
+
+    assert_eq!(
+        state.handle_terminal_input(TerminalInput::Submit),
+        TerminalAction::Dispatch(ClientIntent::SubmitPrompt {
+            profile_id: "offline".to_string(),
+            prompt: "hello selected profile".to_string()
+        })
+    );
 }
 
 #[test]
@@ -210,7 +257,7 @@ fn terminal_frame_renders_status_messages_and_input() {
         .unwrap();
 
     let rendered = buffer_text(terminal.backend().buffer());
-    assert!(rendered.contains("profile mock-default"));
+    assert!(rendered.contains("profile mock-default [1/1]"));
     assert!(rendered.contains("You: hello frame"));
     assert!(rendered.contains("> draft"));
 }
