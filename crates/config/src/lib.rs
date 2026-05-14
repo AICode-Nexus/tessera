@@ -17,6 +17,7 @@ impl TesseraConfig {
                 id: "mock".to_string(),
                 kind: "mock".to_string(),
                 default_model: "mock-chat".to_string(),
+                base_url: None,
                 api_key_env: None,
             }],
         }
@@ -34,6 +35,7 @@ pub struct ProviderProfile {
     pub id: String,
     pub kind: String,
     pub default_model: String,
+    pub base_url: Option<String>,
     pub api_key_env: Option<String>,
 }
 

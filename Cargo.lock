@@ -1593,6 +1593,7 @@ dependencies = [
  "tempfile",
  "tessera-config",
  "tessera-core",
+ "tessera-protocol",
  "tessera-providers",
  "tessera-storage",
  "tokio",

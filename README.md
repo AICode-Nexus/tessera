@@ -23,6 +23,7 @@ This repository now has the v0.1 Rust workspace scaffold and a mock-driven runti
 - [Technical Architecture](docs/technical-architecture.md)
 - [DeepSeek-TUI Lessons](docs/deepseek-tui-lessons.md)
 - [v0.1 Plan](docs/v0.1-plan.md)
+- [Global Plan](docs/global-plan.md)
 - [Protocol v0](docs/protocol-v0.md)
 - [Trace Schema v0](docs/trace-schema-v0.md)
 - [Crate Boundaries](docs/crate-boundaries.md)
@@ -52,6 +53,21 @@ Run the current mock path:
 ```bash
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- doctor --json
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --provider mock --prompt "hello"
+```
+
+Run with an explicit config profile:
+
+```toml
+data_dir = "/tmp/tessera-dev"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+```
+
+```bash
+PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --prompt "hello"
 ```
 
 ## Non-Goals For This Phase

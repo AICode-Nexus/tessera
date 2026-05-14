@@ -1,14 +1,13 @@
 # Tessera Agent Instructions
 
-This repository is in the requirements and architecture phase unless the user explicitly asks to start implementation.
+This repository has entered v0.1 implementation. Architecture documents remain the contract, but source changes are now expected when they follow the scoped checklist.
 
 ## Current Contract
 
-- Do not scaffold the Rust workspace unless the user explicitly asks for implementation.
-- Do not add source code while working on architecture documents.
 - Keep Tessera Rust-first and quality-first.
 - Preserve a single headless runtime shared by CLI, TUI, replay, and future runtime APIs.
-- Treat `docs/technical-architecture.md`, `docs/deepseek-tui-lessons.md`, `docs/v0.1-plan.md`, `docs/protocol-v0.md`, `docs/trace-schema-v0.md`, and `docs/crate-boundaries.md` as the current implementation contract.
+- Treat `docs/technical-architecture.md`, `docs/deepseek-tui-lessons.md`, `docs/global-plan.md`, `docs/v0.1-plan.md`, `docs/protocol-v0.md`, `docs/trace-schema-v0.md`, and `docs/crate-boundaries.md` as the current implementation contract.
+- Update `docs/global-plan.md` whenever a staged checklist item is completed, added, removed, or deliberately deferred.
 
 ## Architecture Rules
 
@@ -25,10 +24,9 @@ This repository is in the requirements and architecture phase unless the user ex
 
 Allowed:
 
-- Architecture documents.
-- Protocol and trace schema documents.
-- Crate boundary documents.
-- Later, when approved: Rust workspace scaffold, protocol/core/providers/storage/config/cli/tui crates.
+- Protocol, core, providers, storage, config, cli, and tui crates.
+- Architecture, protocol, trace schema, and crate boundary documents.
+- Mock runtime, provider adapter skeletons, trace, doctor, and CLI/TUI v0.1 work listed in `docs/global-plan.md`.
 
 Not allowed in v0.1 unless the user changes scope:
 
@@ -58,7 +56,7 @@ git diff --check
 For implementation changes, expected gates are:
 
 ```bash
-cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+PATH="$HOME/.cargo/bin:$PATH" cargo fmt --all -- --check
+PATH="$HOME/.cargo/bin:$PATH" cargo clippy --workspace --all-targets -- -D warnings
+PATH="$HOME/.cargo/bin:$PATH" cargo test --workspace
 ```

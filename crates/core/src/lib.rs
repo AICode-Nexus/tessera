@@ -48,6 +48,44 @@ pub struct ConversationEngine<P> {
     store: TraceStore,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplaySummary {
+    pub trace_id: String,
+    pub assistant_text: String,
+    pub event_kinds: Vec<String>,
+}
+
+pub struct ReplayRunner<'a> {
+    store: &'a TraceStore,
+}
+
+impl<'a> ReplayRunner<'a> {
+    pub fn new(store: &'a TraceStore) -> Self {
+        Self { store }
+    }
+
+    pub fn replay(&self, trace_id: &str) -> Result<ReplaySummary> {
+        let records = self.store.read_trace_records(trace_id)?;
+        let mut assistant_text = String::new();
+        let mut event_kinds = Vec::new();
+
+        for record in records {
+            if record.event_kind == "assistant_delta" {
+                if let Some(text) = record.payload.get("text").and_then(|value| value.as_str()) {
+                    assistant_text.push_str(text);
+                }
+            }
+            event_kinds.push(record.event_kind);
+        }
+
+        Ok(ReplaySummary {
+            trace_id: trace_id.to_string(),
+            assistant_text,
+            event_kinds,
+        })
+    }
+}
+
 impl<P> ConversationEngine<P>
 where
     P: ChatProvider,

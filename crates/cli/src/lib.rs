@@ -1,8 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
+use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{ConversationEngine, ConversationOutcome, ConversationRequest};
-use tessera_providers::mock::MockProvider;
+use tessera_protocol::{ModelProfileId, ProviderId};
+use tessera_providers::{
+    mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
+    ChatProvider,
+};
 use tessera_storage::TraceStore;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -17,6 +22,13 @@ pub struct DoctorReport {
 pub type Result<T> = anyhow::Result<T>;
 
 pub fn run_doctor(data_dir: impl AsRef<Path>) -> Result<DoctorReport> {
+    run_doctor_with_config(data_dir, &TesseraConfig::default_with_mock())
+}
+
+pub fn run_doctor_with_config(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+) -> Result<DoctorReport> {
     let data_dir = data_dir.as_ref();
     let store = TraceStore::open(data_dir)?;
     let traces_dir = data_dir.join("traces");
@@ -39,7 +51,11 @@ pub fn run_doctor(data_dir: impl AsRef<Path>) -> Result<DoctorReport> {
         data_dir: data_dir.to_string_lossy().to_string(),
         trace_writable,
         sqlite_index_healthy: store.is_healthy(),
-        provider_profiles: vec!["mock".to_string()],
+        provider_profiles: config
+            .providers
+            .iter()
+            .map(|profile| profile.id.clone())
+            .collect(),
     })
 }
 
@@ -53,9 +69,99 @@ pub async fn run_chat_mock(
     Ok(outcome)
 }
 
+pub async fn run_chat_with_config(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+    provider_id: &str,
+    prompt: impl Into<String>,
+) -> Result<ConversationOutcome> {
+    let profile = config
+        .providers
+        .iter()
+        .find(|profile| profile.id == provider_id)
+        .ok_or_else(|| anyhow::anyhow!("provider profile not found: {provider_id}"))?;
+
+    match profile.kind.as_str() {
+        "mock" => run_chat_for_provider(data_dir, profile, MockProvider::default(), prompt).await,
+        "openai-compatible" | "openai_compatible" => {
+            let base_url = profile.base_url.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("provider profile `{}` requires base_url", profile.id)
+            })?;
+            let api_key = read_api_key(profile)?;
+            let provider = OpenAiCompatibleProvider::new(
+                base_url,
+                api_key,
+                ProviderId::from(profile.id.as_str()),
+            );
+            run_chat_for_provider(data_dir, profile, provider, prompt).await
+        }
+        "ollama" => {
+            let base_url = profile
+                .base_url
+                .as_deref()
+                .unwrap_or("http://localhost:11434");
+            let provider = OllamaProvider::new(base_url, ProviderId::from(profile.id.as_str()));
+            run_chat_for_provider(data_dir, profile, provider, prompt).await
+        }
+        other => Err(anyhow::anyhow!(
+            "unsupported provider kind `{other}` for profile `{}`",
+            profile.id
+        )),
+    }
+}
+
+async fn run_chat_for_provider<P>(
+    data_dir: impl AsRef<Path>,
+    profile: &ProviderProfile,
+    provider: P,
+    prompt: impl Into<String>,
+) -> Result<ConversationOutcome>
+where
+    P: ChatProvider,
+{
+    let store = TraceStore::open(data_dir)?;
+    let engine = ConversationEngine::new(provider, store);
+    let outcome = engine
+        .run_chat(ConversationRequest {
+            trace_id: format!("trace_{}", profile.id),
+            provider_id: ProviderId::from(profile.id.as_str()),
+            profile_id: ModelProfileId::from(profile.id.as_str()),
+            model: profile.default_model.clone(),
+            prompt: prompt.into(),
+        })
+        .await?;
+    Ok(outcome)
+}
+
+fn read_api_key(profile: &ProviderProfile) -> Result<Option<String>> {
+    let Some(env_name) = &profile.api_key_env else {
+        return Ok(None);
+    };
+    let value = std::env::var(env_name)
+        .map_err(|_| anyhow::anyhow!("environment variable `{env_name}` is not set"))?;
+    Ok(Some(value))
+}
+
 pub fn resolve_data_dir(explicit: Option<PathBuf>) -> Result<PathBuf> {
+    resolve_data_dir_with_config(explicit, &TesseraConfig::default_with_mock())
+}
+
+pub fn resolve_data_dir_with_config(
+    explicit: Option<PathBuf>,
+    config: &TesseraConfig,
+) -> Result<PathBuf> {
     if let Some(path) = explicit {
         return Ok(path);
     }
+    if let Some(data_dir) = &config.data_dir {
+        return Ok(PathBuf::from(data_dir));
+    }
     tessera_config::default_data_dir().ok_or_else(|| anyhow::anyhow!("cannot resolve data dir"))
+}
+
+pub fn resolve_config(explicit: Option<PathBuf>) -> Result<TesseraConfig> {
+    match explicit {
+        Some(path) => Ok(TesseraConfig::load_from_path(path)?),
+        None => Ok(TesseraConfig::default_with_mock()),
+    }
 }
