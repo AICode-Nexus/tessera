@@ -25,6 +25,24 @@ fn event_frame_serializes_reasoning_delta_with_artifact_refs() {
 }
 
 #[test]
+fn user_message_recorded_keeps_text_for_tui_replay() {
+    let item_id = ItemId::new();
+    let record = EventFrame::new(
+        "trace_user_message",
+        1,
+        RunEvent::UserMessageRecorded {
+            item_id: item_id.clone(),
+            text: "hello from tui".to_string(),
+        },
+    )
+    .with_item_id(item_id)
+    .to_trace_record();
+
+    assert_eq!(record.event_kind, "user_message_recorded");
+    assert_eq!(record.payload["text"], "hello from tui");
+}
+
+#[test]
 fn usage_and_route_decision_keep_ai_ready_telemetry() {
     let usage = RunEvent::UsageReported {
         input_tokens: Some(10),

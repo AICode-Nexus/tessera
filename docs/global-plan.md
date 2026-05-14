@@ -85,11 +85,11 @@
 
 - [x] Ratatui crate 建立。
 - [x] profile / reasoning / cache / cost status-line 占位。
-- [ ] 最小主聊天窗口。
-- [ ] 输入框和流式输出。
+- [~] 最小主聊天窗口：view-state reducer 和 line renderer 已完成，缺真实 terminal event loop。
+- [~] 输入框和流式输出：input intent 和 assistant delta 渲染已完成，缺键盘事件循环。
 - [ ] 模型/profile 切换入口。
 - [ ] `/new`、`/save`、`/export`。
-- [ ] TUI 只订阅 core 事件，不直接依赖 provider SDK。
+- [x] TUI 只订阅 core 事件，不直接依赖 provider SDK 或 SQLite internals。
 
 ### Quality Gates
 
@@ -111,8 +111,8 @@
 4. [x] Thread / Turn / Item repository 查询 API。
 5. [x] Replay fixture 和 golden trace test。
 6. [x] `rusqlite/bundled` 发布可移植性配置。
-7. [ ] 真实 provider smoke 验证：OpenAI-compatible 和 Ollama 至少各跑一次可达环境。
-8. [ ] 最小 TUI chat loop：使用 core/config/storage，不直接访问 provider SDK 或 SQLite internals。
+7. [ ] 真实 provider smoke 验证：当前环境 OpenAI-compatible env 未设置，Ollama `localhost:11434` 不可达。
+8. [~] 最小 TUI chat loop：view/input/event reducer 已完成，下一步接入真实 terminal event loop。
 9. [ ] TUI profile switch 入口。
 10. [ ] cancellation / timeout / backpressure 基础语义。
 11. [ ] v0.1 release checklist 和 tag 计划。

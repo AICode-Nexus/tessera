@@ -102,6 +102,7 @@ where
         let assistant_item_id = ItemId::new();
         let mut seq = 1;
         let mut assistant_text = String::new();
+        let prompt = request.prompt.clone();
 
         self.append_contextual(
             &request.trace_id,
@@ -149,6 +150,7 @@ where
             &mut seq,
             RunEvent::UserMessageRecorded {
                 item_id: user_item_id,
+                text: prompt,
             },
             &thread_id,
             &turn_id,

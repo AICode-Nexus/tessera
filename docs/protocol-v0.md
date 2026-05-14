@@ -277,7 +277,7 @@ v0.1 必须实现的事件：
 pub enum RunEvent {
     ThreadCreated { thread_id: ThreadId },
     TurnStarted { turn_id: TurnId },
-    UserMessageRecorded { item_id: ItemId },
+    UserMessageRecorded { item_id: ItemId, text: String },
 
     ProviderRequestStarted {
         provider_id: ProviderId,

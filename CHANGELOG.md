@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added OpenAI-compatible and Ollama streaming provider adapters with parser tests for SSE and JSONL chunks.
 - Added config-driven CLI provider routing and ignored live smoke tests for OpenAI-compatible and Ollama providers.
 - Added SQLite runtime object queries, index rebuild from JSONL, and a golden trace replay gate.
+- Added a minimal TUI chat view-state reducer for input intents and streamed core event rendering.
 - Added `tessera doctor --json` and `tessera chat --provider mock --prompt ...`.
 - Added a minimal Ratatui status-line surface for profile, reasoning, cache, and cost placeholders.
 - Added architecture, trace, protocol, crate-boundary, v0.1 planning, and DeepSeek-TUI lesson documents.
@@ -24,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - Built `rusqlite` with bundled SQLite to reduce release/runtime dependency drift across user machines.
+- Included user prompt text in `user_message_recorded` trace payloads so TUI and replay surfaces can render user turns from core events.
 - Updated the README from design-only status to the current v0.1 scaffold status.
 
 ### Notes

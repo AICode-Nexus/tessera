@@ -296,6 +296,7 @@ pub enum RunEvent {
     },
     UserMessageRecorded {
         item_id: ItemId,
+        text: String,
     },
     ProviderRequestStarted {
         provider_id: ProviderId,
@@ -397,7 +398,7 @@ impl RunEvent {
 
     pub fn item_id(&self) -> Option<ItemId> {
         match self {
-            Self::UserMessageRecorded { item_id }
+            Self::UserMessageRecorded { item_id, .. }
             | Self::AssistantMessageStarted { item_id }
             | Self::AssistantDelta { item_id, .. }
             | Self::AssistantReasoningDelta { item_id, .. }
@@ -430,7 +431,9 @@ impl RunEvent {
         match self {
             Self::ThreadCreated { thread_id } => json!({ "thread_id": thread_id }),
             Self::TurnStarted { turn_id } => json!({ "turn_id": turn_id }),
-            Self::UserMessageRecorded { item_id } => json!({ "item_id": item_id }),
+            Self::UserMessageRecorded { item_id, text } => {
+                json!({ "item_id": item_id, "text": text })
+            }
             Self::ProviderRequestStarted {
                 provider_id,
                 profile_id,

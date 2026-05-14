@@ -23,6 +23,13 @@ async fn conversation_engine_drives_mock_provider_and_persists_trace() {
     assert!(events.contains(&"assistant_reasoning_delta".to_string()));
     assert!(events.contains(&"usage_reported".to_string()));
     assert_eq!(events.last().map(String::as_str), Some("done"));
+
+    let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let user_message = records
+        .iter()
+        .find(|record| record.event_kind == "user_message_recorded")
+        .unwrap();
+    assert_eq!(user_message.payload["text"], "hello from core");
 }
 
 #[tokio::test]
