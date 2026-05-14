@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- Built `rusqlite` with bundled SQLite to reduce release/runtime dependency drift across user machines.
 - Updated the README from design-only status to the current v0.1 scaffold status.
 
 ### Notes

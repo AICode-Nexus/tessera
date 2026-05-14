@@ -37,6 +37,7 @@ The current implementation contract is still architecture-led:
 - Keep future tools, agents, memory, skills, learning, and swarm support as protocol-ready extensions, not v0.1 runtime features.
 - Keep CLI and TUI on top of the same headless runtime.
 - Treat JSONL trace as the durable event truth and SQLite as a rebuildable index.
+- Access SQLite through `rusqlite`; build it with bundled SQLite for local release portability.
 
 ## Development
 
@@ -72,9 +73,9 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 
 ## Non-Goals For This Phase
 
-- No live provider smoke tests by default.
-- No CLI profile routing to real providers yet.
+- No live provider smoke tests by default; they must be explicitly enabled with environment variables and reachable services.
+- No guarantee yet that real provider paths have been manually smoke-tested in this workspace.
 - No tool execution.
 - No agent runtime.
 
-The next milestone is to wire config-driven CLI profile routing to the OpenAI-compatible and Ollama adapters while preserving the protocol and trace contract.
+The next milestone is to verify real provider smoke paths, then build the smallest TUI chat loop over the existing headless runtime without bypassing protocol, trace, or config boundaries.

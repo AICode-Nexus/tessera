@@ -24,6 +24,7 @@
 - [x] CI 建立：fmt、clippy、test。
 - [x] `CHANGELOG.md` 建立，阶段性变化已记录。
 - [x] 已提交并 push 到 `origin/main`：`43918fe feat: scaffold v0.1 runtime`。
+- [x] SQLite 通过 `rusqlite/bundled` 集成，降低本地发布时对系统 `libsqlite3` 的依赖。
 
 ## 2. v0.1 Runtime Checklist
 
@@ -45,6 +46,7 @@
 - [x] storage 单元测试。
 - [x] Thread / Turn / Item / Task / Artifact repository 查询 API。
 - [x] index rebuild 初版。
+- [x] `rusqlite` bundled SQLite 构建配置。
 
 ### Providers
 
@@ -108,9 +110,12 @@
 3. [x] Ollama live smoke test，默认跳过。
 4. [x] Thread / Turn / Item repository 查询 API。
 5. [x] Replay fixture 和 golden trace test。
-6. [ ] 最小 TUI chat loop。
-7. [ ] TUI profile switch 入口。
-8. [ ] v0.1 release checklist 和 tag 计划。
+6. [x] `rusqlite/bundled` 发布可移植性配置。
+7. [ ] 真实 provider smoke 验证：OpenAI-compatible 和 Ollama 至少各跑一次可达环境。
+8. [ ] 最小 TUI chat loop：使用 core/config/storage，不直接访问 provider SDK 或 SQLite internals。
+9. [ ] TUI profile switch 入口。
+10. [ ] cancellation / timeout / backpressure 基础语义。
+11. [ ] v0.1 release checklist 和 tag 计划。
 
 ## 4. v0.2 Checklist
 
