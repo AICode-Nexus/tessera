@@ -87,7 +87,7 @@
 - [x] Ratatui crate 建立。
 - [x] profile / reasoning / cache / cost status-line 占位。
 - [x] 最小主聊天窗口：view-state reducer、line renderer、terminal frame、`tessera tui` 入口已完成。
-- [~] 输入框和流式输出：键盘事件、提交、assistant delta 渲染已完成；provider 输出仍是完成后从 trace records 回灌，缺 live event bridge。
+- [x] 输入框和流式输出：键盘事件、提交、core live event sink、CLI bridge、TUI channel apply 已完成。
 - [x] 模型/profile 切换入口：Tab / Shift-Tab 产生 `ClientIntent::SwitchProfile`，提交 prompt 时携带当前 profile。
 - [ ] `/new`、`/save`、`/export`。
 - [x] TUI 只订阅 core 事件，不直接依赖 provider SDK 或 SQLite internals。
@@ -97,7 +97,7 @@
 - [x] GUI 不另起 runtime：架构约束已写入 `docs/gui-ready-architecture.md`、`docs/technical-architecture.md` 和 `docs/crate-boundaries.md`。
 - [~] UI-neutral view model：`ClientIntent` 已进入 TUI 状态层，message/status projection 仍在 `tui` crate 内，尚未拆出独立 `client` crate。
 - [ ] GUI 技术选型 spike：在 Tauri / egui / GPUI 中基于分发、可访问性、渲染复杂度和 AI 可维护性做一轮小样验证。
-- [ ] Live event bridge：CLI/TUI/GUI 共享同一套 core event stream，而不是完成后各自读取 trace。
+- [~] Live event bridge：core/CLI/TUI 已共享同一套 `EventFrame` 流；future GUI 复用契约已明确，待 GUI shell spike 验证。
 
 ### Quality Gates
 
@@ -122,9 +122,10 @@
 7. [ ] 真实 provider smoke 验证：当前环境 OpenAI-compatible env 未设置，Ollama `localhost:11434` 不可达。
 8. [x] 最小 TUI chat loop：view/input/event reducer、terminal event loop、CLI `tui` 入口已完成。
 9. [x] TUI profile switch 入口。
-10. [ ] GUI-ready client model 边界：把当前 TUI view-state 中可共享的 intent、message projection 和 status projection 固化为 UI-neutral API。
-11. [ ] cancellation / timeout / backpressure 基础语义。
-12. [ ] v0.1 release checklist 和 tag 计划。
+10. [x] Live event bridge：core event sink、CLI bridge、TUI live channel 已完成。
+11. [ ] GUI-ready client model 边界：把当前 TUI view-state 中可共享的 intent、message projection 和 status projection 固化为 UI-neutral API。
+12. [ ] cancellation / timeout / backpressure 基础语义。
+13. [ ] v0.1 release checklist 和 tag 计划。
 
 ## 4. v0.2 Checklist
 

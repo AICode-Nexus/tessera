@@ -5,13 +5,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{ConversationEngine, ConversationOutcome, ConversationRequest};
-use tessera_protocol::{ModelProfileId, ProviderId};
+use tessera_protocol::{EventFrame, ModelProfileId, ProviderId};
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
     ChatProvider,
 };
 use tessera_storage::TraceStore;
-use tessera_tui::ChatViewState;
+use tessera_tui::{ChatViewState, LiveClientEvent};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DoctorReport {
@@ -80,6 +80,19 @@ pub async fn run_chat_with_config(
     provider_id: &str,
     prompt: impl Into<String>,
 ) -> Result<ConversationOutcome> {
+    run_chat_with_config_and_events(data_dir, config, provider_id, prompt, |_| {}).await
+}
+
+pub async fn run_chat_with_config_and_events<F>(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+    provider_id: &str,
+    prompt: impl Into<String>,
+    mut event_sink: F,
+) -> Result<ConversationOutcome>
+where
+    F: FnMut(&EventFrame),
+{
     let profile = config
         .providers
         .iter()
@@ -87,7 +100,16 @@ pub async fn run_chat_with_config(
         .ok_or_else(|| anyhow::anyhow!("provider profile not found: {provider_id}"))?;
 
     match profile.kind.as_str() {
-        "mock" => run_chat_for_provider(data_dir, profile, MockProvider::default(), prompt).await,
+        "mock" => {
+            run_chat_for_provider_with_events(
+                data_dir,
+                profile,
+                MockProvider::default(),
+                prompt,
+                &mut event_sink,
+            )
+            .await
+        }
         "openai-compatible" | "openai_compatible" => {
             let base_url = profile.base_url.as_deref().ok_or_else(|| {
                 anyhow::anyhow!("provider profile `{}` requires base_url", profile.id)
@@ -98,7 +120,8 @@ pub async fn run_chat_with_config(
                 api_key,
                 ProviderId::from(profile.id.as_str()),
             );
-            run_chat_for_provider(data_dir, profile, provider, prompt).await
+            run_chat_for_provider_with_events(data_dir, profile, provider, prompt, &mut event_sink)
+                .await
         }
         "ollama" => {
             let base_url = profile
@@ -106,7 +129,8 @@ pub async fn run_chat_with_config(
                 .as_deref()
                 .unwrap_or("http://localhost:11434");
             let provider = OllamaProvider::new(base_url, ProviderId::from(profile.id.as_str()));
-            run_chat_for_provider(data_dir, profile, provider, prompt).await
+            run_chat_for_provider_with_events(data_dir, profile, provider, prompt, &mut event_sink)
+                .await
         }
         other => Err(anyhow::anyhow!(
             "unsupported provider kind `{other}` for profile `{}`",
@@ -121,17 +145,19 @@ pub async fn run_tui_with_config(
     provider_id: String,
 ) -> Result<()> {
     let state = build_tui_state_with_config(&config, &provider_id)?;
-    tessera_tui::run_terminal_chat(state, move |selected_provider_id, prompt| {
+    tessera_tui::run_terminal_chat(state, move |selected_provider_id, prompt, live_events| {
         let data_dir = data_dir.clone();
         let config = config.clone();
         async move {
-            let outcome = run_chat_with_config(data_dir, &config, &selected_provider_id, prompt)
-                .await
-                .map_err(|error| error.to_string())?;
-            outcome
-                .store
-                .read_trace_records(&outcome.trace_id)
-                .map_err(|error| error.to_string())
+            run_chat_with_config_and_events(data_dir, &config, &selected_provider_id, prompt, {
+                let live_events = live_events.clone();
+                move |frame| {
+                    let _ = live_events.send(LiveClientEvent::Frame(Box::new(frame.clone())));
+                }
+            })
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string())
         }
     })
     .await?;
@@ -158,11 +184,12 @@ pub fn build_tui_state_with_config(
     Ok(ChatViewState::with_profiles(provider_id, profile_ids))
 }
 
-async fn run_chat_for_provider<P>(
+async fn run_chat_for_provider_with_events<P>(
     data_dir: impl AsRef<Path>,
     profile: &ProviderProfile,
     provider: P,
     prompt: impl Into<String>,
+    event_sink: &mut impl FnMut(&EventFrame),
 ) -> Result<ConversationOutcome>
 where
     P: ChatProvider,
@@ -170,13 +197,16 @@ where
     let store = TraceStore::open(data_dir)?;
     let engine = ConversationEngine::new(provider, store);
     let outcome = engine
-        .run_chat(ConversationRequest {
-            trace_id: next_trace_id(&profile.id),
-            provider_id: ProviderId::from(profile.id.as_str()),
-            profile_id: ModelProfileId::from(profile.id.as_str()),
-            model: profile.default_model.clone(),
-            prompt: prompt.into(),
-        })
+        .run_chat_with_event_sink(
+            ConversationRequest {
+                trace_id: next_trace_id(&profile.id),
+                provider_id: ProviderId::from(profile.id.as_str()),
+                profile_id: ModelProfileId::from(profile.id.as_str()),
+                model: profile.default_model.clone(),
+                prompt: prompt.into(),
+            },
+            event_sink,
+        )
         .await?;
     Ok(outcome)
 }

@@ -1,7 +1,7 @@
 use tessera_protocol::{EventFrame, ItemId, RunEvent};
 use tessera_tui::{
     chat_window_lines, draw_terminal_frame, map_key_event, status_line, ChatMessageRole,
-    ChatViewState, ClientIntent, TerminalAction, TerminalInput,
+    ChatViewState, ClientIntent, LiveClientEvent, TerminalAction, TerminalInput,
 };
 
 fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
@@ -279,4 +279,25 @@ fn tui_applies_trace_records_from_core_storage() {
 
     assert_eq!(state.messages[0].role, ChatMessageRole::Assistant);
     assert_eq!(state.messages[0].content, "from trace");
+}
+
+#[test]
+fn tui_applies_live_client_events_without_waiting_for_trace_replay() {
+    let mut state = ChatViewState::new("mock-default");
+    let frame = EventFrame::new(
+        "trace_live_tui",
+        1,
+        RunEvent::AssistantDelta {
+            item_id: ItemId::from_static("item_live"),
+            text: "live delta".to_string(),
+        },
+    );
+
+    state.apply_live_event(LiveClientEvent::Frame(Box::new(frame)));
+    state.apply_live_event(LiveClientEvent::Error("network down".to_string()));
+
+    assert_eq!(state.messages[0].role, ChatMessageRole::Assistant);
+    assert_eq!(state.messages[0].content, "live delta");
+    assert_eq!(state.messages[1].role, ChatMessageRole::Assistant);
+    assert_eq!(state.messages[1].content, "Error: network down");
 }

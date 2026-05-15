@@ -12,6 +12,7 @@ use ratatui::{
 };
 use std::{future::Future, io, time::Duration};
 use tessera_protocol::{EventFrame, ItemId, RunEvent, TraceRecord};
+use tokio::sync::mpsc;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ChatMessageRole {
@@ -53,6 +54,14 @@ pub enum TerminalAction {
     Quit,
     Ignore,
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum LiveClientEvent {
+    Frame(Box<EventFrame>),
+    Error(String),
+}
+
+pub type LiveClientEventSender = mpsc::UnboundedSender<LiveClientEvent>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChatViewState {
@@ -202,6 +211,18 @@ impl ChatViewState {
                 }
             }
             _ => {}
+        }
+    }
+
+    pub fn apply_live_event(&mut self, event: LiveClientEvent) {
+        match event {
+            LiveClientEvent::Frame(frame) => self.apply_event(&frame),
+            LiveClientEvent::Error(error) => self.messages.push(ChatMessage {
+                role: ChatMessageRole::Assistant,
+                content: format!("Error: {error}"),
+                item_id: None,
+                streaming: false,
+            }),
         }
     }
 
@@ -400,8 +421,8 @@ pub async fn run_terminal_chat<F, Fut>(
     mut submit_prompt: F,
 ) -> io::Result<ChatViewState>
 where
-    F: FnMut(String, String) -> Fut,
-    Fut: Future<Output = Result<Vec<TraceRecord>, String>>,
+    F: FnMut(String, String, LiveClientEventSender) -> Fut,
+    Fut: Future<Output = Result<(), String>> + Send + 'static,
 {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -425,13 +446,19 @@ async fn run_terminal_chat_loop<B, F, Fut>(
 ) -> io::Result<ChatViewState>
 where
     B: ratatui::backend::Backend,
-    F: FnMut(String, String) -> Fut,
-    Fut: Future<Output = Result<Vec<TraceRecord>, String>>,
+    F: FnMut(String, String, LiveClientEventSender) -> Fut,
+    Fut: Future<Output = Result<(), String>> + Send + 'static,
 {
+    let (live_event_tx, mut live_event_rx) = mpsc::unbounded_channel();
+
     loop {
+        while let Ok(event) = live_event_rx.try_recv() {
+            state.apply_live_event(event);
+        }
+
         terminal.draw(|frame| draw_terminal_frame(frame, &state))?;
 
-        if !event::poll(Duration::from_millis(250))? {
+        if !event::poll(Duration::from_millis(50))? {
             continue;
         }
 
@@ -447,19 +474,14 @@ where
             TerminalAction::Quit => return Ok(state),
             TerminalAction::Dispatch(intent) => match intent {
                 ClientIntent::SubmitPrompt { profile_id, prompt } => {
-                    match submit_prompt(profile_id, prompt).await {
-                        Ok(records) => {
-                            for record in records {
-                                state.apply_trace_record(&record);
-                            }
+                    let submit_result_tx = live_event_tx.clone();
+                    let submit_events_tx = live_event_tx.clone();
+                    let submit = submit_prompt(profile_id, prompt, submit_events_tx);
+                    tokio::spawn(async move {
+                        if let Err(error) = submit.await {
+                            let _ = submit_result_tx.send(LiveClientEvent::Error(error));
                         }
-                        Err(error) => state.messages.push(ChatMessage {
-                            role: ChatMessageRole::Assistant,
-                            content: format!("Error: {error}"),
-                            item_id: None,
-                            streaming: false,
-                        }),
-                    }
+                    });
                 }
                 ClientIntent::SwitchProfile { .. } => {}
             },

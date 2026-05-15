@@ -4,7 +4,7 @@ Tessera is a model-agnostic, agent-ready terminal workbench built on typed event
 
 ## Current Status
 
-This repository now has the v0.1 Rust workspace scaffold and a mock-driven runtime slice. The current implementation is intentionally narrow: protocol types, trace storage, provider adapters, core conversation loop, `doctor --json`, mock `chat`, and a minimal Ratatui terminal chat loop with profile switching.
+This repository now has the v0.1 Rust workspace scaffold and a mock-driven runtime slice. The current implementation is intentionally narrow: protocol types, trace storage, provider adapters, core conversation loop, `doctor --json`, mock `chat`, and a minimal Ratatui terminal chat loop with profile switching and live core event delivery.
 
 ## Design Goals
 
@@ -81,4 +81,4 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 - No tool execution.
 - No agent runtime.
 
-The next milestone is to add a live event bridge for CLI/TUI/future GUI reuse, keep extracting the shared client view-model boundary, and then verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.
+The next milestone is to extract the shared client view-model boundary, add cancellation / timeout / backpressure semantics, and then verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.

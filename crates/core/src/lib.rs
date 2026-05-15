@@ -48,6 +48,14 @@ pub struct ConversationEngine<P> {
     store: TraceStore,
 }
 
+struct RunContext {
+    trace_id: String,
+    thread_id: ThreadId,
+    turn_id: TurnId,
+    task_id: TaskId,
+    seq: u64,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReplaySummary {
     pub trace_id: String,
@@ -94,96 +102,86 @@ where
         Self { provider, store }
     }
 
-    pub async fn run_chat(mut self, request: ConversationRequest) -> Result<ConversationOutcome> {
-        let thread_id = ThreadId::new();
-        let turn_id = TurnId::new();
-        let task_id = TaskId::new();
+    pub async fn run_chat(self, request: ConversationRequest) -> Result<ConversationOutcome> {
+        self.run_chat_with_event_sink(request, |_| {}).await
+    }
+
+    pub async fn run_chat_with_event_sink<F>(
+        mut self,
+        request: ConversationRequest,
+        mut event_sink: F,
+    ) -> Result<ConversationOutcome>
+    where
+        F: FnMut(&EventFrame),
+    {
+        let mut context = RunContext {
+            trace_id: request.trace_id.clone(),
+            thread_id: ThreadId::new(),
+            turn_id: TurnId::new(),
+            task_id: TaskId::new(),
+            seq: 1,
+        };
         let user_item_id = ItemId::new();
         let assistant_item_id = ItemId::new();
-        let mut seq = 1;
         let mut assistant_text = String::new();
         let prompt = request.prompt.clone();
 
+        let task_id = context.task_id.clone();
         self.append_contextual(
-            &request.trace_id,
-            &mut seq,
+            &mut context,
             RunEvent::TaskCreated {
-                task_id: task_id.clone(),
+                task_id,
                 kind: TaskKind::Chat,
             },
-            &thread_id,
-            &turn_id,
-            &task_id,
+            &mut event_sink,
+        )?;
+        let task_id = context.task_id.clone();
+        self.append_contextual(
+            &mut context,
+            RunEvent::TaskStarted { task_id },
+            &mut event_sink,
+        )?;
+        let thread_id = context.thread_id.clone();
+        self.append_contextual(
+            &mut context,
+            RunEvent::ThreadCreated { thread_id },
+            &mut event_sink,
+        )?;
+        let turn_id = context.turn_id.clone();
+        self.append_contextual(
+            &mut context,
+            RunEvent::TurnStarted { turn_id },
+            &mut event_sink,
         )?;
         self.append_contextual(
-            &request.trace_id,
-            &mut seq,
-            RunEvent::TaskStarted {
-                task_id: task_id.clone(),
-            },
-            &thread_id,
-            &turn_id,
-            &task_id,
-        )?;
-        self.append_contextual(
-            &request.trace_id,
-            &mut seq,
-            RunEvent::ThreadCreated {
-                thread_id: thread_id.clone(),
-            },
-            &thread_id,
-            &turn_id,
-            &task_id,
-        )?;
-        self.append_contextual(
-            &request.trace_id,
-            &mut seq,
-            RunEvent::TurnStarted {
-                turn_id: turn_id.clone(),
-            },
-            &thread_id,
-            &turn_id,
-            &task_id,
-        )?;
-        self.append_contextual(
-            &request.trace_id,
-            &mut seq,
+            &mut context,
             RunEvent::UserMessageRecorded {
                 item_id: user_item_id,
                 text: prompt,
             },
-            &thread_id,
-            &turn_id,
-            &task_id,
+            &mut event_sink,
         )?;
         self.append_contextual(
-            &request.trace_id,
-            &mut seq,
+            &mut context,
             RunEvent::ProviderRequestStarted {
                 provider_id: request.provider_id.clone(),
                 profile_id: request.profile_id.clone(),
                 model: request.model.clone(),
             },
-            &thread_id,
-            &turn_id,
-            &task_id,
+            &mut event_sink,
         )?;
 
         let capability = self.provider.capability().await?;
         self.append_contextual(
-            &request.trace_id,
-            &mut seq,
+            &mut context,
             RunEvent::ProviderCapabilityReported {
                 provider_id: request.provider_id.clone(),
                 capability,
             },
-            &thread_id,
-            &turn_id,
-            &task_id,
+            &mut event_sink,
         )?;
         self.append_contextual(
-            &request.trace_id,
-            &mut seq,
+            &mut context,
             RunEvent::RouteDecisionRecorded {
                 decision_id: RouteDecisionId::new(),
                 decision: RouteDecision {
@@ -195,9 +193,7 @@ where
                     fallback_reason: None,
                 },
             },
-            &thread_id,
-            &turn_id,
-            &task_id,
+            &mut event_sink,
         )?;
 
         let mut stream = self
@@ -215,54 +211,29 @@ where
             if let RunEvent::AssistantDelta { text, .. } = &event {
                 assistant_text.push_str(text);
             }
-            self.append_contextual(
-                &request.trace_id,
-                &mut seq,
-                event,
-                &thread_id,
-                &turn_id,
-                &task_id,
-            )?;
+            self.append_contextual(&mut context, event, &mut event_sink)?;
         }
 
         self.append_contextual(
-            &request.trace_id,
-            &mut seq,
+            &mut context,
             RunEvent::ProviderRequestCompleted {
                 provider_id: request.provider_id,
             },
-            &thread_id,
-            &turn_id,
-            &task_id,
+            &mut event_sink,
         )?;
+        let turn_id = context.turn_id.clone();
         self.append_contextual(
-            &request.trace_id,
-            &mut seq,
-            RunEvent::TurnCompleted {
-                turn_id: turn_id.clone(),
-            },
-            &thread_id,
-            &turn_id,
-            &task_id,
+            &mut context,
+            RunEvent::TurnCompleted { turn_id },
+            &mut event_sink,
         )?;
+        let task_id = context.task_id.clone();
         self.append_contextual(
-            &request.trace_id,
-            &mut seq,
-            RunEvent::TaskCompleted {
-                task_id: task_id.clone(),
-            },
-            &thread_id,
-            &turn_id,
-            &task_id,
+            &mut context,
+            RunEvent::TaskCompleted { task_id },
+            &mut event_sink,
         )?;
-        self.append_contextual(
-            &request.trace_id,
-            &mut seq,
-            RunEvent::Done,
-            &thread_id,
-            &turn_id,
-            &task_id,
-        )?;
+        self.append_contextual(&mut context, RunEvent::Done, &mut event_sink)?;
 
         Ok(ConversationOutcome {
             trace_id: request.trace_id,
@@ -273,27 +244,25 @@ where
 
     fn append_contextual(
         &mut self,
-        trace_id: &str,
-        seq: &mut u64,
+        context: &mut RunContext,
         event: RunEvent,
-        thread_id: &ThreadId,
-        turn_id: &TurnId,
-        task_id: &TaskId,
+        event_sink: &mut impl FnMut(&EventFrame),
     ) -> Result<()> {
         let item_id = event.item_id();
         let event_turn_id = event.turn_id();
         let event_task_id = event.task_id();
-        let mut frame = EventFrame::new(trace_id, *seq, event)
-            .with_thread_id(thread_id.clone())
-            .with_turn_id(event_turn_id.unwrap_or_else(|| turn_id.clone()))
-            .with_task_id(event_task_id.unwrap_or_else(|| task_id.clone()));
+        let mut frame = EventFrame::new(&context.trace_id, context.seq, event)
+            .with_thread_id(context.thread_id.clone())
+            .with_turn_id(event_turn_id.unwrap_or_else(|| context.turn_id.clone()))
+            .with_task_id(event_task_id.unwrap_or_else(|| context.task_id.clone()));
 
         if let Some(item_id) = item_id {
             frame = frame.with_item_id(item_id);
         }
 
         self.store.append(&frame)?;
-        *seq += 1;
+        event_sink(&frame);
+        context.seq += 1;
         Ok(())
     }
 }

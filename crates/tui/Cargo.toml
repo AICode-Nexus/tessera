@@ -8,3 +8,4 @@ license.workspace = true
 crossterm.workspace = true
 ratatui.workspace = true
 tessera-protocol = { path = "../protocol" }
+tokio.workspace = true

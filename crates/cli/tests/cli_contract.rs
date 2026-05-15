@@ -1,8 +1,9 @@
 use tessera_cli::{
     build_tui_state_with_config, resolve_config, resolve_data_dir_with_config, run_chat_mock,
-    run_chat_with_config, run_doctor, DoctorReport,
+    run_chat_with_config, run_chat_with_config_and_events, run_doctor, DoctorReport,
 };
 use tessera_config::{ProviderProfile, TesseraConfig};
+use tessera_protocol::RunEvent;
 
 #[tokio::test]
 async fn doctor_json_reports_trace_and_sqlite_health() {
@@ -48,6 +49,41 @@ async fn chat_command_path_routes_to_configured_mock_profile() {
     assert!(output.assistant_text.contains("mock response"));
     let events = output.store.list_events(&output.trace_id).unwrap();
     assert!(events.contains(&"route_decision_recorded".to_string()));
+}
+
+#[tokio::test]
+async fn config_routed_chat_can_stream_live_event_frames_without_reading_trace_back() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-routed".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let mut live_events = Vec::new();
+
+    let output =
+        run_chat_with_config_and_events(temp.path(), &config, "offline", "hello", |frame| {
+            live_events.push(frame.clone());
+        })
+        .await
+        .unwrap();
+
+    assert!(live_events
+        .iter()
+        .any(|frame| matches!(frame.event, RunEvent::AssistantDelta { .. })));
+    assert_eq!(live_events.last().unwrap().event.kind(), "done");
+    assert_eq!(
+        live_events
+            .iter()
+            .map(|frame| frame.event.kind().to_string())
+            .collect::<Vec<_>>(),
+        output.store.list_events(&output.trace_id).unwrap()
+    );
 }
 
 #[tokio::test]

@@ -1,4 +1,5 @@
 use tessera_core::{ConversationEngine, ConversationRequest, ReplayRunner};
+use tessera_protocol::RunEvent;
 use tessera_providers::mock::MockProvider;
 use tessera_storage::TraceStore;
 
@@ -30,6 +31,33 @@ async fn conversation_engine_drives_mock_provider_and_persists_trace() {
         .find(|record| record.event_kind == "user_message_recorded")
         .unwrap();
     assert_eq!(user_message.payload["text"], "hello from core");
+}
+
+#[tokio::test]
+async fn conversation_engine_streams_event_frames_to_live_sink_while_persisting_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(MockProvider::default(), store);
+    let mut live_events = Vec::new();
+
+    let outcome = engine
+        .run_chat_with_event_sink(ConversationRequest::mock("hello live"), |frame| {
+            live_events.push(frame.clone());
+        })
+        .await
+        .unwrap();
+
+    assert!(live_events
+        .iter()
+        .any(|frame| matches!(frame.event, RunEvent::AssistantDelta { .. })));
+    assert_eq!(live_events.last().unwrap().event.kind(), "done");
+
+    let persisted_events = outcome.store.list_events(&outcome.trace_id).unwrap();
+    let live_event_kinds = live_events
+        .iter()
+        .map(|frame| frame.event.kind().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(live_event_kinds, persisted_events);
 }
 
 #[tokio::test]
