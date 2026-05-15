@@ -18,6 +18,7 @@
 
 - [x] 架构文档冻结：`technical-architecture`、`v0.1-plan`、`protocol-v0`、`trace-schema-v0`、`crate-boundaries`。
 - [x] DeepSeek-TUI 解析吸收：provider capability、reasoning delta、cache/cost telemetry、route decision、artifact handle 已纳入规划。
+- [x] Reasonix 官方复核吸收：cache-stable context、ordered parallel dispatch、tool-call repair telemetry、visible cost control 和 no-progress loop policy 已纳入规划。
 - [x] AI 友好边界写入 `AGENTS.md`。
 - [x] Rust workspace 建立：`protocol`、`client`、`core`、`providers`、`storage`、`config`、`cli`、`tui`。
 - [x] 每个 crate 都有 README，说明职责和禁止事项。
@@ -94,6 +95,7 @@
 - [x] live event backpressure：TUI live channel 使用 bounded channel，channel full / closed 会回传取消信号。
 - [x] 模型/profile 切换入口：Tab / Shift-Tab 产生 `ClientIntent::SwitchProfile`，提交 prompt 时携带当前 profile。
 - [x] `/new`、`/save`、`/export` 基础入口：shared client slash-command intent、TUI local handling、markdown projection export。
+- [x] usage/cache/cost live status projection：`tessera-client` 从 `UsageReported` live event 和 replay trace record 更新 UI-neutral `ClientStatus`，TUI 仍只负责渲染。
 - [x] TUI 只订阅 core 事件，不直接依赖 provider SDK 或 SQLite internals。
 
 ### GUI Preparation
@@ -143,8 +145,9 @@
 - [ ] Task registry v1。
 - [ ] Tauri GUI shell spike：只接 mock/replay 或 read-only runtime，不引入第二套 provider 或 storage 访问路径。
 - [ ] Rust-to-TypeScript DTO 生成策略。
-- [ ] Usage/cache/cost telemetry summary。
+- [ ] Usage/cache/cost/context telemetry summary：从 live events 和 trace 聚合，不依赖 provider 私有结构或 TUI footer。
 - [ ] Model router 草案，只记录 route decision，不默认自动路由。
+- [ ] No-progress loop detection 草案：连续只读/重复 repair/无输出循环先 stop / ask / summarize，不直接升档到更贵模型。
 - [ ] Artifact handle projection。
 - [ ] Skill registry schema，只读，不执行 skill runtime。
 - [ ] Snapshot/checkpoint schema 设计。
@@ -153,6 +156,9 @@
 ## 5. v0.3-v0.4 Checklist
 
 - [ ] Tool descriptor。
+- [ ] Tool descriptor `parallel_safe` 字段：默认 false，第三方/MCP tool 必须显式 opt in。
+- [ ] Tool dispatcher ordered result append：允许安全并发执行，但 trace append 和模型可见 tool result 保持声明顺序。
+- [ ] Tool-call repair telemetry：记录 flatten/scavenge/truncation/storm 等修复摘要，不把 provider 原始 reasoning 写入 trace。
 - [ ] Policy gate。
 - [ ] Approval UI。
 - [ ] Workspace guardrail。
@@ -183,6 +189,7 @@
 - [ ] 没有 sandbox 和 checkpoint 前，不上线文件修改工具。
 - [ ] 没有 policy gate 前，不上线 shell / file / git tool。
 - [ ] 没有 usage/cache/cost telemetry 前，不上线 Auto router。
+- [ ] 没有 no-progress loop detection 和用户可见 route/escalation reason 前，不上线自动升档。
 - [ ] 没有 structured handoff 和 reviewer gate 前，不上线 swarm。
 - [ ] 没有 scope schema 前，不上线长期 memory runtime。
 

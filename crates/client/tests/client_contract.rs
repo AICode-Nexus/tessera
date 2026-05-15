@@ -1,7 +1,7 @@
 use tessera_client::{
     ClientIntent, ClientMessageRole, ClientProjection, ClientSnapshot, ClientStatus,
 };
-use tessera_protocol::{EventFrame, ItemId, RunEvent};
+use tessera_protocol::{CostEstimate, EventFrame, ItemId, RunEvent};
 
 #[test]
 fn client_projection_turns_core_events_into_ui_neutral_messages() {
@@ -137,4 +137,66 @@ fn client_snapshot_resets_thread_and_exports_markdown_projection() {
     assert!(snapshot.projection.messages.is_empty());
     assert_eq!(snapshot.draft_input, "");
     assert_eq!(snapshot.status.active_profile, "mock-default");
+}
+
+#[test]
+fn client_snapshot_updates_status_from_live_usage_reported_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_usage",
+        1,
+        RunEvent::UsageReported {
+            input_tokens: Some(1_000),
+            output_tokens: Some(200),
+            total_tokens: Some(1_200),
+            cache_read_tokens: Some(800),
+            cache_write_tokens: None,
+            cache_miss_tokens: Some(200),
+            estimated_cost: Some(CostEstimate {
+                amount: 0.0123,
+                currency: "USD".to_string(),
+                input_cost: Some(0.0100),
+                output_cost: Some(0.0023),
+                cache_read_cost: Some(0.0010),
+                cache_write_cost: None,
+            }),
+            latency_ms: Some(42),
+        },
+    ));
+
+    assert_eq!(snapshot.status.cache_summary, "cache 800/1000 (80%)");
+    assert_eq!(snapshot.status.cost_summary, "USD 0.0123");
+}
+
+#[test]
+fn client_snapshot_updates_status_from_replayed_usage_reported_records() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let record = EventFrame::new(
+        "trace_usage_replay",
+        1,
+        RunEvent::UsageReported {
+            input_tokens: Some(2_000),
+            output_tokens: Some(300),
+            total_tokens: Some(2_300),
+            cache_read_tokens: Some(1_500),
+            cache_write_tokens: None,
+            cache_miss_tokens: Some(500),
+            estimated_cost: Some(CostEstimate {
+                amount: 0.0456,
+                currency: "CNY".to_string(),
+                input_cost: Some(0.0300),
+                output_cost: Some(0.0156),
+                cache_read_cost: Some(0.0030),
+                cache_write_cost: None,
+            }),
+            latency_ms: Some(84),
+        },
+    )
+    .to_trace_record();
+
+    snapshot.apply_trace_record(&record);
+
+    assert_eq!(snapshot.status.cache_summary, "cache 1500/2000 (75%)");
+    assert_eq!(snapshot.status.cost_summary, "CNY 0.0456");
 }

@@ -163,6 +163,20 @@ Tessera 应把这些差异建模为 provider capability：
 - TUI 可以展示 capability 派生状态，但不能依赖 provider 私有结构。
 - v0.1 只定义 capability 和 trace 字段，不实现 Auto router。
 
+### 2.11 Cache-stable context
+
+Reasonix 官方架构进一步说明，prefix cache 的价值不来自 provider 自动开启缓存，而来自 client 能否长期保持可缓存字节稳定。Tessera 不能变成 DeepSeek-only，但 future context builder 必须 provider-neutral 地支持 cache-stable 运行方式。
+
+约束：
+
+- Stable prefix：系统提示词、工具描述、skill 摘要等稳定材料应在一次 session 内固定序列化，变化必须可追踪。
+- Append-only transcript：历史事件优先追加，不原地重写、不重排；压缩应优先追加 summary 或 artifact handle。
+- Volatile scratch：reasoning delta、临时计划、UI-only 状态默认不回灌到下一次 provider input。
+- Visible telemetry：cache hit/miss、context usage、route/escalation reason 和 estimated cost 必须进入标准 event 或安全 extension，不能只存在于 TUI footer。
+- No silent escalation：未来任何模型升档都必须对用户可见并写入 trace；无进展只读循环应先 stop / ask / summarize，而不是直接切更贵模型。
+
+v0.1 不实现长期上下文构建器，但 protocol、trace 和 client projection 必须不阻断这条路径。详细采纳矩阵见 [Reasonix Lessons](reasonix-lessons.md)。
+
 ## 3. 整体架构
 
 v0.1 的架构分为七层：
@@ -197,7 +211,7 @@ Core Runtime + Protocol + Trace
 
 这些未来能力不得绕过 core、protocol、policy 和 trace。
 
-DeepSeek-TUI 解析稿对 Tessera 的核心启发是：runtime 能力比 UI 外观更重要。Tessera 应优先吸收它的 durable task、runtime API、tool policy、sandbox、snapshot、sub-agent handle、MCP/ACP integration 和 distribution 设计，但按阶段纳入，避免 v0.1 失控。详细采纳矩阵见 [DeepSeek-TUI Lessons](deepseek-tui-lessons.md)。
+DeepSeek-TUI 解析稿对 Tessera 的核心启发是：runtime 能力比 UI 外观更重要。Tessera 应优先吸收它的 durable task、runtime API、tool policy、sandbox、snapshot、sub-agent handle、MCP/ACP integration 和 distribution 设计，但按阶段纳入，避免 v0.1 失控。Reasonix 官方仓库进一步强化了 cache-stable context、ordered parallel dispatch、tool-call repair telemetry 和 visible cost control 的长期约束。详细采纳矩阵见 [DeepSeek-TUI Lessons](deepseek-tui-lessons.md) 和 [Reasonix Lessons](reasonix-lessons.md)。
 
 ## 4. v0.1 Crate 结构
 

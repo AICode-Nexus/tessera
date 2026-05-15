@@ -22,6 +22,7 @@ This repository now has the v0.1 Rust workspace scaffold and a mock-driven runti
 - [Architecture](docs/architecture.md)
 - [Technical Architecture](docs/technical-architecture.md)
 - [DeepSeek-TUI Lessons](docs/deepseek-tui-lessons.md)
+- [Reasonix Lessons](docs/reasonix-lessons.md)
 - [GUI-Ready Architecture](docs/gui-ready-architecture.md)
 - [ADR-001: GUI Architecture and Toolkit Direction](docs/adr/ADR-001-gui-architecture-and-toolkit.md)
 - [v0.1 Plan](docs/v0.1-plan.md)

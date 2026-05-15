@@ -338,6 +338,11 @@ pub enum ReservedRunEvent {
     ToolCallApproved,
     ToolCallDenied,
     ToolResult,
+    ToolDispatchStarted,
+    ToolDispatchCompleted,
+    ToolRepairReported,
+    NoProgressLoopDetected,
+    RouteEscalationRecorded,
     SkillActivated,
     SkillStepStarted,
     MemoryRecall,
@@ -380,6 +385,7 @@ Provider 专属能力必须进入 extension metadata。
 ```
 
 `RouteDecision` 用于记录未来 Auto router 或手动 profile resolution 的结果。v0.1 可以只记录手动选择，不实现自动路由。
+未来自动升档或降级必须通过 `RouteDecision`、`RouteEscalationRecorded` 或安全 extension 记录触发原因；无进展循环应优先记录为 no-progress signal，不应被静默解释成“需要更贵模型”。
 
 ```rust
 pub struct RouteDecision {

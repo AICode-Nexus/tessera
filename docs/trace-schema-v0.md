@@ -106,6 +106,11 @@ tool_call_requested
 tool_call_approved
 tool_call_denied
 tool_result
+tool_dispatch_started
+tool_dispatch_completed
+tool_repair_reported
+no_progress_loop_detected
+route_escalation_recorded
 skill_activated
 skill_step_started
 memory_recall
@@ -226,6 +231,7 @@ Trace 中只写 artifact reference，不写大内容。
 - latency。
 - retry count。
 - route decision strategy、selected profile、fallback reason。
+- tool dispatch policy、parallel safety decision、repair summary 和 no-progress loop reason。
 - provider capability。
 - provider error code。
 - 已脱敏 error message。

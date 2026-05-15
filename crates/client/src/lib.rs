@@ -103,6 +103,25 @@ impl ClientStatus {
             profile_id: self.active_profile.clone(),
         })
     }
+
+    fn update_usage(
+        &mut self,
+        input_tokens: Option<u64>,
+        cache_read_tokens: Option<u64>,
+        cache_miss_tokens: Option<u64>,
+        cost_amount: Option<f64>,
+        cost_currency: Option<&str>,
+    ) {
+        if let Some(cache_summary) =
+            format_cache_summary(input_tokens, cache_read_tokens, cache_miss_tokens)
+        {
+            self.cache_summary = cache_summary;
+        }
+
+        if let (Some(amount), Some(currency)) = (cost_amount, cost_currency) {
+            self.cost_summary = format!("{currency} {amount:.4}");
+        }
+    }
 }
 
 /// UI-neutral message projection built from runtime events or trace records.
@@ -304,11 +323,50 @@ impl ClientSnapshot {
     }
 
     pub fn apply_event(&mut self, frame: &EventFrame) {
+        if let RunEvent::UsageReported {
+            input_tokens,
+            cache_read_tokens,
+            cache_miss_tokens,
+            estimated_cost,
+            ..
+        } = &frame.event
+        {
+            self.status.update_usage(
+                *input_tokens,
+                *cache_read_tokens,
+                *cache_miss_tokens,
+                estimated_cost.as_ref().map(|cost| cost.amount),
+                estimated_cost.as_ref().map(|cost| cost.currency.as_str()),
+            );
+        }
         self.projection.reasoning_visible = self.status.reasoning_visible;
         self.projection.apply_event(frame);
     }
 
     pub fn apply_trace_record(&mut self, record: &TraceRecord) {
+        if record.event_kind == "usage_reported" {
+            let estimated_cost = record.payload.get("estimated_cost");
+            self.status.update_usage(
+                record
+                    .payload
+                    .get("input_tokens")
+                    .and_then(|value| value.as_u64()),
+                record
+                    .payload
+                    .get("cache_read_tokens")
+                    .and_then(|value| value.as_u64()),
+                record
+                    .payload
+                    .get("cache_miss_tokens")
+                    .and_then(|value| value.as_u64()),
+                estimated_cost
+                    .and_then(|value| value.get("amount"))
+                    .and_then(|value| value.as_f64()),
+                estimated_cost
+                    .and_then(|value| value.get("currency"))
+                    .and_then(|value| value.as_str()),
+            );
+        }
         self.projection.reasoning_visible = self.status.reasoning_visible;
         self.projection.apply_trace_record(record);
     }
@@ -360,4 +418,21 @@ fn trace_record_item_id(record: &TraceRecord) -> Option<ItemId> {
             .and_then(|value| value.as_str())
             .map(ItemId::from)
     })
+}
+
+fn format_cache_summary(
+    input_tokens: Option<u64>,
+    cache_read_tokens: Option<u64>,
+    cache_miss_tokens: Option<u64>,
+) -> Option<String> {
+    let cache_read_tokens = cache_read_tokens?;
+    let total_tokens = match (cache_read_tokens, cache_miss_tokens, input_tokens) {
+        (read, Some(miss), _) if read + miss > 0 => read + miss,
+        (_, _, Some(input)) if input > 0 => input,
+        _ => return None,
+    };
+    let percentage = cache_read_tokens.saturating_mul(100) / total_tokens;
+    Some(format!(
+        "cache {cache_read_tokens}/{total_tokens} ({percentage}%)"
+    ))
 }
