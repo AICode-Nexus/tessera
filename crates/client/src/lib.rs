@@ -19,6 +19,7 @@ pub enum ClientIntent {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClientMessageRole {
+    System,
     User,
     Assistant,
     Reasoning,
@@ -287,10 +288,15 @@ impl ClientSnapshot {
             return None;
         }
         self.draft_input.clear();
-        Some(ClientIntent::SubmitPrompt {
-            profile_id: self.status.active_profile.clone(),
-            prompt,
-        })
+        match prompt.as_str() {
+            "/new" => Some(ClientIntent::NewThread),
+            "/save" => Some(ClientIntent::SaveThread),
+            "/export" => Some(ClientIntent::ExportThread),
+            _ => Some(ClientIntent::SubmitPrompt {
+                profile_id: self.status.active_profile.clone(),
+                prompt,
+            }),
+        }
     }
 
     pub fn active_profile_position(&self) -> (usize, usize) {
@@ -309,6 +315,44 @@ impl ClientSnapshot {
     pub fn apply_trace_record(&mut self, record: &TraceRecord) {
         self.projection.reasoning_visible = self.status.reasoning_visible;
         self.projection.apply_trace_record(record);
+    }
+
+    pub fn start_new_thread(&mut self) {
+        self.projection = ClientProjection::new(self.status.active_profile.clone());
+        self.draft_input.clear();
+    }
+
+    pub fn push_notice(&mut self, content: impl Into<String>) {
+        self.projection.messages.push(ClientMessage {
+            role: ClientMessageRole::System,
+            content: content.into(),
+            item_id: None,
+            streaming: false,
+        });
+    }
+
+    pub fn export_markdown(&self) -> String {
+        let mut output = String::from("# Tessera Export\n\n");
+        if self.projection.messages.is_empty() {
+            output.push_str("_No messages._\n");
+            return output;
+        }
+
+        for message in &self.projection.messages {
+            let role = match message.role {
+                ClientMessageRole::System => "System",
+                ClientMessageRole::User => "User",
+                ClientMessageRole::Assistant => "Assistant",
+                ClientMessageRole::Reasoning => "Reasoning",
+            };
+            output.push_str("## ");
+            output.push_str(role);
+            output.push_str("\n\n");
+            output.push_str(&message.content);
+            output.push_str("\n\n");
+        }
+
+        output
     }
 }
 

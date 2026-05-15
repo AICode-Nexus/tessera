@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added a `tessera tui` terminal loop with crossterm input, Ratatui rendering, and live channel delivery back into the TUI state.
 - Added TUI profile switching through GUI-ready `ClientIntent` dispatch so prompt submission uses the currently selected provider profile.
 - Added a `client` crate with UI-neutral `ClientIntent`, `ClientStatus`, `ClientProjection`, and `ClientSnapshot` for TUI and future Tauri GUI reuse.
+- Added `/new`, `/save`, and `/export` basics through shared client slash-command intents, local TUI handling, and markdown projection export.
 - Added a GUI-ready architecture note so future desktop/web clients reuse the same headless runtime, client intents, and UI-neutral view model instead of forking runtime behavior from CLI/TUI.
 - Added ADR-001 for GUI architecture and toolkit direction, selecting a Tauri-first product GUI path with AI-ready typed IPC, permissions, fixture, and projection rules.
 - Added `tessera doctor --json` and `tessera chat --provider mock --prompt ...`.

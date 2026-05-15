@@ -83,4 +83,4 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 - No tool execution.
 - No agent runtime.
 
-The next milestone is to add `/new` / `/save` / `/export` basics on top of the shared client model, then prepare the v0.1 release checklist and verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.
+The next milestone is to prepare the v0.1 release checklist and verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.

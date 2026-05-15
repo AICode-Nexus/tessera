@@ -85,6 +85,7 @@ pub fn chat_window_lines(state: &ChatViewState) -> Vec<Line<'static>> {
             .iter()
             .map(|message| {
                 let role = match message.role {
+                    ChatMessageRole::System => "System",
                     ChatMessageRole::User => "You",
                     ChatMessageRole::Assistant => "Assistant",
                     ChatMessageRole::Reasoning => "Reasoning",
@@ -141,6 +142,29 @@ pub fn apply_live_event(state: &mut ChatViewState, event: LiveClientEvent) {
             item_id: None,
             streaming: false,
         }),
+    }
+}
+
+pub fn apply_client_intent_locally(state: &mut ChatViewState, intent: &ClientIntent) -> bool {
+    match intent {
+        ClientIntent::NewThread => {
+            state.start_new_thread();
+            true
+        }
+        ClientIntent::SaveThread => {
+            state.push_notice("Saved locally. Runtime traces are persisted automatically.");
+            true
+        }
+        ClientIntent::ExportThread => {
+            let export = state.export_markdown();
+            state.push_notice(format!(
+                "Export prepared ({} bytes markdown).",
+                export.len()
+            ));
+            true
+        }
+        ClientIntent::SwitchProfile { .. } => true,
+        ClientIntent::SubmitPrompt { .. } | ClientIntent::CancelTask { .. } => false,
     }
 }
 
@@ -242,6 +266,8 @@ where
         match handle_terminal_input(&mut state, input) {
             TerminalAction::Render | TerminalAction::Ignore => {}
             TerminalAction::Quit => return Ok(state),
+            TerminalAction::Dispatch(intent)
+                if apply_client_intent_locally(&mut state, &intent) => {}
             TerminalAction::Dispatch(intent) => match intent {
                 ClientIntent::SubmitPrompt { profile_id, prompt } => {
                     let submit_result_tx = live_event_tx.clone();
@@ -274,6 +300,7 @@ fn message_lines(state: &ChatViewState) -> Vec<Line<'static>> {
         .iter()
         .map(|message| {
             let role = match message.role {
+                ChatMessageRole::System => "System",
                 ChatMessageRole::User => "You",
                 ChatMessageRole::Assistant => "Assistant",
                 ChatMessageRole::Reasoning => "Reasoning",

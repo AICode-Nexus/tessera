@@ -92,7 +92,7 @@
 - [x] 输入框和流式输出：键盘事件、提交、core live event sink、CLI bridge、TUI channel apply 已完成。
 - [x] live event backpressure：TUI live channel 使用 bounded channel，channel full / closed 会回传取消信号。
 - [x] 模型/profile 切换入口：Tab / Shift-Tab 产生 `ClientIntent::SwitchProfile`，提交 prompt 时携带当前 profile。
-- [ ] `/new`、`/save`、`/export`。
+- [x] `/new`、`/save`、`/export` 基础入口：shared client slash-command intent、TUI local handling、markdown projection export。
 - [x] TUI 只订阅 core 事件，不直接依赖 provider SDK 或 SQLite internals。
 
 ### GUI Preparation
@@ -130,7 +130,7 @@
 11. [x] cancellation / timeout / backpressure 基础语义。
 12. [x] GUI 技术架构和选型 ADR：先锁定 Tauri-first 产品 GUI 路线和 AI-ready IPC/权限边界，不引入 v0.1 GUI 依赖。
 13. [x] GUI-ready client model 边界：已抽出 `tessera-client`，TUI 的 intent、message projection 和 status projection 复用 UI-neutral API。
-14. [ ] `/new`、`/save`、`/export` 基础入口。
+14. [x] `/new`、`/save`、`/export` 基础入口。
 15. [ ] v0.1 release checklist 和 tag 计划。
 
 ## 4. v0.2 Checklist

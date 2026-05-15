@@ -1,8 +1,8 @@
 use tessera_protocol::{EventFrame, ItemId, RunEvent};
 use tessera_tui::{
-    apply_live_event, chat_window_lines, draw_terminal_frame, handle_terminal_input,
-    live_client_event_channel, map_key_event, status_line, ChatMessageRole, ChatViewState,
-    ClientIntent, LiveClientEvent, TerminalAction, TerminalInput,
+    apply_client_intent_locally, apply_live_event, chat_window_lines, draw_terminal_frame,
+    handle_terminal_input, live_client_event_channel, map_key_event, status_line, ChatMessageRole,
+    ChatViewState, ClientIntent, LiveClientEvent, TerminalAction, TerminalInput,
 };
 
 fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
@@ -245,6 +245,77 @@ fn prompt_submit_uses_current_profile_after_switch() {
             prompt: "hello selected profile".to_string()
         })
     );
+}
+
+#[test]
+fn slash_commands_dispatch_new_save_and_export_intents() {
+    let mut state = ChatViewState::new("mock-default");
+
+    state.set_input("/new");
+    assert_eq!(
+        handle_terminal_input(&mut state, TerminalInput::Submit),
+        TerminalAction::Dispatch(ClientIntent::NewThread)
+    );
+
+    state.set_input("/save");
+    assert_eq!(
+        handle_terminal_input(&mut state, TerminalInput::Submit),
+        TerminalAction::Dispatch(ClientIntent::SaveThread)
+    );
+
+    state.set_input("/export");
+    assert_eq!(
+        handle_terminal_input(&mut state, TerminalInput::Submit),
+        TerminalAction::Dispatch(ClientIntent::ExportThread)
+    );
+}
+
+#[test]
+fn local_thread_commands_update_tui_snapshot_without_runtime_access() {
+    let mut state = ChatViewState::new("mock-default");
+    state.apply_event(&EventFrame::new(
+        "trace_local_commands",
+        1,
+        RunEvent::UserMessageRecorded {
+            item_id: ItemId::from_static("item_local_command"),
+            text: "keep then clear".to_string(),
+        },
+    ));
+
+    assert!(apply_client_intent_locally(
+        &mut state,
+        &ClientIntent::SaveThread
+    ));
+    assert_eq!(
+        state.projection.messages.last().unwrap().role,
+        ChatMessageRole::System
+    );
+
+    assert!(apply_client_intent_locally(
+        &mut state,
+        &ClientIntent::ExportThread
+    ));
+    assert!(state
+        .projection
+        .messages
+        .last()
+        .unwrap()
+        .content
+        .contains("Export prepared"));
+
+    assert!(apply_client_intent_locally(
+        &mut state,
+        &ClientIntent::NewThread
+    ));
+    assert!(state.projection.messages.is_empty());
+
+    assert!(!apply_client_intent_locally(
+        &mut state,
+        &ClientIntent::SubmitPrompt {
+            profile_id: "mock-default".to_string(),
+            prompt: "hello".to_string(),
+        }
+    ));
 }
 
 #[test]
