@@ -5,7 +5,7 @@ This repository has entered v0.1 implementation. Architecture documents remain t
 ## Current Contract
 
 - Keep Tessera Rust-first and quality-first.
-- Preserve a single headless runtime shared by CLI, TUI, replay, and future runtime APIs.
+- Preserve a single headless runtime shared by CLI, TUI, replay, future GUI, and future runtime APIs.
 - Treat `docs/technical-architecture.md`, `docs/deepseek-tui-lessons.md`, `docs/global-plan.md`, `docs/v0.1-plan.md`, `docs/protocol-v0.md`, `docs/trace-schema-v0.md`, and `docs/crate-boundaries.md` as the current implementation contract.
 - Update `docs/global-plan.md` whenever a staged checklist item is completed, added, removed, or deliberately deferred.
 
@@ -24,7 +24,7 @@ This repository has entered v0.1 implementation. Architecture documents remain t
 
 Allowed:
 
-- Protocol, core, providers, storage, config, cli, and tui crates.
+- Protocol, client, core, providers, storage, config, cli, and tui crates.
 - Architecture, protocol, trace schema, and crate boundary documents.
 - Mock runtime, provider adapter skeletons, trace, doctor, and CLI/TUI v0.1 work listed in `docs/global-plan.md`.
 

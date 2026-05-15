@@ -4,7 +4,7 @@ Tessera is a model-agnostic, agent-ready terminal workbench built on typed event
 
 ## Current Status
 
-This repository now has the v0.1 Rust workspace scaffold and a mock-driven runtime slice. The current implementation is intentionally narrow: protocol types, trace storage, provider adapters, core conversation loop, `doctor --json`, mock `chat`, and a minimal Ratatui terminal chat loop with profile switching and live core event delivery.
+This repository now has the v0.1 Rust workspace scaffold and a mock-driven runtime slice. The current implementation is intentionally narrow: protocol types, shared client projection, trace storage, provider adapters, core conversation loop, `doctor --json`, mock `chat`, and a minimal Ratatui terminal chat loop with profile switching and live core event delivery.
 
 ## Design Goals
 
@@ -35,7 +35,7 @@ This repository now has the v0.1 Rust workspace scaffold and a mock-driven runti
 
 The current implementation contract is still architecture-led:
 
-- Keep the first implementation limited to `protocol`, `core`, `providers`, `storage`, `config`, `cli`, and `tui`.
+- Keep the first implementation limited to `protocol`, `client`, `core`, `providers`, `storage`, `config`, `cli`, and `tui`.
 - Keep future tools, agents, memory, skills, learning, and swarm support as protocol-ready extensions, not v0.1 runtime features.
 - Keep CLI, TUI, and future GUI on top of the same headless runtime.
 - Keep client UI state in UI-neutral reducers and view models before implementing the Tauri-first GUI path.
@@ -83,4 +83,4 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 - No tool execution.
 - No agent runtime.
 
-The next milestone is to extract the shared client view-model boundary for TUI and future Tauri GUI reuse, add `/new` / `/save` / `/export` basics, and then verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.
+The next milestone is to add `/new` / `/save` / `/export` basics on top of the shared client model, then prepare the v0.1 release checklist and verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.

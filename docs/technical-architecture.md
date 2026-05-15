@@ -206,6 +206,7 @@ v0.1 首批只开必要 crate：
 ```text
 crates/
   protocol/
+  client/
   core/
   providers/
   storage/
@@ -213,20 +214,19 @@ crates/
   cli/
   tui/
   # future, not v0.1:
-  # client/
   # gui/
 ```
 
 职责摘要：
 
 - `protocol`：公共类型、ID、runtime schema、RunEvent、EventFrame、NormalizedError。
+- `client`：UI-neutral intent、status/message projection、ClientSnapshot；从 EventFrame / TraceRecord 生成 TUI 和未来 GUI 共享的 view model。
 - `core`：运行生命周期、ConversationEngine、事件路由、provider/storage 协调。
 - `providers`：Provider trait、OpenAI-compatible、Ollama、Mock provider。
 - `storage`：JSONL trace writer、SQLite index、repository。
 - `config`：配置读取、profile、data dir、secret env var 引用。
 - `cli`：headless 命令入口和本地二进制命令编排。
-- `tui`：Ratatui view。
-- future `client`：UI-neutral intent、projection、view model；从 TUI 抽出后供 GUI 复用。
+- `tui`：Ratatui view，只保留终端输入、live event wrapper 和 terminal renderer。
 - future `gui`：desktop/web shell，只消费 `client` + core/runtime API。
 
 详细依赖方向见 [Crate Boundaries](crate-boundaries.md)。

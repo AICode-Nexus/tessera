@@ -181,8 +181,8 @@ fn tui_state_uses_configured_profiles_for_switching() {
 
     let state = build_tui_state_with_config(&config, "local").unwrap();
 
-    assert_eq!(state.active_profile, "local");
-    assert_eq!(state.available_profiles, vec!["offline", "local"]);
+    assert_eq!(state.status.active_profile, "local");
+    assert_eq!(state.status.available_profiles, vec!["offline", "local"]);
 }
 
 #[test]

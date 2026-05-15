@@ -12,7 +12,7 @@
 - Runtime 仍然 Rust-first：provider、storage、trace、policy、task lifecycle 都在 Rust core / future runtime API 内。
 - `egui` 只作为 Rust-first 内部诊断面板或轻量 inspector 候选，不作为产品 GUI 默认方向。
 - `GPUI` 继续观察，不进入 v0.1/v0.2 默认路径。
-- v0.1 不引入 GUI 依赖；先抽出 UI-neutral `client` 边界。
+- v0.1 不引入 GUI 依赖；UI-neutral `client` 边界已先行抽出。
 
 这不是立即开始 GUI 实现。它是为了让后续 `client`、TUI、CLI bridge、trace projection 的实现不走偏。
 
@@ -91,18 +91,18 @@ terminal key / GUI action
 
 ## 5. Client Model
 
-当前 TUI 的 view-state reducer 已经给未来 client model 打了底：
+当前 `tessera-client` 已经承接 TUI 和未来 GUI 共享的 client model：
 
 - 用户输入转成 `ClientIntent`，其中 profile switch 和 prompt submit 使用同一套 UI-neutral intent。
-- core event / trace record 转成消息列表。
-- provider/profile/reasoning/cache/cost 进入状态栏投影。
+- core event / trace record 转成 `ClientProjection` 消息列表。
+- provider/profile/reasoning/cache/cost 进入 `ClientStatus` 投影。
 
 后续应抽出的 UI-neutral 能力：
 
 - `ClientIntent`：`SubmitPrompt`、`SwitchProfile`、`NewThread`、`SaveThread`、`ExportThread`、`CancelTask`。
 - `ClientStatus`：profile、model、reasoning、cache、cost、task state。
 - `ClientMessage`：role、content、reasoning、streaming、trace refs。
-- `ClientTask`：task id、kind、status、started/completed/cancelled/error。
+- `ClientTask`：task id、kind、status、started/completed/cancelled/error，后续在 task registry 初版中补齐。
 - `ClientProjection`：从 `EventFrame` / `TraceRecord` 生成稳定 view state。
 - `ClientSnapshot`：GUI/TUI 初始加载和 replay 恢复使用的完整投影。
 
@@ -192,11 +192,11 @@ AI 修改 GUI 时优先做小任务：
 
 ## 9. v0.1 到 v0.2 的准备项
 
-- v0.1：保持 TUI 代码里的 view-state reducer 小而纯，禁止混入 provider/storage 访问。
+- v0.1：TUI 状态投影已下沉到 `tessera-client`，TUI 只保留 terminal input、live event wrapper 和 Ratatui renderer。
 - v0.1：profile switch 已按 client intent 设计，不把 profile 选择写成 Ratatui 私有逻辑。
 - v0.1：live event bridge 已让 core/CLI/TUI 消费同一套 `EventFrame` 流，并保证 GUI 后续复用同一契约。
 - v0.1：cancellation / timeout / backpressure 已进入 core/CLI/TUI 基础语义。
-- v0.1：抽出 `client` crate 或 `core::client` 模块。
+- v0.1：已抽出 `tessera-client` crate，包含 `ClientIntent`、`ClientStatus`、`ClientProjection` 和 `ClientSnapshot`。
 - v0.2：做 Tauri GUI shell spike，验证 toolkit、布局、快捷键、可访问性、IPC、分发体积和 mock/replay 启动。
 
 Tauri spike 验收标准：

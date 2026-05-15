@@ -176,8 +176,8 @@ The GUI must start with mock/replay support and a bounded event channel before a
 
 ## Follow-up Actions
 
-- [ ] Extract `crates/client` or `core::client` with `ClientIntent`, `ClientProjection`, and `ClientSnapshot`.
-- [ ] Move TUI message/status projection onto the shared client model.
+- [x] Extract `crates/client` or `core::client` with `ClientIntent`, `ClientProjection`, and `ClientSnapshot`.
+- [x] Move TUI message/status projection onto the shared client model.
 - [ ] Define Rust-to-TypeScript binding generation strategy for GUI DTOs.
 - [ ] Build a Tauri spike using mock/replay only.
 - [ ] Add GUI automation checks after the spike exists.

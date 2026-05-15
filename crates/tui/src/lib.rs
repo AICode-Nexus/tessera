@@ -11,29 +11,12 @@ use ratatui::{
     Frame, Terminal,
 };
 use std::{future::Future, io, time::Duration};
-use tessera_protocol::{EventFrame, ItemId, RunEvent, TraceRecord};
+pub use tessera_client::{
+    ClientIntent, ClientMessage, ClientMessageRole as ChatMessageRole,
+    ClientSnapshot as ChatViewState,
+};
+use tessera_protocol::EventFrame;
 use tokio::sync::mpsc;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ChatMessageRole {
-    User,
-    Assistant,
-    Reasoning,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ChatMessage {
-    pub role: ChatMessageRole,
-    pub content: String,
-    pub item_id: Option<ItemId>,
-    pub streaming: bool,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ClientIntent {
-    SubmitPrompt { profile_id: String, prompt: String },
-    SwitchProfile { profile_id: String },
-}
 
 pub type TuiUserIntent = ClientIntent;
 
@@ -72,292 +55,32 @@ pub fn live_client_event_channel(
     mpsc::channel(capacity)
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ChatViewState {
-    pub active_profile: String,
-    pub available_profiles: Vec<String>,
-    pub reasoning_visible: bool,
-    pub cache_summary: String,
-    pub cost_summary: String,
-    pub input: String,
-    pub messages: Vec<ChatMessage>,
-}
-
-impl ChatViewState {
-    pub fn new(active_profile: impl Into<String>) -> Self {
-        let active_profile = active_profile.into();
-        Self::with_profiles(active_profile.clone(), [active_profile])
-    }
-
-    pub fn with_profiles<I, S>(active_profile: impl Into<String>, profiles: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        let active_profile = active_profile.into();
-        let mut available_profiles = Vec::new();
-        for profile in profiles {
-            let profile = profile.into();
-            if !profile.trim().is_empty() && !available_profiles.contains(&profile) {
-                available_profiles.push(profile);
-            }
-        }
-        if !available_profiles.contains(&active_profile) {
-            available_profiles.insert(0, active_profile.clone());
-        }
-
-        Self {
-            active_profile,
-            available_profiles,
-            reasoning_visible: false,
-            cache_summary: "cache 0/0".to_string(),
-            cost_summary: "CNY 0.0000".to_string(),
-            input: String::new(),
-            messages: Vec::new(),
-        }
-    }
-
-    pub fn set_input(&mut self, input: impl Into<String>) {
-        self.input = input.into();
-    }
-
-    pub fn submit_input(&mut self) -> Option<ClientIntent> {
-        let prompt = self.input.trim().to_string();
-        if prompt.is_empty() {
-            return None;
-        }
-        self.input.clear();
-        Some(ClientIntent::SubmitPrompt {
-            profile_id: self.active_profile.clone(),
-            prompt,
-        })
-    }
-
-    pub fn handle_terminal_input(&mut self, input: TerminalInput) -> TerminalAction {
-        match input {
-            TerminalInput::Char(character) => {
-                self.input.push(character);
-                TerminalAction::Render
-            }
-            TerminalInput::Backspace => {
-                self.input.pop();
-                TerminalAction::Render
-            }
-            TerminalInput::NextProfile => self
-                .cycle_profile(1)
-                .map(TerminalAction::Dispatch)
-                .unwrap_or(TerminalAction::Ignore),
-            TerminalInput::PreviousProfile => self
-                .cycle_profile(-1)
-                .map(TerminalAction::Dispatch)
-                .unwrap_or(TerminalAction::Ignore),
-            TerminalInput::Submit => self
-                .submit_input()
-                .map(TerminalAction::Dispatch)
-                .unwrap_or(TerminalAction::Ignore),
-            TerminalInput::Quit => TerminalAction::Quit,
-        }
-    }
-
-    pub fn active_profile_position(&self) -> (usize, usize) {
-        let total = self.available_profiles.len().max(1);
-        let index = self
-            .available_profiles
-            .iter()
-            .position(|profile| profile == &self.active_profile)
-            .map(|index| index + 1)
-            .unwrap_or(1);
-        (index, total)
-    }
-
-    fn cycle_profile(&mut self, offset: isize) -> Option<ClientIntent> {
-        let total = self.available_profiles.len();
-        if total <= 1 {
-            return None;
-        }
-        let current = self
-            .available_profiles
-            .iter()
-            .position(|profile| profile == &self.active_profile)
-            .unwrap_or(0);
-        let next = (current as isize + offset).rem_euclid(total as isize) as usize;
-        self.active_profile = self.available_profiles[next].clone();
-        Some(ClientIntent::SwitchProfile {
-            profile_id: self.active_profile.clone(),
-        })
-    }
-
-    pub fn apply_event(&mut self, frame: &EventFrame) {
-        match &frame.event {
-            RunEvent::UserMessageRecorded { item_id, text } => {
-                self.messages.push(ChatMessage {
-                    role: ChatMessageRole::User,
-                    content: text.clone(),
-                    item_id: Some(item_id.clone()),
-                    streaming: false,
-                });
-            }
-            RunEvent::AssistantMessageStarted { item_id } => {
-                self.push_empty_streaming_message(ChatMessageRole::Assistant, item_id.clone());
-            }
-            RunEvent::AssistantDelta { item_id, text } => {
-                self.append_to_streaming_message(ChatMessageRole::Assistant, item_id, text);
-            }
-            RunEvent::AssistantReasoningDelta { item_id, text } => {
-                if self.reasoning_visible {
-                    self.append_to_streaming_message(ChatMessageRole::Reasoning, item_id, text);
-                }
-            }
-            RunEvent::AssistantMessageCompleted { item_id } => {
-                for message in self.messages.iter_mut().filter(|message| {
-                    message.item_id.as_ref() == Some(item_id)
-                        && matches!(
-                            message.role,
-                            ChatMessageRole::Assistant | ChatMessageRole::Reasoning
-                        )
-                }) {
-                    message.streaming = false;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    pub fn apply_live_event(&mut self, event: LiveClientEvent) {
-        match event {
-            LiveClientEvent::Frame(frame) => self.apply_event(&frame),
-            LiveClientEvent::Error(error) => self.messages.push(ChatMessage {
-                role: ChatMessageRole::Assistant,
-                content: format!("Error: {error}"),
-                item_id: None,
-                streaming: false,
-            }),
-        }
-    }
-
-    pub fn apply_trace_record(&mut self, record: &TraceRecord) {
-        let item_id = trace_record_item_id(record);
-        match record.event_kind.as_str() {
-            "user_message_recorded" => {
-                let Some(text) = record.payload.get("text").and_then(|value| value.as_str()) else {
-                    return;
-                };
-                self.messages.push(ChatMessage {
-                    role: ChatMessageRole::User,
-                    content: text.to_string(),
-                    item_id,
-                    streaming: false,
-                });
-            }
-            "assistant_message_started" => {
-                let Some(item_id) = item_id else {
-                    return;
-                };
-                self.push_empty_streaming_message(ChatMessageRole::Assistant, item_id);
-            }
-            "assistant_delta" => {
-                let (Some(item_id), Some(text)) = (
-                    item_id.as_ref(),
-                    record.payload.get("text").and_then(|value| value.as_str()),
-                ) else {
-                    return;
-                };
-                self.append_to_streaming_message(ChatMessageRole::Assistant, item_id, text);
-            }
-            "assistant_reasoning_delta" => {
-                let (Some(item_id), Some(text)) = (
-                    item_id.as_ref(),
-                    record.payload.get("text").and_then(|value| value.as_str()),
-                ) else {
-                    return;
-                };
-                if self.reasoning_visible {
-                    self.append_to_streaming_message(ChatMessageRole::Reasoning, item_id, text);
-                }
-            }
-            "assistant_message_completed" => {
-                let Some(item_id) = item_id else {
-                    return;
-                };
-                self.complete_assistant_item(&item_id);
-            }
-            _ => {}
-        }
-    }
-
-    fn push_empty_streaming_message(&mut self, role: ChatMessageRole, item_id: ItemId) {
-        self.messages.push(ChatMessage {
-            role,
-            content: String::new(),
-            item_id: Some(item_id),
-            streaming: true,
-        });
-    }
-
-    fn append_to_streaming_message(&mut self, role: ChatMessageRole, item_id: &ItemId, text: &str) {
-        if let Some(message) = self.message_by_item_id_and_role_mut(item_id, &role) {
-            message.content.push_str(text);
-            message.streaming = true;
-            return;
-        }
-
-        self.messages.push(ChatMessage {
-            role,
-            content: text.to_string(),
-            item_id: Some(item_id.clone()),
-            streaming: true,
-        });
-    }
-
-    fn message_by_item_id_and_role_mut(
-        &mut self,
-        item_id: &ItemId,
-        role: &ChatMessageRole,
-    ) -> Option<&mut ChatMessage> {
-        self.messages
-            .iter_mut()
-            .rev()
-            .find(|message| message.item_id.as_ref() == Some(item_id) && message.role == *role)
-    }
-
-    fn complete_assistant_item(&mut self, item_id: &ItemId) {
-        for message in self.messages.iter_mut().filter(|message| {
-            message.item_id.as_ref() == Some(item_id)
-                && matches!(
-                    message.role,
-                    ChatMessageRole::Assistant | ChatMessageRole::Reasoning
-                )
-        }) {
-            message.streaming = false;
-        }
-    }
-}
-
 pub fn status_line(state: &ChatViewState) -> Line<'static> {
-    let reasoning = if state.reasoning_visible {
+    let reasoning = if state.status.reasoning_visible {
         "reasoning:on"
     } else {
         "reasoning:off"
     };
-    let (profile_index, profile_total) = state.active_profile_position();
+    let (profile_index, profile_total) = state.status.active_profile_position();
     Line::from(vec![
         Span::raw("profile "),
-        Span::raw(state.active_profile.clone()),
+        Span::raw(state.status.active_profile.clone()),
         Span::raw(format!(" [{profile_index}/{profile_total}]")),
         Span::raw(" | "),
         Span::raw(reasoning),
         Span::raw(" | "),
-        Span::raw(state.cache_summary.clone()),
+        Span::raw(state.status.cache_summary.clone()),
         Span::raw(" | "),
-        Span::raw(state.cost_summary.clone()),
+        Span::raw(state.status.cost_summary.clone()),
     ])
 }
 
 pub fn chat_window_lines(state: &ChatViewState) -> Vec<Line<'static>> {
-    let mut lines = if state.messages.is_empty() {
+    let mut lines = if state.projection.messages.is_empty() {
         vec![Line::from(Span::raw("No messages yet"))]
     } else {
         state
+            .projection
             .messages
             .iter()
             .map(|message| {
@@ -378,9 +101,47 @@ pub fn chat_window_lines(state: &ChatViewState) -> Vec<Line<'static>> {
     lines.push(Line::from(Span::raw("")));
     lines.push(Line::from(vec![
         Span::raw("> "),
-        Span::raw(state.input.clone()),
+        Span::raw(state.draft_input.clone()),
     ]));
     lines
+}
+
+pub fn handle_terminal_input(state: &mut ChatViewState, input: TerminalInput) -> TerminalAction {
+    match input {
+        TerminalInput::Char(character) => {
+            state.draft_input.push(character);
+            TerminalAction::Render
+        }
+        TerminalInput::Backspace => {
+            state.draft_input.pop();
+            TerminalAction::Render
+        }
+        TerminalInput::NextProfile => state
+            .cycle_profile(1)
+            .map(TerminalAction::Dispatch)
+            .unwrap_or(TerminalAction::Ignore),
+        TerminalInput::PreviousProfile => state
+            .cycle_profile(-1)
+            .map(TerminalAction::Dispatch)
+            .unwrap_or(TerminalAction::Ignore),
+        TerminalInput::Submit => state
+            .submit_input()
+            .map(TerminalAction::Dispatch)
+            .unwrap_or(TerminalAction::Ignore),
+        TerminalInput::Quit => TerminalAction::Quit,
+    }
+}
+
+pub fn apply_live_event(state: &mut ChatViewState, event: LiveClientEvent) {
+    match event {
+        LiveClientEvent::Frame(frame) => state.apply_event(&frame),
+        LiveClientEvent::Error(error) => state.projection.messages.push(ClientMessage {
+            role: ChatMessageRole::Assistant,
+            content: format!("Error: {error}"),
+            item_id: None,
+            streaming: false,
+        }),
+    }
 }
 
 pub fn map_key_event(event: KeyEvent) -> Option<TerminalInput> {
@@ -419,7 +180,7 @@ pub fn draw_terminal_frame(frame: &mut Frame<'_>, state: &ChatViewState) {
 
     let input = Paragraph::new(Line::from(vec![
         Span::raw("> "),
-        Span::raw(state.input.clone()),
+        Span::raw(state.draft_input.clone()),
     ]))
     .block(Block::default().title("Input").borders(Borders::ALL));
     frame.render_widget(input, chunks[2]);
@@ -462,7 +223,7 @@ where
 
     loop {
         while let Ok(event) = live_event_rx.try_recv() {
-            state.apply_live_event(event);
+            apply_live_event(&mut state, event);
         }
 
         terminal.draw(|frame| draw_terminal_frame(frame, &state))?;
@@ -478,7 +239,7 @@ where
             continue;
         };
 
-        match state.handle_terminal_input(input) {
+        match handle_terminal_input(&mut state, input) {
             TerminalAction::Render | TerminalAction::Ignore => {}
             TerminalAction::Quit => return Ok(state),
             TerminalAction::Dispatch(intent) => match intent {
@@ -492,18 +253,23 @@ where
                         }
                     });
                 }
-                ClientIntent::SwitchProfile { .. } => {}
+                ClientIntent::SwitchProfile { .. }
+                | ClientIntent::NewThread
+                | ClientIntent::SaveThread
+                | ClientIntent::ExportThread
+                | ClientIntent::CancelTask { .. } => {}
             },
         }
     }
 }
 
 fn message_lines(state: &ChatViewState) -> Vec<Line<'static>> {
-    if state.messages.is_empty() {
+    if state.projection.messages.is_empty() {
         return vec![Line::from(Span::raw("No messages yet"))];
     }
 
     state
+        .projection
         .messages
         .iter()
         .map(|message| {
@@ -519,14 +285,4 @@ fn message_lines(state: &ChatViewState) -> Vec<Line<'static>> {
             ])
         })
         .collect()
-}
-
-fn trace_record_item_id(record: &TraceRecord) -> Option<ItemId> {
-    record.item_id.clone().or_else(|| {
-        record
-            .payload
-            .get("item_id")
-            .and_then(|value| value.as_str())
-            .map(ItemId::from)
-    })
 }

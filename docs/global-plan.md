@@ -19,7 +19,7 @@
 - [x] 架构文档冻结：`technical-architecture`、`v0.1-plan`、`protocol-v0`、`trace-schema-v0`、`crate-boundaries`。
 - [x] DeepSeek-TUI 解析吸收：provider capability、reasoning delta、cache/cost telemetry、route decision、artifact handle 已纳入规划。
 - [x] AI 友好边界写入 `AGENTS.md`。
-- [x] Rust workspace 建立：`protocol`、`core`、`providers`、`storage`、`config`、`cli`、`tui`。
+- [x] Rust workspace 建立：`protocol`、`client`、`core`、`providers`、`storage`、`config`、`cli`、`tui`。
 - [x] 每个 crate 都有 README，说明职责和禁止事项。
 - [x] CI 建立：fmt、clippy、test。
 - [x] `CHANGELOG.md` 建立，阶段性变化已记录。
@@ -27,6 +27,7 @@
 - [x] SQLite 通过 `rusqlite/bundled` 集成，降低本地发布时对系统 `libsqlite3` 的依赖。
 - [x] GUI-ready 方向写入架构：未来 GUI 必须复用 headless runtime、client intent 和 UI-neutral view model。
 - [x] GUI 技术架构和选型写入 ADR：产品 GUI 默认 Tauri 2 + TypeScript/React/Vite，egui 仅作为内部 inspector 候选，GPUI 继续观察。
+- [x] GUI-ready client model 边界已落地：`tessera-client` 承载 `ClientIntent`、`ClientStatus`、`ClientProjection` 和 `ClientSnapshot`。
 
 ## 2. v0.1 Runtime Checklist
 
@@ -87,7 +88,7 @@
 
 - [x] Ratatui crate 建立。
 - [x] profile / reasoning / cache / cost status-line 占位。
-- [x] 最小主聊天窗口：view-state reducer、line renderer、terminal frame、`tessera tui` 入口已完成。
+- [x] 最小主聊天窗口：shared client projection、line renderer、terminal frame、`tessera tui` 入口已完成。
 - [x] 输入框和流式输出：键盘事件、提交、core live event sink、CLI bridge、TUI channel apply 已完成。
 - [x] live event backpressure：TUI live channel 使用 bounded channel，channel full / closed 会回传取消信号。
 - [x] 模型/profile 切换入口：Tab / Shift-Tab 产生 `ClientIntent::SwitchProfile`，提交 prompt 时携带当前 profile。
@@ -98,7 +99,7 @@
 
 - [x] GUI 不另起 runtime：架构约束已写入 `docs/gui-ready-architecture.md`、`docs/technical-architecture.md` 和 `docs/crate-boundaries.md`。
 - [x] GUI 技术选型 ADR：默认产品 GUI 方向为 Tauri 2 + TypeScript/React/Vite；GUI 实现仍等待 `client` 边界。
-- [~] UI-neutral view model：`ClientIntent` 已进入 TUI 状态层，message/status projection 仍在 `tui` crate 内，尚未拆出独立 `client` crate。
+- [x] UI-neutral view model：`tessera-client` 已提供 `ClientIntent`、`ClientStatus`、`ClientProjection`、`ClientSnapshot`，TUI 已切换为复用该模型。
 - [~] GUI 技术选型 spike：架构决策已完成；Tauri mock/replay 小样验证仍待 v0.2。
 - [~] Live event bridge：core/CLI/TUI 已共享同一套 `EventFrame` 流；future GUI 复用契约已明确，待 GUI shell spike 验证。
 
@@ -128,8 +129,9 @@
 10. [x] Live event bridge：core event sink、CLI bridge、TUI live channel 已完成。
 11. [x] cancellation / timeout / backpressure 基础语义。
 12. [x] GUI 技术架构和选型 ADR：先锁定 Tauri-first 产品 GUI 路线和 AI-ready IPC/权限边界，不引入 v0.1 GUI 依赖。
-13. [ ] GUI-ready client model 边界：把当前 TUI view-state 中可共享的 intent、message projection 和 status projection 固化为 UI-neutral API。
-14. [ ] v0.1 release checklist 和 tag 计划。
+13. [x] GUI-ready client model 边界：已抽出 `tessera-client`，TUI 的 intent、message projection 和 status projection 复用 UI-neutral API。
+14. [ ] `/new`、`/save`、`/export` 基础入口。
+15. [ ] v0.1 release checklist 和 tag 计划。
 
 ## 4. v0.2 Checklist
 

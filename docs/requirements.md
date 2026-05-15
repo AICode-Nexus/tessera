@@ -172,6 +172,7 @@ v0.1 包含：
 - `secrets` 环境变量读取和本地安全存储占位。
 - Headless `cli chat`。
 - `cli doctor --json`。
+- UI-neutral client model，供 TUI 和未来 GUI 复用。
 - 最小 Ratatui TUI。
 - 流式输出。
 - 本地 session 保存。

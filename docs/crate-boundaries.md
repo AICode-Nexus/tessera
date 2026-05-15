@@ -18,13 +18,14 @@ cli  -> core -> storage
 cli  -> config
 cli  -> tui      # only for local binary command dispatch
 
+tui  -> client
 tui  -> core
 tui  -> config
 
 future gui -> client/core/runtime_api
 future gui -> config
-future client -> protocol
 
+client -> protocol
 core -> protocol
 core -> storage
 core -> providers
@@ -46,6 +47,10 @@ storage -> providers
 storage -> tui
 tui -> providers
 tui -> storage internals
+client -> core
+client -> providers
+client -> storage
+client -> tui
 cli -> providers internals
 gui -> providers
 gui -> storage internals
@@ -255,7 +260,7 @@ v0.1 secret 只解析环境变量引用，不做完整 keychain。
 
 TUI 是 view，不是 runtime。
 
-### future client
+### client
 
 职责：
 
@@ -277,7 +282,7 @@ TUI 是 view，不是 runtime。
 - storage internals。
 - 真实 runtime 状态机。
 
-`client` 只有在 TUI 和 GUI 都需要复用同一套状态投影时才独立成 crate。
+`client` 已作为 v0.1 的窄边界 crate 独立出来。它只做纯投影和 intent schema，不拥有 runtime，不持有 provider/storage 权限。
 
 ### future gui
 
@@ -290,7 +295,7 @@ TUI 是 view，不是 runtime。
 
 允许依赖：
 
-- future `client`。
+- `client`。
 - protocol。
 - config。
 - core public API 或 future runtime_api client。
@@ -326,7 +331,6 @@ GUI 是 client shell，不是第二套 runtime。产品 GUI 默认方向见 [ADR
 - learning。
 - runtime_api。
 - gui。
-- client。
 - diagnostics。
 - snapshots。
 - sandbox。
@@ -407,11 +411,11 @@ GUI 和 TUI 必须共享同一套 client projection。
 
 推荐边界：
 
-- `client` 先从当前 TUI view-state reducer 中抽出 UI-neutral 部分。
+- `client` 已从 TUI view-state reducer 中抽出 UI-neutral intent、status 和 message projection。
 - `tui` 只保留 terminal 输入和 Ratatui widgets。
 - `gui` 只保留 desktop/web shell 和 toolkit widgets。
 - live event bridge 由 core/runtime API 提供，TUI/GUI shell 负责订阅，`client` 只做事件到 view model 的纯函数投影。
-- 完成 client model 前，GUI spike 只能读 mock/replay 数据。
+- GUI spike 只能读 mock/replay 或 read-only runtime 数据，不能新增第二套 provider/storage 路径。
 
 ### distribution
 
@@ -488,6 +492,7 @@ AI 或人类开发者修改代码时必须遵守：
 实现阶段通过 `cargo metadata` 或代码检查时，应能确认：
 
 - `protocol` 没有 workspace 内部依赖。
+- `client` 不依赖 `core`、`providers`、`storage` 或 `tui`。
 - `providers` 不依赖 `core`、`storage`、`tui`。
 - `tui` 不依赖 provider SDK。
 - future `gui` 不依赖 provider SDK、storage internals 或 TUI。

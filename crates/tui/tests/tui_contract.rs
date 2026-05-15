@@ -1,7 +1,8 @@
 use tessera_protocol::{EventFrame, ItemId, RunEvent};
 use tessera_tui::{
-    chat_window_lines, draw_terminal_frame, live_client_event_channel, map_key_event, status_line,
-    ChatMessageRole, ChatViewState, ClientIntent, LiveClientEvent, TerminalAction, TerminalInput,
+    apply_live_event, chat_window_lines, draw_terminal_frame, handle_terminal_input,
+    live_client_event_channel, map_key_event, status_line, ChatMessageRole, ChatViewState,
+    ClientIntent, LiveClientEvent, TerminalAction, TerminalInput,
 };
 
 fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
@@ -19,9 +20,9 @@ fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
 #[test]
 fn tui_status_line_contains_profile_reasoning_and_cost_placeholders() {
     let mut state = ChatViewState::new("mock-default");
-    state.reasoning_visible = true;
-    state.cache_summary = "cache 0/0".to_string();
-    state.cost_summary = "CNY 0.0000".to_string();
+    state.status.reasoning_visible = true;
+    state.status.cache_summary = "cache 0/0".to_string();
+    state.status.cost_summary = "CNY 0.0000".to_string();
 
     let line = status_line(&state);
     let spans: Vec<_> = line
@@ -48,7 +49,7 @@ fn tui_chat_loop_submits_input_and_renders_core_events() {
             prompt: "hello tui".to_string()
         })
     );
-    assert_eq!(state.input, "");
+    assert_eq!(state.draft_input, "");
 
     let user_item_id = ItemId::from_static("item_user");
     let assistant_item_id = ItemId::from_static("item_assistant");
@@ -106,15 +107,18 @@ fn tui_chat_loop_submits_input_and_renders_core_events() {
     assert!(rendered.contains("You: hello tui"));
     assert!(rendered.contains("Assistant: mock response"));
     assert!(rendered.contains("> "));
-    assert_eq!(state.messages[0].role, ChatMessageRole::User);
-    assert_eq!(state.messages[1].role, ChatMessageRole::Assistant);
-    assert!(!state.messages[1].streaming);
+    assert_eq!(state.projection.messages[0].role, ChatMessageRole::User);
+    assert_eq!(
+        state.projection.messages[1].role,
+        ChatMessageRole::Assistant
+    );
+    assert!(!state.projection.messages[1].streaming);
 }
 
 #[test]
 fn tui_keeps_reasoning_and_answer_deltas_separate_for_same_item() {
     let mut state = ChatViewState::new("mock-default");
-    state.reasoning_visible = true;
+    state.status.reasoning_visible = true;
     let assistant_item_id = ItemId::from_static("item_assistant");
 
     state.apply_event(&EventFrame::new(
@@ -134,10 +138,16 @@ fn tui_keeps_reasoning_and_answer_deltas_separate_for_same_item() {
         },
     ));
 
-    assert_eq!(state.messages[0].role, ChatMessageRole::Reasoning);
-    assert_eq!(state.messages[0].content, "thinking");
-    assert_eq!(state.messages[1].role, ChatMessageRole::Assistant);
-    assert_eq!(state.messages[1].content, "answer");
+    assert_eq!(
+        state.projection.messages[0].role,
+        ChatMessageRole::Reasoning
+    );
+    assert_eq!(state.projection.messages[0].content, "thinking");
+    assert_eq!(
+        state.projection.messages[1].role,
+        ChatMessageRole::Assistant
+    );
+    assert_eq!(state.projection.messages[1].content, "answer");
 }
 
 #[test]
@@ -145,29 +155,29 @@ fn terminal_input_edits_and_submits_prompt() {
     let mut state = ChatViewState::new("mock-default");
 
     assert_eq!(
-        state.handle_terminal_input(TerminalInput::Char('h')),
+        handle_terminal_input(&mut state, TerminalInput::Char('h')),
         TerminalAction::Render
     );
     assert_eq!(
-        state.handle_terminal_input(TerminalInput::Char('i')),
+        handle_terminal_input(&mut state, TerminalInput::Char('i')),
         TerminalAction::Render
     );
-    assert_eq!(state.input, "hi");
+    assert_eq!(state.draft_input, "hi");
 
     assert_eq!(
-        state.handle_terminal_input(TerminalInput::Backspace),
+        handle_terminal_input(&mut state, TerminalInput::Backspace),
         TerminalAction::Render
     );
-    assert_eq!(state.input, "h");
+    assert_eq!(state.draft_input, "h");
 
     assert_eq!(
-        state.handle_terminal_input(TerminalInput::Submit),
+        handle_terminal_input(&mut state, TerminalInput::Submit),
         TerminalAction::Dispatch(ClientIntent::SubmitPrompt {
             profile_id: "mock-default".to_string(),
             prompt: "h".to_string()
         })
     );
-    assert_eq!(state.input, "");
+    assert_eq!(state.draft_input, "");
 }
 
 #[test]
@@ -206,30 +216,30 @@ fn profile_switch_cycles_available_profiles_as_client_intents() {
         ChatViewState::with_profiles("mock-default", ["mock-default", "offline", "local-llm"]);
 
     assert_eq!(
-        state.handle_terminal_input(TerminalInput::NextProfile),
+        handle_terminal_input(&mut state, TerminalInput::NextProfile),
         TerminalAction::Dispatch(ClientIntent::SwitchProfile {
             profile_id: "offline".to_string()
         })
     );
-    assert_eq!(state.active_profile, "offline");
+    assert_eq!(state.status.active_profile, "offline");
 
     assert_eq!(
-        state.handle_terminal_input(TerminalInput::PreviousProfile),
+        handle_terminal_input(&mut state, TerminalInput::PreviousProfile),
         TerminalAction::Dispatch(ClientIntent::SwitchProfile {
             profile_id: "mock-default".to_string()
         })
     );
-    assert_eq!(state.active_profile, "mock-default");
+    assert_eq!(state.status.active_profile, "mock-default");
 }
 
 #[test]
 fn prompt_submit_uses_current_profile_after_switch() {
     let mut state = ChatViewState::with_profiles("mock-default", ["mock-default", "offline"]);
-    state.handle_terminal_input(TerminalInput::NextProfile);
+    handle_terminal_input(&mut state, TerminalInput::NextProfile);
     state.set_input("hello selected profile");
 
     assert_eq!(
-        state.handle_terminal_input(TerminalInput::Submit),
+        handle_terminal_input(&mut state, TerminalInput::Submit),
         TerminalAction::Dispatch(ClientIntent::SubmitPrompt {
             profile_id: "offline".to_string(),
             prompt: "hello selected profile".to_string()
@@ -277,8 +287,11 @@ fn tui_applies_trace_records_from_core_storage() {
 
     state.apply_trace_record(&record);
 
-    assert_eq!(state.messages[0].role, ChatMessageRole::Assistant);
-    assert_eq!(state.messages[0].content, "from trace");
+    assert_eq!(
+        state.projection.messages[0].role,
+        ChatMessageRole::Assistant
+    );
+    assert_eq!(state.projection.messages[0].content, "from trace");
 }
 
 #[test]
@@ -293,13 +306,22 @@ fn tui_applies_live_client_events_without_waiting_for_trace_replay() {
         },
     );
 
-    state.apply_live_event(LiveClientEvent::Frame(Box::new(frame)));
-    state.apply_live_event(LiveClientEvent::Error("network down".to_string()));
+    apply_live_event(&mut state, LiveClientEvent::Frame(Box::new(frame)));
+    apply_live_event(
+        &mut state,
+        LiveClientEvent::Error("network down".to_string()),
+    );
 
-    assert_eq!(state.messages[0].role, ChatMessageRole::Assistant);
-    assert_eq!(state.messages[0].content, "live delta");
-    assert_eq!(state.messages[1].role, ChatMessageRole::Assistant);
-    assert_eq!(state.messages[1].content, "Error: network down");
+    assert_eq!(
+        state.projection.messages[0].role,
+        ChatMessageRole::Assistant
+    );
+    assert_eq!(state.projection.messages[0].content, "live delta");
+    assert_eq!(
+        state.projection.messages[1].role,
+        ChatMessageRole::Assistant
+    );
+    assert_eq!(state.projection.messages[1].content, "Error: network down");
 }
 
 #[test]

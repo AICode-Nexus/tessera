@@ -1602,6 +1602,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tessera-client"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tessera-protocol",
+]
+
+[[package]]
 name = "tessera-config"
 version = "0.1.0"
 dependencies = [
@@ -1668,6 +1676,7 @@ version = "0.1.0"
 dependencies = [
  "crossterm",
  "ratatui",
+ "tessera-client",
  "tessera-protocol",
  "tokio",
 ]

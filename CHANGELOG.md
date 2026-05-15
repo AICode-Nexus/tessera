@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - Added a global planning checklist covering completed v0.1 work, remaining v0.1 gates, v0.2-v0.5+ roadmap items, and mandatory update rules.
-- Established the v0.1 Rust workspace with `protocol`, `core`, `providers`, `storage`, `config`, `cli`, and `tui` crates.
+- Established the v0.1 Rust workspace with `protocol`, `client`, `core`, `providers`, `storage`, `config`, `cli`, and `tui` crates.
 - Added provider-neutral protocol types for thread, turn, item, task, artifact, event frames, provider capability, reasoning delta, usage/cache/cost telemetry, and route decisions.
 - Added JSONL trace writing with a rebuildable SQLite event index.
 - Added a deterministic mock provider and a mock-driven core conversation loop.
@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added a minimal TUI chat view-state reducer for input intents and streamed core event rendering.
 - Added a `tessera tui` terminal loop with crossterm input, Ratatui rendering, and live channel delivery back into the TUI state.
 - Added TUI profile switching through GUI-ready `ClientIntent` dispatch so prompt submission uses the currently selected provider profile.
+- Added a `client` crate with UI-neutral `ClientIntent`, `ClientStatus`, `ClientProjection`, and `ClientSnapshot` for TUI and future Tauri GUI reuse.
 - Added a GUI-ready architecture note so future desktop/web clients reuse the same headless runtime, client intents, and UI-neutral view model instead of forking runtime behavior from CLI/TUI.
 - Added ADR-001 for GUI architecture and toolkit direction, selecting a Tauri-first product GUI path with AI-ready typed IPC, permissions, fixture, and projection rules.
 - Added `tessera doctor --json` and `tessera chat --provider mock --prompt ...`.
@@ -33,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Built `rusqlite` with bundled SQLite to reduce release/runtime dependency drift across user machines.
 - Changed config-routed chat runs to use unique trace IDs so interactive sessions do not append duplicate sequence ranges to a fixed provider trace.
 - Included user prompt text in `user_message_recorded` trace payloads so TUI and replay surfaces can render user turns from core events.
+- Moved TUI message/status projection onto the shared `tessera-client` model while keeping terminal input and Ratatui rendering in `tessera-tui`.
 - Updated the README from design-only status to the current v0.1 scaffold status.
 
 ### Notes
