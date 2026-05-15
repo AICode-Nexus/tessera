@@ -133,7 +133,7 @@
 13. [x] GUI-ready client model 边界：已抽出 `tessera-client`，TUI 的 intent、message projection 和 status projection 复用 UI-neutral API。
 14. [x] `/new`、`/save`、`/export` 基础入口。
 15. [x] v0.1 release checklist 和 tag 计划。
-16. [~] `v0.1.0-alpha.1` pre-tag gate：release notes section 已准备；本地门禁、mock smoke、clean tree、CI 需在 tag 前逐项确认。
+16. [x] `v0.1.0-alpha.1` pre-tag gate：release notes section、本地门禁、mock smoke、clean tree、CI 均已确认，下一步可打 alpha tag。
 
 ## 4. v0.2 Checklist
 
