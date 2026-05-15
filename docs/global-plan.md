@@ -64,7 +64,7 @@
 - [x] HTTP stream 按字节缓冲到换行再解码，避免多字节字符跨 chunk 失败。
 - [x] OpenAI-compatible live smoke test，默认跳过，只在环境变量存在时运行。
 - [x] Ollama live smoke test，默认跳过，只在本地服务可用时运行。
-- [ ] provider error normalization 进一步细化错误码。
+- [x] provider error normalization：HTTP/provider body 会归一化为 provider-neutral code、retryable、safe details，并在写 trace 前脱敏。
 
 ### Core
 
@@ -134,6 +134,7 @@
 14. [x] `/new`、`/save`、`/export` 基础入口。
 15. [x] v0.1 release checklist 和 tag 计划。
 16. [x] `v0.1.0-alpha.1` pre-tag gate：release notes section、本地门禁、mock smoke、clean tree、CI 均已确认，下一步可打 alpha tag。
+17. [ ] `v0.1.0` final gate：至少完成一个真实 provider smoke，并检查真实 provider 成功路径不会把 secret 写入 debug/log/trace。
 
 ## 4. v0.2 Checklist
 

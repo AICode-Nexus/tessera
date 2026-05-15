@@ -4,7 +4,7 @@ use tessera_protocol::{
     EventFrame, ItemId, ModelProfileId, ProviderId, RouteDecision, RouteDecisionId, RouteStrategy,
     RunEvent, TaskId, TaskKind, ThreadId, TurnId,
 };
-use tessera_providers::{ChatProvider, ProviderRequest};
+use tessera_providers::{ChatProvider, ProviderError, ProviderRequest};
 use tessera_storage::TraceStore;
 
 #[derive(Debug, thiserror::Error)]
@@ -205,7 +205,12 @@ where
             model: request.model.clone(),
         });
 
-        let capability = self.provider.capability().await?;
+        let capability = match self.provider.capability().await {
+            Ok(capability) => capability,
+            Err(error) => {
+                return self.finish_failed(&mut context, error, &mut event_sink);
+            }
+        };
         append_event!(RunEvent::ProviderCapabilityReported {
             provider_id: request.provider_id.clone(),
             capability,
@@ -222,7 +227,7 @@ where
             },
         });
 
-        let mut stream = self
+        let mut stream = match self
             .provider
             .stream_chat(ProviderRequest {
                 provider_id: request.provider_id.clone(),
@@ -231,12 +236,21 @@ where
                 prompt: request.prompt,
                 assistant_item_id,
             })
-            .await?;
+            .await
+        {
+            Ok(stream) => stream,
+            Err(error) => {
+                return self.finish_failed(&mut context, error, &mut event_sink);
+            }
+        };
 
         loop {
             let next_event = if let Some(timeout) = controls.event_timeout {
                 match tokio::time::timeout(timeout, stream.try_next()).await {
-                    Ok(result) => result?,
+                    Ok(Ok(result)) => result,
+                    Ok(Err(error)) => {
+                        return self.finish_failed(&mut context, error, &mut event_sink);
+                    }
                     Err(_) => {
                         return self.finish_cancelled(
                             trace_id,
@@ -248,7 +262,12 @@ where
                     }
                 }
             } else {
-                stream.try_next().await?
+                match stream.try_next().await {
+                    Ok(result) => result,
+                    Err(error) => {
+                        return self.finish_failed(&mut context, error, &mut event_sink);
+                    }
+                }
             };
 
             let Some(event) = next_event else {
@@ -305,6 +324,38 @@ where
             assistant_text,
             store: self.store,
         })
+    }
+
+    fn finish_failed<F, R>(
+        mut self,
+        context: &mut RunContext,
+        error: ProviderError,
+        event_sink: &mut F,
+    ) -> Result<ConversationOutcome>
+    where
+        F: FnMut(&EventFrame) -> R,
+        R: Into<EventSinkAction>,
+    {
+        let normalized = error.normalized();
+        let _ = self.append_contextual(
+            context,
+            RunEvent::Error {
+                error: normalized.clone(),
+            },
+            event_sink,
+        )?;
+        let task_id = context.task_id.clone();
+        let _ = self.append_contextual(
+            context,
+            RunEvent::TaskFailed {
+                task_id,
+                error: normalized,
+            },
+            event_sink,
+        )?;
+        let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
+
+        Err(CoreError::Provider(error))
     }
 
     fn append_contextual<F, R>(

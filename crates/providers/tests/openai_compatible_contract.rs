@@ -1,5 +1,6 @@
-use tessera_protocol::{ItemId, ProviderId, RunEvent};
+use tessera_protocol::{ErrorSource, ItemId, NormalizedError, ProviderId, RunEvent};
 use tessera_providers::openai_compatible::{events_from_sse_data, OpenAiCompatibleProvider};
+use tessera_providers::{normalize_provider_http_error, ProviderError};
 
 #[test]
 fn openai_compatible_sse_maps_reasoning_content_and_usage() {
@@ -53,4 +54,65 @@ fn openai_compatible_debug_redacts_api_key() {
 
     assert!(debug.contains("<redacted>"));
     assert!(!debug.contains("sk-secret-test-value"));
+}
+
+#[test]
+fn openai_compatible_error_body_normalizes_and_redacts_provider_secret() {
+    let error = normalize_provider_http_error(
+        ProviderId::from_static("openai-compatible"),
+        reqwest::StatusCode::UNAUTHORIZED,
+        r#"{"error":{"message":"Invalid API key: sk-secret-test-value-1234567890","type":"invalid_request_error","code":"invalid_api_key"}}"#,
+    );
+
+    assert_eq!(error.code, "provider_authentication_failed");
+    assert_eq!(error.source, ErrorSource::Provider);
+    assert!(!error.retryable);
+    assert!(error.message.contains("<redacted>"));
+    assert!(!error.message.contains("sk-secret-test-value"));
+    let details = error.details.as_ref().unwrap();
+    assert_eq!(details["provider_id"], "openai-compatible");
+    assert_eq!(details["http_status"], 401);
+    assert_eq!(details["provider_error_code"], "invalid_api_key");
+    assert_eq!(details["provider_error_type"], "invalid_request_error");
+}
+
+#[test]
+fn provider_error_redacts_authorization_and_cookie_material() {
+    let error = normalize_provider_http_error(
+        ProviderId::from_static("openai-compatible"),
+        reqwest::StatusCode::BAD_REQUEST,
+        r#"{"error":{"message":"Authorization: Bearer bearer-secret Cookie: session=secret-cookie request failed","code":"bad_request"}}"#,
+    );
+
+    assert!(!error.message.contains("bearer-secret"));
+    assert!(!error.message.contains("secret-cookie"));
+    assert!(error.message.contains("Authorization: <redacted>"));
+    assert!(error.message.contains("Cookie: <redacted>"));
+}
+
+#[test]
+fn provider_error_exposes_normalized_parse_errors() {
+    let json_error = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
+    let normalized = ProviderError::Json(json_error).normalized();
+
+    assert_eq!(normalized.code, "provider_parse_error");
+    assert_eq!(normalized.source, ErrorSource::Provider);
+    assert!(!normalized.retryable);
+}
+
+#[test]
+fn provider_message_display_does_not_expose_raw_secret_material() {
+    let error = ProviderError::Message("provider returned sk-secret-display-token".to_string());
+
+    assert!(!error.to_string().contains("sk-secret-display-token"));
+
+    let error = ProviderError::Normalized(NormalizedError {
+        code: "provider_error".to_string(),
+        message: "provider returned sk-secret-display-token".to_string(),
+        retryable: false,
+        source: ErrorSource::Provider,
+        details: None,
+    });
+
+    assert!(!error.to_string().contains("sk-secret-display-token"));
 }

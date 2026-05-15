@@ -1,5 +1,6 @@
 use crate::{
-    drain_utf8_lines, ChatProvider, ProviderError, ProviderEventStream, ProviderRequest, Result,
+    drain_utf8_lines, normalize_provider_http_error, ChatProvider, ProviderError,
+    ProviderEventStream, ProviderRequest, Result,
 };
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -55,8 +56,10 @@ impl ChatProvider for OllamaProvider {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(ProviderError::Message(format!(
-                "ollama provider returned {status}: {body}"
+            return Err(ProviderError::Normalized(normalize_provider_http_error(
+                self.provider_id.clone(),
+                status,
+                &body,
             )));
         }
 

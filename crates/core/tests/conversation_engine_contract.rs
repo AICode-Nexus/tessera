@@ -2,10 +2,14 @@ use async_trait::async_trait;
 use futures::stream;
 use std::time::Duration;
 use tessera_core::{
-    ConversationEngine, ConversationRequest, EventSinkAction, ReplayRunner, RunControls,
+    ConversationEngine, ConversationRequest, CoreError, EventSinkAction, ReplayRunner, RunControls,
 };
-use tessera_protocol::{ModelProfileId, ProviderCapability, ProviderId, RunEvent};
-use tessera_providers::{mock::MockProvider, ChatProvider, ProviderEventStream, ProviderRequest};
+use tessera_protocol::{
+    ErrorSource, ModelProfileId, NormalizedError, ProviderCapability, ProviderId, RunEvent,
+};
+use tessera_providers::{
+    mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderRequest,
+};
 use tessera_storage::TraceStore;
 
 #[derive(Clone, Debug)]
@@ -31,6 +35,38 @@ impl ChatProvider for HangingProvider {
         _request: ProviderRequest,
     ) -> tessera_providers::Result<ProviderEventStream> {
         Ok(Box::pin(stream::pending()))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct FailingProvider;
+
+#[async_trait]
+impl ChatProvider for FailingProvider {
+    async fn capability(&self) -> tessera_providers::Result<ProviderCapability> {
+        Ok(ProviderCapability {
+            provider_id: ProviderId::from_static("failing"),
+            supports_streaming: true,
+            supports_reasoning_delta: false,
+            supports_cache_telemetry: false,
+            supports_cost_estimate: false,
+            supports_tool_calling: false,
+            max_context_tokens: Some(1024),
+            extension: None,
+        })
+    }
+
+    async fn stream_chat(
+        &self,
+        _request: ProviderRequest,
+    ) -> tessera_providers::Result<ProviderEventStream> {
+        Err(ProviderError::Normalized(NormalizedError {
+            code: "provider_rate_limited".to_string(),
+            message: "provider rate limit reached".to_string(),
+            retryable: true,
+            source: ErrorSource::Provider,
+            details: None,
+        }))
     }
 }
 
@@ -62,6 +98,42 @@ async fn conversation_engine_drives_mock_provider_and_persists_trace() {
         .find(|record| record.event_kind == "user_message_recorded")
         .unwrap();
     assert_eq!(user_message.payload["text"], "hello from core");
+}
+
+#[tokio::test]
+async fn conversation_engine_records_normalized_provider_errors_before_returning_failure() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(FailingProvider, store);
+    let mut request = ConversationRequest::mock("hello failure");
+    request.trace_id = "trace_provider_failure".to_string();
+    request.provider_id = ProviderId::from_static("failing");
+    request.profile_id = ModelProfileId::from_static("failing-default");
+    request.model = "failing-chat".to_string();
+
+    let result = engine.run_chat(request).await;
+
+    assert!(matches!(result, Err(CoreError::Provider(_))));
+    let store = TraceStore::open(temp.path()).unwrap();
+    let records = store.read_trace_records("trace_provider_failure").unwrap();
+    let event_kinds = records
+        .iter()
+        .map(|record| record.event_kind.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(event_kinds.contains(&"error"));
+    assert!(event_kinds.contains(&"task_failed"));
+    assert_eq!(event_kinds.last(), Some(&"done"));
+
+    let error_record = records
+        .iter()
+        .find(|record| record.event_kind == "error")
+        .unwrap();
+    assert_eq!(
+        error_record.payload["error"]["code"],
+        "provider_rate_limited"
+    );
+    assert_eq!(error_record.payload["error"]["retryable"], true);
 }
 
 #[tokio::test]
