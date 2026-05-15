@@ -10,7 +10,9 @@ tessera-protocol = { path = "../protocol" }
 tessera-providers = { path = "../providers" }
 tessera-storage = { path = "../storage" }
 thiserror.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

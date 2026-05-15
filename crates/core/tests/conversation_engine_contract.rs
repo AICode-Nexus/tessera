@@ -1,7 +1,38 @@
-use tessera_core::{ConversationEngine, ConversationRequest, ReplayRunner};
-use tessera_protocol::RunEvent;
-use tessera_providers::mock::MockProvider;
+use async_trait::async_trait;
+use futures::stream;
+use std::time::Duration;
+use tessera_core::{
+    ConversationEngine, ConversationRequest, EventSinkAction, ReplayRunner, RunControls,
+};
+use tessera_protocol::{ModelProfileId, ProviderCapability, ProviderId, RunEvent};
+use tessera_providers::{mock::MockProvider, ChatProvider, ProviderEventStream, ProviderRequest};
 use tessera_storage::TraceStore;
+
+#[derive(Clone, Debug)]
+struct HangingProvider;
+
+#[async_trait]
+impl ChatProvider for HangingProvider {
+    async fn capability(&self) -> tessera_providers::Result<ProviderCapability> {
+        Ok(ProviderCapability {
+            provider_id: ProviderId::from_static("hanging"),
+            supports_streaming: true,
+            supports_reasoning_delta: false,
+            supports_cache_telemetry: false,
+            supports_cost_estimate: false,
+            supports_tool_calling: false,
+            max_context_tokens: Some(1024),
+            extension: None,
+        })
+    }
+
+    async fn stream_chat(
+        &self,
+        _request: ProviderRequest,
+    ) -> tessera_providers::Result<ProviderEventStream> {
+        Ok(Box::pin(stream::pending()))
+    }
+}
 
 #[tokio::test]
 async fn conversation_engine_drives_mock_provider_and_persists_trace() {
@@ -58,6 +89,62 @@ async fn conversation_engine_streams_event_frames_to_live_sink_while_persisting_
         .map(|frame| frame.event.kind().to_string())
         .collect::<Vec<_>>();
     assert_eq!(live_event_kinds, persisted_events);
+}
+
+#[tokio::test]
+async fn conversation_engine_records_cancellation_when_live_sink_requests_stop() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(MockProvider::default(), store);
+    let mut live_events = Vec::new();
+
+    let outcome = engine
+        .run_chat_with_event_sink(ConversationRequest::mock("hello cancel"), |frame| {
+            live_events.push(frame.clone());
+            match frame.event {
+                RunEvent::AssistantMessageStarted { .. } => {
+                    EventSinkAction::Cancel("live client stopped".to_string())
+                }
+                _ => EventSinkAction::Continue,
+            }
+        })
+        .await
+        .unwrap();
+
+    let events = outcome.store.list_events(&outcome.trace_id).unwrap();
+    assert!(events.contains(&"task_cancelled".to_string()));
+    assert!(!events.contains(&"task_completed".to_string()));
+    assert_eq!(events.last().map(String::as_str), Some("done"));
+}
+
+#[tokio::test]
+async fn conversation_engine_records_timeout_when_provider_stalls() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(HangingProvider, store);
+    let request = ConversationRequest {
+        trace_id: "trace_timeout".to_string(),
+        provider_id: ProviderId::from_static("hanging"),
+        profile_id: ModelProfileId::from_static("hanging"),
+        model: "hanging-model".to_string(),
+        prompt: "hello timeout".to_string(),
+    };
+
+    let outcome = engine
+        .run_chat_with_controls_and_event_sink(
+            request,
+            RunControls {
+                event_timeout: Some(Duration::from_millis(5)),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+    let events = outcome.store.list_events(&outcome.trace_id).unwrap();
+    assert!(events.contains(&"task_cancelled".to_string()));
+    assert!(!events.contains(&"task_completed".to_string()));
+    assert_eq!(events.last().map(String::as_str), Some("done"));
 }
 
 #[tokio::test]

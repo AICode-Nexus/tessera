@@ -1,4 +1,5 @@
 use futures::TryStreamExt;
+use std::time::Duration;
 use tessera_protocol::{
     EventFrame, ItemId, ModelProfileId, ProviderId, RouteDecision, RouteDecisionId, RouteStrategy,
     RunEvent, TaskId, TaskKind, ThreadId, TurnId,
@@ -15,6 +16,32 @@ pub enum CoreError {
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EventSinkAction {
+    Continue,
+    Cancel(String),
+}
+
+impl EventSinkAction {
+    fn cancel_reason(self) -> Option<String> {
+        match self {
+            Self::Continue => None,
+            Self::Cancel(reason) => Some(reason),
+        }
+    }
+}
+
+impl From<()> for EventSinkAction {
+    fn from(_: ()) -> Self {
+        Self::Continue
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RunControls {
+    pub event_timeout: Option<Duration>,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConversationRequest {
@@ -106,16 +133,32 @@ where
         self.run_chat_with_event_sink(request, |_| {}).await
     }
 
-    pub async fn run_chat_with_event_sink<F>(
+    pub async fn run_chat_with_event_sink<F, R>(
+        self,
+        request: ConversationRequest,
+        event_sink: F,
+    ) -> Result<ConversationOutcome>
+    where
+        F: FnMut(&EventFrame) -> R,
+        R: Into<EventSinkAction>,
+    {
+        self.run_chat_with_controls_and_event_sink(request, RunControls::default(), event_sink)
+            .await
+    }
+
+    pub async fn run_chat_with_controls_and_event_sink<F, R>(
         mut self,
         request: ConversationRequest,
+        controls: RunControls,
         mut event_sink: F,
     ) -> Result<ConversationOutcome>
     where
-        F: FnMut(&EventFrame),
+        F: FnMut(&EventFrame) -> R,
+        R: Into<EventSinkAction>,
     {
+        let trace_id = request.trace_id.clone();
         let mut context = RunContext {
-            trace_id: request.trace_id.clone(),
+            trace_id: trace_id.clone(),
             thread_id: ThreadId::new(),
             turn_id: TurnId::new(),
             task_id: TaskId::new(),
@@ -126,75 +169,58 @@ where
         let mut assistant_text = String::new();
         let prompt = request.prompt.clone();
 
+        macro_rules! append_event {
+            ($event:expr) => {{
+                let action = self.append_contextual(&mut context, $event, &mut event_sink)?;
+                if let Some(reason) = action.cancel_reason() {
+                    return self.finish_cancelled(
+                        trace_id,
+                        assistant_text,
+                        &mut context,
+                        reason,
+                        &mut event_sink,
+                    );
+                }
+            }};
+        }
+
         let task_id = context.task_id.clone();
-        self.append_contextual(
-            &mut context,
-            RunEvent::TaskCreated {
-                task_id,
-                kind: TaskKind::Chat,
-            },
-            &mut event_sink,
-        )?;
+        append_event!(RunEvent::TaskCreated {
+            task_id,
+            kind: TaskKind::Chat,
+        });
         let task_id = context.task_id.clone();
-        self.append_contextual(
-            &mut context,
-            RunEvent::TaskStarted { task_id },
-            &mut event_sink,
-        )?;
+        append_event!(RunEvent::TaskStarted { task_id });
         let thread_id = context.thread_id.clone();
-        self.append_contextual(
-            &mut context,
-            RunEvent::ThreadCreated { thread_id },
-            &mut event_sink,
-        )?;
+        append_event!(RunEvent::ThreadCreated { thread_id });
         let turn_id = context.turn_id.clone();
-        self.append_contextual(
-            &mut context,
-            RunEvent::TurnStarted { turn_id },
-            &mut event_sink,
-        )?;
-        self.append_contextual(
-            &mut context,
-            RunEvent::UserMessageRecorded {
-                item_id: user_item_id,
-                text: prompt,
-            },
-            &mut event_sink,
-        )?;
-        self.append_contextual(
-            &mut context,
-            RunEvent::ProviderRequestStarted {
-                provider_id: request.provider_id.clone(),
-                profile_id: request.profile_id.clone(),
-                model: request.model.clone(),
-            },
-            &mut event_sink,
-        )?;
+        append_event!(RunEvent::TurnStarted { turn_id });
+        append_event!(RunEvent::UserMessageRecorded {
+            item_id: user_item_id,
+            text: prompt,
+        });
+        append_event!(RunEvent::ProviderRequestStarted {
+            provider_id: request.provider_id.clone(),
+            profile_id: request.profile_id.clone(),
+            model: request.model.clone(),
+        });
 
         let capability = self.provider.capability().await?;
-        self.append_contextual(
-            &mut context,
-            RunEvent::ProviderCapabilityReported {
-                provider_id: request.provider_id.clone(),
-                capability,
+        append_event!(RunEvent::ProviderCapabilityReported {
+            provider_id: request.provider_id.clone(),
+            capability,
+        });
+        append_event!(RunEvent::RouteDecisionRecorded {
+            decision_id: RouteDecisionId::new(),
+            decision: RouteDecision {
+                requested_profile: Some(request.profile_id.clone()),
+                selected_profile: request.profile_id.clone(),
+                selected_model: request.model.clone(),
+                reasoning_level: None,
+                strategy: RouteStrategy::Manual,
+                fallback_reason: None,
             },
-            &mut event_sink,
-        )?;
-        self.append_contextual(
-            &mut context,
-            RunEvent::RouteDecisionRecorded {
-                decision_id: RouteDecisionId::new(),
-                decision: RouteDecision {
-                    requested_profile: Some(request.profile_id.clone()),
-                    selected_profile: request.profile_id.clone(),
-                    selected_model: request.model.clone(),
-                    reasoning_level: None,
-                    strategy: RouteStrategy::Manual,
-                    fallback_reason: None,
-                },
-            },
-            &mut event_sink,
-        )?;
+        });
 
         let mut stream = self
             .provider
@@ -207,47 +233,90 @@ where
             })
             .await?;
 
-        while let Some(event) = stream.try_next().await? {
+        loop {
+            let next_event = if let Some(timeout) = controls.event_timeout {
+                match tokio::time::timeout(timeout, stream.try_next()).await {
+                    Ok(result) => result?,
+                    Err(_) => {
+                        return self.finish_cancelled(
+                            trace_id,
+                            assistant_text,
+                            &mut context,
+                            format!("provider event timeout after {}ms", timeout.as_millis()),
+                            &mut event_sink,
+                        );
+                    }
+                }
+            } else {
+                stream.try_next().await?
+            };
+
+            let Some(event) = next_event else {
+                break;
+            };
+
             if let RunEvent::AssistantDelta { text, .. } = &event {
                 assistant_text.push_str(text);
             }
-            self.append_contextual(&mut context, event, &mut event_sink)?;
+            append_event!(event);
         }
 
-        self.append_contextual(
-            &mut context,
-            RunEvent::ProviderRequestCompleted {
-                provider_id: request.provider_id,
-            },
-            &mut event_sink,
-        )?;
+        append_event!(RunEvent::ProviderRequestCompleted {
+            provider_id: request.provider_id,
+        });
         let turn_id = context.turn_id.clone();
-        self.append_contextual(
-            &mut context,
-            RunEvent::TurnCompleted { turn_id },
-            &mut event_sink,
-        )?;
+        append_event!(RunEvent::TurnCompleted { turn_id });
         let task_id = context.task_id.clone();
-        self.append_contextual(
-            &mut context,
-            RunEvent::TaskCompleted { task_id },
-            &mut event_sink,
-        )?;
-        self.append_contextual(&mut context, RunEvent::Done, &mut event_sink)?;
+        append_event!(RunEvent::TaskCompleted { task_id });
+        append_event!(RunEvent::Done);
 
         Ok(ConversationOutcome {
-            trace_id: request.trace_id,
+            trace_id,
             assistant_text,
             store: self.store,
         })
     }
 
-    fn append_contextual(
+    fn finish_cancelled<F, R>(
+        mut self,
+        trace_id: String,
+        assistant_text: String,
+        context: &mut RunContext,
+        reason: String,
+        event_sink: &mut F,
+    ) -> Result<ConversationOutcome>
+    where
+        F: FnMut(&EventFrame) -> R,
+        R: Into<EventSinkAction>,
+    {
+        let task_id = context.task_id.clone();
+        let _ = self.append_contextual(
+            context,
+            RunEvent::TaskCancelled {
+                task_id,
+                reason: Some(reason),
+            },
+            event_sink,
+        )?;
+        let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
+
+        Ok(ConversationOutcome {
+            trace_id,
+            assistant_text,
+            store: self.store,
+        })
+    }
+
+    fn append_contextual<F, R>(
         &mut self,
         context: &mut RunContext,
         event: RunEvent,
-        event_sink: &mut impl FnMut(&EventFrame),
-    ) -> Result<()> {
+        event_sink: &mut F,
+    ) -> Result<EventSinkAction>
+    where
+        F: FnMut(&EventFrame) -> R,
+        R: Into<EventSinkAction>,
+    {
         let item_id = event.item_id();
         let event_turn_id = event.turn_id();
         let event_task_id = event.task_id();
@@ -261,8 +330,8 @@ where
         }
 
         self.store.append(&frame)?;
-        event_sink(&frame);
+        let action = event_sink(&frame).into();
         context.seq += 1;
-        Ok(())
+        Ok(action)
     }
 }

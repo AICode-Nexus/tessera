@@ -69,7 +69,7 @@
 - [x] mock provider 可驱动完整 run loop。
 - [x] core 将 provider stream 转成 EventFrame 并写 trace。
 - [x] core 不依赖 provider 私有响应结构。
-- [ ] cancellation / timeout / backpressure 基础语义。
+- [x] cancellation / timeout / backpressure 基础语义：live sink 可请求取消，provider event timeout 会写 `task_cancelled`，TUI live channel 已 bounded。
 - [x] replay runner 初版。
 
 ### CLI
@@ -88,6 +88,7 @@
 - [x] profile / reasoning / cache / cost status-line 占位。
 - [x] 最小主聊天窗口：view-state reducer、line renderer、terminal frame、`tessera tui` 入口已完成。
 - [x] 输入框和流式输出：键盘事件、提交、core live event sink、CLI bridge、TUI channel apply 已完成。
+- [x] live event backpressure：TUI live channel 使用 bounded channel，channel full / closed 会回传取消信号。
 - [x] 模型/profile 切换入口：Tab / Shift-Tab 产生 `ClientIntent::SwitchProfile`，提交 prompt 时携带当前 profile。
 - [ ] `/new`、`/save`、`/export`。
 - [x] TUI 只订阅 core 事件，不直接依赖 provider SDK 或 SQLite internals。
@@ -123,8 +124,8 @@
 8. [x] 最小 TUI chat loop：view/input/event reducer、terminal event loop、CLI `tui` 入口已完成。
 9. [x] TUI profile switch 入口。
 10. [x] Live event bridge：core event sink、CLI bridge、TUI live channel 已完成。
-11. [ ] GUI-ready client model 边界：把当前 TUI view-state 中可共享的 intent、message projection 和 status projection 固化为 UI-neutral API。
-12. [ ] cancellation / timeout / backpressure 基础语义。
+11. [x] cancellation / timeout / backpressure 基础语义。
+12. [ ] GUI-ready client model 边界：把当前 TUI view-state 中可共享的 intent、message projection 和 status projection 固化为 UI-neutral API。
 13. [ ] v0.1 release checklist 和 tag 计划。
 
 ## 4. v0.2 Checklist

@@ -3,6 +3,7 @@ use tessera_cli::{
     run_chat_with_config, run_chat_with_config_and_events, run_doctor, DoctorReport,
 };
 use tessera_config::{ProviderProfile, TesseraConfig};
+use tessera_core::EventSinkAction;
 use tessera_protocol::RunEvent;
 
 #[tokio::test]
@@ -84,6 +85,37 @@ async fn config_routed_chat_can_stream_live_event_frames_without_reading_trace_b
             .collect::<Vec<_>>(),
         output.store.list_events(&output.trace_id).unwrap()
     );
+}
+
+#[tokio::test]
+async fn config_routed_chat_records_cancellation_when_event_sink_stops() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-routed".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+
+    let output =
+        run_chat_with_config_and_events(temp.path(), &config, "offline", "hello", |frame| {
+            match frame.event {
+                RunEvent::AssistantMessageStarted { .. } => {
+                    EventSinkAction::Cancel("cli sink closed".to_string())
+                }
+                _ => EventSinkAction::Continue,
+            }
+        })
+        .await
+        .unwrap();
+
+    let events = output.store.list_events(&output.trace_id).unwrap();
+    assert!(events.contains(&"task_cancelled".to_string()));
+    assert!(!events.contains(&"task_completed".to_string()));
 }
 
 #[tokio::test]

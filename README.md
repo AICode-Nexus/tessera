@@ -81,4 +81,4 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 - No tool execution.
 - No agent runtime.
 
-The next milestone is to extract the shared client view-model boundary, add cancellation / timeout / backpressure semantics, and then verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.
+The next milestone is to extract the shared client view-model boundary, add `/new` / `/save` / `/export` basics, and then verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.

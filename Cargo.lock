@@ -1616,6 +1616,7 @@ dependencies = [
 name = "tessera-core"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "futures",
  "tempfile",
  "tessera-protocol",

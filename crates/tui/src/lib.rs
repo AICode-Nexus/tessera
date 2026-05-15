@@ -61,7 +61,16 @@ pub enum LiveClientEvent {
     Error(String),
 }
 
-pub type LiveClientEventSender = mpsc::UnboundedSender<LiveClientEvent>;
+pub const LIVE_EVENT_BUFFER_CAPACITY: usize = 128;
+
+pub type LiveClientEventSender = mpsc::Sender<LiveClientEvent>;
+pub type LiveClientEventReceiver = mpsc::Receiver<LiveClientEvent>;
+
+pub fn live_client_event_channel(
+    capacity: usize,
+) -> (LiveClientEventSender, LiveClientEventReceiver) {
+    mpsc::channel(capacity)
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChatViewState {
@@ -449,7 +458,7 @@ where
     F: FnMut(String, String, LiveClientEventSender) -> Fut,
     Fut: Future<Output = Result<(), String>> + Send + 'static,
 {
-    let (live_event_tx, mut live_event_rx) = mpsc::unbounded_channel();
+    let (live_event_tx, mut live_event_rx) = live_client_event_channel(LIVE_EVENT_BUFFER_CAPACITY);
 
     loop {
         while let Ok(event) = live_event_rx.try_recv() {
@@ -479,7 +488,7 @@ where
                     let submit = submit_prompt(profile_id, prompt, submit_events_tx);
                     tokio::spawn(async move {
                         if let Err(error) = submit.await {
-                            let _ = submit_result_tx.send(LiveClientEvent::Error(error));
+                            let _ = submit_result_tx.try_send(LiveClientEvent::Error(error));
                         }
                     });
                 }

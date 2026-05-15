@@ -1,7 +1,7 @@
 use tessera_protocol::{EventFrame, ItemId, RunEvent};
 use tessera_tui::{
-    chat_window_lines, draw_terminal_frame, map_key_event, status_line, ChatMessageRole,
-    ChatViewState, ClientIntent, LiveClientEvent, TerminalAction, TerminalInput,
+    chat_window_lines, draw_terminal_frame, live_client_event_channel, map_key_event, status_line,
+    ChatMessageRole, ChatViewState, ClientIntent, LiveClientEvent, TerminalAction, TerminalInput,
 };
 
 fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
@@ -300,4 +300,21 @@ fn tui_applies_live_client_events_without_waiting_for_trace_replay() {
     assert_eq!(state.messages[0].content, "live delta");
     assert_eq!(state.messages[1].role, ChatMessageRole::Assistant);
     assert_eq!(state.messages[1].content, "Error: network down");
+}
+
+#[test]
+fn live_client_event_channel_is_bounded_for_backpressure() {
+    let (sender, _receiver) = live_client_event_channel(1);
+
+    sender
+        .try_send(LiveClientEvent::Error("first".to_string()))
+        .unwrap();
+    let error = sender
+        .try_send(LiveClientEvent::Error("second".to_string()))
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        tokio::sync::mpsc::error::TrySendError::Full(_)
+    ));
 }

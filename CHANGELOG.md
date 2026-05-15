@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added config-driven CLI provider routing and ignored live smoke tests for OpenAI-compatible and Ollama providers.
 - Added SQLite runtime object queries, index rebuild from JSONL, and a golden trace replay gate.
 - Added a core live event sink and CLI bridge so clients can consume `EventFrame`s as the run progresses while trace persistence still happens first.
+- Added basic cancellation, provider event timeout, and bounded live-event backpressure semantics with `task_cancelled` trace events.
 - Added a minimal TUI chat view-state reducer for input intents and streamed core event rendering.
 - Added a `tessera tui` terminal loop with crossterm input, Ratatui rendering, and live channel delivery back into the TUI state.
 - Added TUI profile switching through GUI-ready `ClientIntent` dispatch so prompt submission uses the currently selected provider profile.

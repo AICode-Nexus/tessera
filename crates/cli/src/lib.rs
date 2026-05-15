@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tessera_config::{ProviderProfile, TesseraConfig};
-use tessera_core::{ConversationEngine, ConversationOutcome, ConversationRequest};
+use tessera_core::{ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction};
 use tessera_protocol::{EventFrame, ModelProfileId, ProviderId};
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
@@ -83,7 +83,7 @@ pub async fn run_chat_with_config(
     run_chat_with_config_and_events(data_dir, config, provider_id, prompt, |_| {}).await
 }
 
-pub async fn run_chat_with_config_and_events<F>(
+pub async fn run_chat_with_config_and_events<F, R>(
     data_dir: impl AsRef<Path>,
     config: &TesseraConfig,
     provider_id: &str,
@@ -91,7 +91,8 @@ pub async fn run_chat_with_config_and_events<F>(
     mut event_sink: F,
 ) -> Result<ConversationOutcome>
 where
-    F: FnMut(&EventFrame),
+    F: FnMut(&EventFrame) -> R,
+    R: Into<EventSinkAction>,
 {
     let profile = config
         .providers
@@ -151,8 +152,16 @@ pub async fn run_tui_with_config(
         async move {
             run_chat_with_config_and_events(data_dir, &config, &selected_provider_id, prompt, {
                 let live_events = live_events.clone();
-                move |frame| {
-                    let _ = live_events.send(LiveClientEvent::Frame(Box::new(frame.clone())));
+                move |frame| match live_events
+                    .try_send(LiveClientEvent::Frame(Box::new(frame.clone())))
+                {
+                    Ok(()) => EventSinkAction::Continue,
+                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                        EventSinkAction::Cancel("live event channel closed".to_string())
+                    }
+                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                        EventSinkAction::Cancel("live event channel full".to_string())
+                    }
                 }
             })
             .await
@@ -184,15 +193,17 @@ pub fn build_tui_state_with_config(
     Ok(ChatViewState::with_profiles(provider_id, profile_ids))
 }
 
-async fn run_chat_for_provider_with_events<P>(
+async fn run_chat_for_provider_with_events<P, F, R>(
     data_dir: impl AsRef<Path>,
     profile: &ProviderProfile,
     provider: P,
     prompt: impl Into<String>,
-    event_sink: &mut impl FnMut(&EventFrame),
+    event_sink: &mut F,
 ) -> Result<ConversationOutcome>
 where
     P: ChatProvider,
+    F: FnMut(&EventFrame) -> R,
+    R: Into<EventSinkAction>,
 {
     let store = TraceStore::open(data_dir)?;
     let engine = ConversationEngine::new(provider, store);
