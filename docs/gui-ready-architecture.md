@@ -95,7 +95,7 @@ terminal key / GUI action
 
 - 用户输入转成 `ClientIntent`，其中 profile switch 和 prompt submit 使用同一套 UI-neutral intent。
 - core event / trace record 转成 `ClientProjection` 消息列表。
-- provider/profile/reasoning/cache/cost/task state 进入 `ClientStatus` 投影。
+- provider/profile/reasoning/cache/cost/task state/artifact state 进入 `ClientStatus` 投影。
 
 后续应抽出的 UI-neutral 能力：
 
@@ -103,6 +103,7 @@ terminal key / GUI action
 - `ClientStatus`：profile、model、reasoning、cache、cost、task state。
 - `ClientMessage`：role、content、reasoning、streaming、trace refs。
 - `ClientTask`：task id、kind、status、started/completed/finished、cancel reason、error summary，已由 task registry 初版补齐。
+- `ClientArtifact`：artifact id、kind、关联 thread/turn/task/item、created timestamp、referencing event kinds，已由 artifact handle projection 补齐。
 - `ClientProjection`：从 `EventFrame` / `TraceRecord` 生成稳定 view state。
 - `ClientSnapshot`：GUI/TUI 初始加载和 replay 恢复使用的完整投影。
 

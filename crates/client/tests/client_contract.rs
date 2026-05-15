@@ -2,8 +2,8 @@ use tessera_client::{
     ClientIntent, ClientMessageRole, ClientProjection, ClientSnapshot, ClientStatus,
 };
 use tessera_protocol::{
-    CostEstimate, ErrorSource, EventFrame, ItemId, NormalizedError, ProviderCapability, ProviderId,
-    RunEvent, TaskId, TaskKind, TaskStatus,
+    ArtifactId, ArtifactKind, CostEstimate, ErrorSource, EventFrame, ItemId, NormalizedError,
+    ProviderCapability, ProviderId, RunEvent, TaskId, TaskKind, TaskStatus,
 };
 
 #[test]
@@ -428,4 +428,94 @@ fn client_snapshot_updates_task_registry_from_replayed_failed_and_cancelled_task
         Some("client stopped")
     );
     assert_eq!(snapshot.status.task_summary, "task cancelled");
+}
+
+#[test]
+fn client_snapshot_projects_artifact_handles_from_live_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let artifact_id = ArtifactId::from_static("artifact_live");
+    let task_id = TaskId::from_static("task_artifact_live");
+    let item_id = ItemId::from_static("item_artifact_live");
+
+    snapshot.apply_event(
+        &EventFrame::new(
+            "trace_artifact_live",
+            1,
+            RunEvent::ArtifactCreated {
+                artifact_id: artifact_id.clone(),
+                kind: ArtifactKind::Export,
+            },
+        )
+        .with_task_id(task_id.clone()),
+    );
+    snapshot.apply_event(
+        &EventFrame::new(
+            "trace_artifact_live",
+            2,
+            RunEvent::AssistantDelta {
+                item_id: item_id.clone(),
+                text: "see artifact".to_string(),
+            },
+        )
+        .with_task_id(task_id.clone())
+        .with_item_id(item_id.clone())
+        .with_artifact_ref(artifact_id.clone()),
+    );
+
+    assert_eq!(snapshot.artifacts.len(), 1);
+    assert_eq!(snapshot.artifacts[0].artifact_id, artifact_id);
+    assert_eq!(snapshot.artifacts[0].kind, Some(ArtifactKind::Export));
+    assert_eq!(snapshot.artifacts[0].task_id, Some(task_id));
+    assert_eq!(snapshot.artifacts[0].item_id, Some(item_id));
+    assert!(snapshot.artifacts[0].created_at.is_some());
+    assert_eq!(
+        snapshot.artifacts[0].referenced_by_event_kinds,
+        vec!["assistant_delta"]
+    );
+    assert_eq!(snapshot.status.artifact_summary, "artifacts 1");
+}
+
+#[test]
+fn client_snapshot_projects_artifact_handles_from_replayed_trace_records() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let artifact_id = ArtifactId::from_static("artifact_replay");
+    let task_id = TaskId::from_static("task_artifact_replay");
+
+    let records = [
+        EventFrame::new(
+            "trace_artifact_replay",
+            1,
+            RunEvent::AssistantDelta {
+                item_id: ItemId::from_static("item_artifact_replay"),
+                text: "artifact ref first".to_string(),
+            },
+        )
+        .with_task_id(task_id.clone())
+        .with_artifact_ref(artifact_id.clone())
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_artifact_replay",
+            2,
+            RunEvent::ArtifactCreated {
+                artifact_id: artifact_id.clone(),
+                kind: ArtifactKind::TestReport,
+            },
+        )
+        .with_task_id(task_id.clone())
+        .to_trace_record(),
+    ];
+
+    for record in records {
+        snapshot.apply_trace_record(&record);
+    }
+
+    assert_eq!(snapshot.artifacts.len(), 1);
+    assert_eq!(snapshot.artifacts[0].artifact_id, artifact_id);
+    assert_eq!(snapshot.artifacts[0].kind, Some(ArtifactKind::TestReport));
+    assert_eq!(snapshot.artifacts[0].task_id, Some(task_id));
+    assert_eq!(
+        snapshot.artifacts[0].referenced_by_event_kinds,
+        vec!["assistant_delta"]
+    );
+    assert_eq!(snapshot.status.artifact_summary, "artifacts 1");
 }

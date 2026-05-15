@@ -6,7 +6,8 @@ use tessera_core::{
     RuntimeEventQuery, RuntimeReader,
 };
 use tessera_protocol::{
-    ErrorSource, ModelProfileId, NormalizedError, ProviderCapability, ProviderId, RunEvent,
+    ArtifactId, ArtifactKind, ErrorSource, EventFrame, ItemId, ModelProfileId, NormalizedError,
+    ProviderCapability, ProviderId, RunEvent, TaskId,
 };
 use tessera_providers::{
     mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderRequest,
@@ -338,4 +339,56 @@ async fn runtime_reader_lists_task_registry_from_trace() {
     assert!(tasks[0].finished_at.is_some());
     assert!(tasks[0].error_code.is_none());
     assert!(tasks[0].cancel_reason.is_none());
+}
+
+#[test]
+fn runtime_reader_lists_artifact_handles_from_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = TraceStore::open(temp.path()).unwrap();
+    let artifact_id = ArtifactId::from_static("artifact_runtime");
+    let task_id = TaskId::from_static("task_artifact_runtime");
+    let item_id = ItemId::from_static("item_artifact_runtime");
+
+    store
+        .append(
+            &EventFrame::new(
+                "trace_artifact_runtime",
+                1,
+                RunEvent::AssistantDelta {
+                    item_id: item_id.clone(),
+                    text: "runtime artifact ref".to_string(),
+                },
+            )
+            .with_task_id(task_id.clone())
+            .with_item_id(item_id.clone())
+            .with_artifact_ref(artifact_id.clone()),
+        )
+        .unwrap();
+    store
+        .append(
+            &EventFrame::new(
+                "trace_artifact_runtime",
+                2,
+                RunEvent::ArtifactCreated {
+                    artifact_id: artifact_id.clone(),
+                    kind: ArtifactKind::Patch,
+                },
+            )
+            .with_task_id(task_id.clone()),
+        )
+        .unwrap();
+
+    let reader = RuntimeReader::new(store);
+    let artifacts = reader.list_artifacts("trace_artifact_runtime").unwrap();
+
+    assert_eq!(artifacts.len(), 1);
+    assert_eq!(artifacts[0].artifact_id, artifact_id);
+    assert_eq!(artifacts[0].kind, Some(ArtifactKind::Patch));
+    assert_eq!(artifacts[0].task_id, Some(task_id));
+    assert_eq!(artifacts[0].item_id, Some(item_id));
+    assert!(artifacts[0].created_at.is_some());
+    assert_eq!(
+        artifacts[0].referenced_by_event_kinds,
+        vec!["assistant_delta"]
+    );
 }

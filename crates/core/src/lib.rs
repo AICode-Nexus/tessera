@@ -1,9 +1,9 @@
 use futures::TryStreamExt;
 use std::time::Duration;
 use tessera_protocol::{
-    ArtifactId, EventFrame, ItemId, ModelProfileId, ProviderId, RouteDecision, RouteDecisionId,
-    RouteStrategy, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId, Timestamp, TraceRecord,
-    TurnId,
+    ArtifactId, ArtifactKind, EventFrame, ItemId, ModelProfileId, ProviderId, RouteDecision,
+    RouteDecisionId, RouteStrategy, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId, Timestamp,
+    TraceRecord, TurnId,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -180,6 +180,64 @@ impl RuntimeTaskSummary {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeArtifactSummary {
+    pub artifact_id: ArtifactId,
+    pub kind: Option<ArtifactKind>,
+    pub thread_id: Option<ThreadId>,
+    pub turn_id: Option<TurnId>,
+    pub task_id: Option<TaskId>,
+    pub item_id: Option<ItemId>,
+    pub created_at: Option<Timestamp>,
+    pub referenced_by_event_kinds: Vec<String>,
+}
+
+impl RuntimeArtifactSummary {
+    fn new(artifact_id: ArtifactId) -> Self {
+        Self {
+            artifact_id,
+            kind: None,
+            thread_id: None,
+            turn_id: None,
+            task_id: None,
+            item_id: None,
+            created_at: None,
+            referenced_by_event_kinds: Vec::new(),
+        }
+    }
+
+    fn update_scope(
+        &mut self,
+        thread_id: Option<ThreadId>,
+        turn_id: Option<TurnId>,
+        task_id: Option<TaskId>,
+        item_id: Option<ItemId>,
+    ) {
+        if thread_id.is_some() {
+            self.thread_id = thread_id;
+        }
+        if turn_id.is_some() {
+            self.turn_id = turn_id;
+        }
+        if task_id.is_some() {
+            self.task_id = task_id;
+        }
+        if item_id.is_some() {
+            self.item_id = item_id;
+        }
+    }
+
+    fn record_reference(&mut self, event_kind: &str) {
+        if !self
+            .referenced_by_event_kinds
+            .iter()
+            .any(|existing| existing == event_kind)
+        {
+            self.referenced_by_event_kinds.push(event_kind.to_string());
+        }
+    }
+}
+
 pub struct RuntimeReader {
     store: TraceStore,
 }
@@ -228,6 +286,15 @@ impl RuntimeReader {
             apply_task_record(&mut tasks, &record);
         }
         Ok(tasks)
+    }
+
+    pub fn list_artifacts(&self, trace_id: &str) -> Result<Vec<RuntimeArtifactSummary>> {
+        let records = self.store.read_trace_records(trace_id)?;
+        let mut artifacts = Vec::new();
+        for record in records {
+            apply_artifact_record(&mut artifacts, &record);
+        }
+        Ok(artifacts)
     }
 }
 
@@ -328,6 +395,67 @@ fn trace_record_task_id(record: &TraceRecord) -> Option<TaskId> {
             .and_then(|value| value.as_str())
             .map(TaskId::from)
     })
+}
+
+fn apply_artifact_record(artifacts: &mut Vec<RuntimeArtifactSummary>, record: &TraceRecord) {
+    if record.event_kind == "artifact_created" {
+        if let Some(artifact_id) = trace_record_artifact_id(record) {
+            let kind = record
+                .payload
+                .get("kind")
+                .and_then(|value| value.as_str())
+                .and_then(ArtifactKind::from_snake_case);
+            let artifact = artifact_mut_or_insert(artifacts, &artifact_id);
+            artifact.kind = kind;
+            artifact.created_at = Some(record.timestamp.clone());
+            artifact.update_scope(
+                record.thread_id.clone(),
+                record.turn_id.clone(),
+                record.task_id.clone(),
+                record.item_id.clone(),
+            );
+        }
+    }
+
+    if record.artifact_refs.is_empty() {
+        return;
+    }
+
+    for artifact_id in &record.artifact_refs {
+        let artifact = artifact_mut_or_insert(artifacts, artifact_id);
+        artifact.update_scope(
+            record.thread_id.clone(),
+            record.turn_id.clone(),
+            record.task_id.clone(),
+            record.item_id.clone(),
+        );
+        artifact.record_reference(&record.event_kind);
+    }
+}
+
+fn artifact_mut_or_insert<'a>(
+    artifacts: &'a mut Vec<RuntimeArtifactSummary>,
+    artifact_id: &ArtifactId,
+) -> &'a mut RuntimeArtifactSummary {
+    if let Some(index) = artifacts
+        .iter()
+        .position(|artifact| &artifact.artifact_id == artifact_id)
+    {
+        return &mut artifacts[index];
+    }
+
+    artifacts.push(RuntimeArtifactSummary::new(artifact_id.clone()));
+    artifacts
+        .last_mut()
+        .expect("artifact was just inserted into non-empty registry")
+}
+
+fn trace_record_artifact_id(record: &TraceRecord) -> Option<ArtifactId> {
+    record
+        .payload
+        .get("artifact_id")
+        .and_then(|value| value.as_str())
+        .map(ArtifactId::from)
 }
 
 impl<'a> ReplayRunner<'a> {

@@ -1,5 +1,6 @@
 use tessera_protocol::{
-    CostEstimate, EventFrame, ItemId, ProviderCapability, ProviderId, RunEvent, TaskId, TaskKind,
+    ArtifactId, ArtifactKind, CostEstimate, EventFrame, ItemId, ProviderCapability, ProviderId,
+    RunEvent, TaskId, TaskKind,
 };
 use tessera_tui::{
     apply_client_intent_locally, apply_live_event, chat_window_lines, draw_terminal_frame,
@@ -38,6 +39,7 @@ fn tui_status_line_contains_profile_reasoning_and_cost_placeholders() {
     assert!(spans.join("").contains("mock-default"));
     assert!(spans.join("").contains("reasoning"));
     assert!(spans.join("").contains("task idle"));
+    assert!(spans.join("").contains("artifacts 0"));
     assert!(spans.join("").contains("usage in 0 / out 0 / total 0"));
     assert!(spans.join("").contains("cache 0/0"));
     assert!(spans.join("").contains("CNY 0.0000"));
@@ -137,6 +139,31 @@ fn tui_status_line_renders_live_task_summary() {
         .collect::<String>();
 
     assert!(rendered.contains("task running"));
+}
+
+#[test]
+fn tui_status_line_renders_live_artifact_summary() {
+    let mut state = ChatViewState::new("mock-default");
+
+    apply_live_event(
+        &mut state,
+        LiveClientEvent::Frame(Box::new(EventFrame::new(
+            "trace_tui_artifact",
+            1,
+            RunEvent::ArtifactCreated {
+                artifact_id: ArtifactId::from_static("artifact_tui_live"),
+                kind: ArtifactKind::Export,
+            },
+        ))),
+    );
+
+    let rendered = status_line(&state)
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+
+    assert!(rendered.contains("artifacts 1"));
 }
 
 #[test]

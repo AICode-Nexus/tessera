@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use tessera_protocol::{
-    EventFrame, ItemId, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId, Timestamp, TraceRecord,
-    TurnId,
+    ArtifactId, ArtifactKind, EventFrame, ItemId, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId,
+    Timestamp, TraceRecord, TurnId,
 };
 
 /// User intent shared by CLI/TUI/GUI surfaces before it reaches runtime code.
@@ -76,6 +76,65 @@ impl ClientTask {
         }
         if turn_id.is_some() {
             self.turn_id = turn_id;
+        }
+    }
+}
+
+/// UI-neutral artifact handle projection shared by terminal and future GUI shells.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ClientArtifact {
+    pub artifact_id: ArtifactId,
+    pub kind: Option<ArtifactKind>,
+    pub thread_id: Option<ThreadId>,
+    pub turn_id: Option<TurnId>,
+    pub task_id: Option<TaskId>,
+    pub item_id: Option<ItemId>,
+    pub created_at: Option<Timestamp>,
+    pub referenced_by_event_kinds: Vec<String>,
+}
+
+impl ClientArtifact {
+    fn new(artifact_id: ArtifactId) -> Self {
+        Self {
+            artifact_id,
+            kind: None,
+            thread_id: None,
+            turn_id: None,
+            task_id: None,
+            item_id: None,
+            created_at: None,
+            referenced_by_event_kinds: Vec::new(),
+        }
+    }
+
+    fn update_scope(
+        &mut self,
+        thread_id: Option<ThreadId>,
+        turn_id: Option<TurnId>,
+        task_id: Option<TaskId>,
+        item_id: Option<ItemId>,
+    ) {
+        if thread_id.is_some() {
+            self.thread_id = thread_id;
+        }
+        if turn_id.is_some() {
+            self.turn_id = turn_id;
+        }
+        if task_id.is_some() {
+            self.task_id = task_id;
+        }
+        if item_id.is_some() {
+            self.item_id = item_id;
+        }
+    }
+
+    fn record_reference(&mut self, event_kind: &str) {
+        if !self
+            .referenced_by_event_kinds
+            .iter()
+            .any(|existing| existing == event_kind)
+        {
+            self.referenced_by_event_kinds.push(event_kind.to_string());
         }
     }
 }
@@ -233,6 +292,7 @@ pub struct ClientStatus {
     pub available_profiles: Vec<String>,
     pub reasoning_visible: bool,
     pub task_summary: String,
+    pub artifact_summary: String,
     pub usage_summary: String,
     pub cache_summary: String,
     pub cost_summary: String,
@@ -269,6 +329,7 @@ impl ClientStatus {
             available_profiles,
             reasoning_visible: false,
             task_summary: "task idle".to_string(),
+            artifact_summary: "artifacts 0".to_string(),
             usage_summary: "usage in 0 / out 0 / total 0".to_string(),
             cache_summary: "cache 0/0".to_string(),
             cost_summary: "CNY 0.0000".to_string(),
@@ -329,6 +390,10 @@ impl ClientStatus {
 
     fn update_task_summary(&mut self, tasks: &[ClientTask]) {
         self.task_summary = latest_task_summary(tasks);
+    }
+
+    fn update_artifact_summary(&mut self, artifacts: &[ClientArtifact]) {
+        self.artifact_summary = format!("artifacts {}", artifacts.len());
     }
 }
 
@@ -480,6 +545,7 @@ pub struct ClientSnapshot {
     pub status: ClientStatus,
     pub projection: ClientProjection,
     pub tasks: Vec<ClientTask>,
+    pub artifacts: Vec<ClientArtifact>,
     pub draft_input: String,
 }
 
@@ -499,6 +565,7 @@ impl ClientSnapshot {
             status: ClientStatus::with_profiles(active_profile.clone(), profiles),
             projection: ClientProjection::new(active_profile),
             tasks: Vec::new(),
+            artifacts: Vec::new(),
             draft_input: String::new(),
         }
     }
@@ -583,6 +650,18 @@ impl ClientSnapshot {
                 task.cancel_reason = reason.clone();
                 self.status.update_task_summary(&self.tasks);
             }
+            RunEvent::ArtifactCreated { artifact_id, kind } => {
+                let thread_id = frame.thread_id.clone();
+                let turn_id = frame.turn_id.clone();
+                let task_id = frame.task_id.clone();
+                let item_id = frame.item_id.clone();
+                let timestamp = frame.timestamp.clone();
+                let artifact = self.artifact_mut_or_insert(artifact_id);
+                artifact.kind = Some(kind.clone());
+                artifact.created_at = Some(timestamp);
+                artifact.update_scope(thread_id, turn_id, task_id, item_id);
+                self.status.update_artifact_summary(&self.artifacts);
+            }
             RunEvent::ProviderCapabilityReported { capability, .. } => self
                 .status
                 .update_provider_capability(capability.max_context_tokens),
@@ -609,6 +688,7 @@ impl ClientSnapshot {
             }
             _ => {}
         }
+        self.apply_artifact_refs_from_frame(frame);
         self.projection.reasoning_visible = self.status.reasoning_visible;
         self.projection.apply_event(frame);
     }
@@ -689,6 +769,26 @@ impl ClientSnapshot {
                     .map(str::to_string);
                 self.status.update_task_summary(&self.tasks);
             }
+            "artifact_created" => {
+                let Some(artifact_id) = trace_record_artifact_id(record) else {
+                    return;
+                };
+                let kind = record
+                    .payload
+                    .get("kind")
+                    .and_then(|value| value.as_str())
+                    .and_then(ArtifactKind::from_snake_case);
+                let artifact = self.artifact_mut_or_insert(&artifact_id);
+                artifact.kind = kind;
+                artifact.created_at = Some(record.timestamp.clone());
+                artifact.update_scope(
+                    record.thread_id.clone(),
+                    record.turn_id.clone(),
+                    record.task_id.clone(),
+                    record.item_id.clone(),
+                );
+                self.status.update_artifact_summary(&self.artifacts);
+            }
             "provider_capability_reported" => self.status.update_provider_capability(
                 record
                     .payload
@@ -733,6 +833,7 @@ impl ClientSnapshot {
             }
             _ => {}
         }
+        self.apply_artifact_refs_from_record(record);
         self.projection.reasoning_visible = self.status.reasoning_visible;
         self.projection.apply_trace_record(record);
     }
@@ -740,9 +841,11 @@ impl ClientSnapshot {
     pub fn start_new_thread(&mut self) {
         self.projection = ClientProjection::new(self.status.active_profile.clone());
         self.tasks.clear();
+        self.artifacts.clear();
         self.draft_input.clear();
         self.status.reset_telemetry();
         self.status.update_task_summary(&self.tasks);
+        self.status.update_artifact_summary(&self.artifacts);
     }
 
     pub fn push_notice(&mut self, content: impl Into<String>) {
@@ -788,6 +891,68 @@ impl ClientSnapshot {
             .last_mut()
             .expect("task was just inserted into non-empty registry")
     }
+
+    fn artifact_mut_or_insert(&mut self, artifact_id: &ArtifactId) -> &mut ClientArtifact {
+        if let Some(index) = self
+            .artifacts
+            .iter()
+            .position(|artifact| &artifact.artifact_id == artifact_id)
+        {
+            return &mut self.artifacts[index];
+        }
+
+        self.artifacts
+            .push(ClientArtifact::new(artifact_id.clone()));
+        self.artifacts
+            .last_mut()
+            .expect("artifact was just inserted into non-empty registry")
+    }
+
+    fn apply_artifact_refs_from_frame(&mut self, frame: &EventFrame) {
+        if frame.artifact_refs.is_empty() {
+            return;
+        }
+
+        let event_kind = frame.event.kind().to_string();
+        let thread_id = frame.thread_id.clone();
+        let turn_id = frame.turn_id.clone();
+        let task_id = frame.task_id.clone();
+        let item_id = frame.item_id.clone();
+        for artifact_id in &frame.artifact_refs {
+            let artifact = self.artifact_mut_or_insert(artifact_id);
+            artifact.update_scope(
+                thread_id.clone(),
+                turn_id.clone(),
+                task_id.clone(),
+                item_id.clone(),
+            );
+            artifact.record_reference(&event_kind);
+        }
+        self.status.update_artifact_summary(&self.artifacts);
+    }
+
+    fn apply_artifact_refs_from_record(&mut self, record: &TraceRecord) {
+        if record.artifact_refs.is_empty() {
+            return;
+        }
+
+        let event_kind = record.event_kind.clone();
+        let thread_id = record.thread_id.clone();
+        let turn_id = record.turn_id.clone();
+        let task_id = record.task_id.clone();
+        let item_id = record.item_id.clone();
+        for artifact_id in &record.artifact_refs {
+            let artifact = self.artifact_mut_or_insert(artifact_id);
+            artifact.update_scope(
+                thread_id.clone(),
+                turn_id.clone(),
+                task_id.clone(),
+                item_id.clone(),
+            );
+            artifact.record_reference(&event_kind);
+        }
+        self.status.update_artifact_summary(&self.artifacts);
+    }
 }
 
 fn trace_record_item_id(record: &TraceRecord) -> Option<ItemId> {
@@ -808,6 +973,14 @@ fn trace_record_task_id(record: &TraceRecord) -> Option<TaskId> {
             .and_then(|value| value.as_str())
             .map(TaskId::from)
     })
+}
+
+fn trace_record_artifact_id(record: &TraceRecord) -> Option<ArtifactId> {
+    record
+        .payload
+        .get("artifact_id")
+        .and_then(|value| value.as_str())
+        .map(ArtifactId::from)
 }
 
 fn latest_task_summary(tasks: &[ClientTask]) -> String {

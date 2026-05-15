@@ -148,7 +148,7 @@
 - [x] Usage/cache/cost/context telemetry summary：`tessera-client` 已从标准 live events 和 replay trace records 聚合 provider-neutral summary，TUI 只负责渲染。
 - [ ] Model router 草案，只记录 route decision，不默认自动路由。
 - [ ] No-progress loop detection 草案：连续只读/重复 repair/无输出循环先 stop / ask / summarize，不直接升档到更贵模型。
-- [ ] Artifact handle projection。
+- [x] Artifact handle projection：`RuntimeReader::list_artifacts` 可从 `artifact_created` 和 `artifact_refs` 重建 read-only artifact summaries，`tessera-client` 可投影 `ClientArtifact` 和 artifact status summary，TUI 仍只渲染。
 - [ ] Skill registry schema，只读，不执行 skill runtime。
 - [ ] Snapshot/checkpoint schema 设计。
 - [ ] 分发计划：Cargo、GitHub Releases、Homebrew、npm wrapper、Docker。

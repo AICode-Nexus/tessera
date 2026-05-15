@@ -232,6 +232,21 @@ pub enum ArtifactKind {
     AgentTranscript,
 }
 
+impl ArtifactKind {
+    pub fn from_snake_case(value: &str) -> Option<Self> {
+        match value {
+            "trace" => Some(Self::Trace),
+            "export" => Some(Self::Export),
+            "provider_raw_metadata" => Some(Self::ProviderRawMetadata),
+            "tool_output" => Some(Self::ToolOutput),
+            "patch" => Some(Self::Patch),
+            "test_report" => Some(Self::TestReport),
+            "agent_transcript" => Some(Self::AgentTranscript),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Artifact {
     pub id: ArtifactId,
