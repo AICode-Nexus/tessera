@@ -1,8 +1,8 @@
 use futures::TryStreamExt;
 use std::time::Duration;
 use tessera_protocol::{
-    EventFrame, ItemId, ModelProfileId, ProviderId, RouteDecision, RouteDecisionId, RouteStrategy,
-    RunEvent, TaskId, TaskKind, ThreadId, TurnId,
+    ArtifactId, EventFrame, ItemId, ModelProfileId, ProviderId, RouteDecision, RouteDecisionId,
+    RouteStrategy, RunEvent, TaskId, TaskKind, ThreadId, TraceRecord, TurnId,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -92,6 +92,91 @@ pub struct ReplaySummary {
 
 pub struct ReplayRunner<'a> {
     store: &'a TraceStore,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeEventQuery {
+    pub trace_id: String,
+    pub since_seq: Option<u64>,
+    pub limit: Option<usize>,
+}
+
+impl RuntimeEventQuery {
+    pub fn new(trace_id: impl Into<String>) -> Self {
+        Self {
+            trace_id: trace_id.into(),
+            since_seq: None,
+            limit: None,
+        }
+    }
+
+    pub fn since_seq(mut self, seq: u64) -> Self {
+        self.since_seq = Some(seq);
+        self
+    }
+
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeEventPage {
+    pub trace_id: String,
+    pub records: Vec<TraceRecord>,
+    pub next_since_seq: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeObjectIndex {
+    pub threads: Vec<ThreadId>,
+    pub turns: Vec<TurnId>,
+    pub items: Vec<ItemId>,
+    pub tasks: Vec<TaskId>,
+    pub artifacts: Vec<ArtifactId>,
+}
+
+pub struct RuntimeReader {
+    store: TraceStore,
+}
+
+impl RuntimeReader {
+    pub fn new(store: TraceStore) -> Self {
+        Self { store }
+    }
+
+    pub fn list_events(&self, query: RuntimeEventQuery) -> Result<RuntimeEventPage> {
+        let since_seq = query.since_seq.unwrap_or(0);
+        let mut records = self
+            .store
+            .read_trace_records(&query.trace_id)?
+            .into_iter()
+            .filter(|record| record.seq > since_seq)
+            .collect::<Vec<_>>();
+
+        if let Some(limit) = query.limit {
+            records.truncate(limit);
+        }
+
+        let next_since_seq = records.last().map(|record| record.seq);
+        Ok(RuntimeEventPage {
+            trace_id: query.trace_id,
+            records,
+            next_since_seq,
+        })
+    }
+
+    pub fn list_objects(&self, trace_id: &str) -> Result<RuntimeObjectIndex> {
+        let objects = self.store.list_indexed_objects(trace_id)?;
+        Ok(RuntimeObjectIndex {
+            threads: objects.threads,
+            turns: objects.turns,
+            items: objects.items,
+            tasks: objects.tasks,
+            artifacts: objects.artifacts,
+        })
+    }
 }
 
 impl<'a> ReplayRunner<'a> {

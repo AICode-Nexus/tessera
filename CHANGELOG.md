@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added an initial read-only runtime API in `tessera-core` for trace event pagination with `since_seq` / `limit` and indexed thread/turn/item/task/artifact ID queries without exposing storage internals or adding an HTTP/SSE server.
+
 ## [v0.1.0] - 2026-05-15
 
 ### Added

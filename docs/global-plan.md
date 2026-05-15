@@ -139,7 +139,7 @@
 ## 4. v0.2 Checklist
 
 - [ ] Context workbench 初版。
-- [ ] Read-only runtime API。
+- [x] Read-only runtime API 初版：`tessera-core` 提供 `RuntimeReader`，支持按 `trace_id` / `since_seq` / `limit` 读取 trace event page，并通过 core 查询 thread / turn / item / task / artifact ID 索引；HTTP/SSE 服务仍留到 v0.4。
 - [ ] Task registry v1。
 - [ ] Tauri GUI shell spike：只接 mock/replay 或 read-only runtime，不引入第二套 provider 或 storage 访问路径。
 - [ ] Rust-to-TypeScript DTO 生成策略。

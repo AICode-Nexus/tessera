@@ -3,6 +3,7 @@ use futures::stream;
 use std::time::Duration;
 use tessera_core::{
     ConversationEngine, ConversationRequest, CoreError, EventSinkAction, ReplayRunner, RunControls,
+    RuntimeEventQuery, RuntimeReader,
 };
 use tessera_protocol::{
     ErrorSource, ModelProfileId, NormalizedError, ProviderCapability, ProviderId, RunEvent,
@@ -256,4 +257,61 @@ fn replay_runner_accepts_golden_trace_fixture() {
 
     assert_eq!(replay.assistant_text, "golden hello");
     assert_eq!(events, vec!["assistant_delta", "usage_reported", "done"]);
+}
+
+#[tokio::test]
+async fn runtime_reader_pages_trace_events_without_mutating_runtime_state() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(MockProvider::default(), store);
+
+    let outcome = engine
+        .run_chat(ConversationRequest::mock("hello runtime api"))
+        .await
+        .unwrap();
+    let original_events = outcome.store.list_events(&outcome.trace_id).unwrap();
+
+    let reader = RuntimeReader::new(outcome.store);
+    let page = reader
+        .list_events(
+            RuntimeEventQuery::new(&outcome.trace_id)
+                .since_seq(5)
+                .limit(3),
+        )
+        .unwrap();
+
+    assert_eq!(page.trace_id, outcome.trace_id);
+    assert_eq!(page.records.len(), 3);
+    assert!(page.records.iter().all(|record| record.seq > 5));
+    assert_eq!(
+        page.next_since_seq,
+        page.records.last().map(|record| record.seq)
+    );
+
+    let reopened = TraceStore::open(temp.path()).unwrap();
+    assert_eq!(
+        reopened.list_events(&outcome.trace_id).unwrap(),
+        original_events
+    );
+}
+
+#[tokio::test]
+async fn runtime_reader_exposes_indexed_thread_and_task_ids_through_core() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(MockProvider::default(), store);
+
+    let outcome = engine
+        .run_chat(ConversationRequest::mock("hello runtime objects"))
+        .await
+        .unwrap();
+
+    let reader = RuntimeReader::new(outcome.store);
+    let objects = reader.list_objects(&outcome.trace_id).unwrap();
+
+    assert_eq!(objects.threads.len(), 1);
+    assert_eq!(objects.turns.len(), 1);
+    assert!(!objects.items.is_empty());
+    assert_eq!(objects.tasks.len(), 1);
+    assert!(objects.artifacts.is_empty());
 }
