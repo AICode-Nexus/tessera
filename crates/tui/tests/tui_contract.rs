@@ -1,4 +1,6 @@
-use tessera_protocol::{EventFrame, ItemId, RunEvent};
+use tessera_protocol::{
+    CostEstimate, EventFrame, ItemId, ProviderCapability, ProviderId, RunEvent,
+};
 use tessera_tui::{
     apply_client_intent_locally, apply_live_event, chat_window_lines, draw_terminal_frame,
     handle_terminal_input, live_client_event_channel, map_key_event, status_line, ChatMessageRole,
@@ -21,8 +23,10 @@ fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
 fn tui_status_line_contains_profile_reasoning_and_cost_placeholders() {
     let mut state = ChatViewState::new("mock-default");
     state.status.reasoning_visible = true;
+    state.status.usage_summary = "usage in 0 / out 0 / total 0".to_string();
     state.status.cache_summary = "cache 0/0".to_string();
     state.status.cost_summary = "CNY 0.0000".to_string();
+    state.status.context_summary = "ctx 0 tokens".to_string();
 
     let line = status_line(&state);
     let spans: Vec<_> = line
@@ -33,8 +37,71 @@ fn tui_status_line_contains_profile_reasoning_and_cost_placeholders() {
 
     assert!(spans.join("").contains("mock-default"));
     assert!(spans.join("").contains("reasoning"));
+    assert!(spans.join("").contains("usage in 0 / out 0 / total 0"));
     assert!(spans.join("").contains("cache 0/0"));
     assert!(spans.join("").contains("CNY 0.0000"));
+    assert!(spans.join("").contains("ctx 0 tokens"));
+}
+
+#[test]
+fn tui_status_line_renders_live_usage_cache_cost_and_context_summary() {
+    let mut state = ChatViewState::new("mock-default");
+
+    apply_live_event(
+        &mut state,
+        LiveClientEvent::Frame(Box::new(EventFrame::new(
+            "trace_tui_usage",
+            1,
+            RunEvent::ProviderCapabilityReported {
+                provider_id: ProviderId::from_static("mock"),
+                capability: ProviderCapability {
+                    provider_id: ProviderId::from_static("mock"),
+                    supports_streaming: true,
+                    supports_reasoning_delta: true,
+                    supports_cache_telemetry: true,
+                    supports_cost_estimate: true,
+                    supports_tool_calling: false,
+                    max_context_tokens: Some(4_000),
+                    extension: None,
+                },
+            },
+        ))),
+    );
+    apply_live_event(
+        &mut state,
+        LiveClientEvent::Frame(Box::new(EventFrame::new(
+            "trace_tui_usage",
+            2,
+            RunEvent::UsageReported {
+                input_tokens: Some(1_000),
+                output_tokens: Some(250),
+                total_tokens: Some(1_250),
+                cache_read_tokens: Some(750),
+                cache_write_tokens: None,
+                cache_miss_tokens: Some(250),
+                estimated_cost: Some(CostEstimate {
+                    amount: 0.0123,
+                    currency: "USD".to_string(),
+                    input_cost: Some(0.0100),
+                    output_cost: Some(0.0023),
+                    cache_read_cost: Some(0.0010),
+                    cache_write_cost: None,
+                }),
+                latency_ms: Some(42),
+            },
+        ))),
+    );
+
+    let rendered = status_line(&state)
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+
+    assert!(rendered.contains("usage in 1000 / out 250 / total 1250"));
+    assert!(rendered.contains("cache 750/1000 (75%)"));
+    assert!(rendered.contains("USD 0.0123"));
+    assert!(rendered.contains("ctx 1000/4000 (25%)"));
 }
 
 #[test]

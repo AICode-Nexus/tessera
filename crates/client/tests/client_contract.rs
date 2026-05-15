@@ -1,7 +1,9 @@
 use tessera_client::{
     ClientIntent, ClientMessageRole, ClientProjection, ClientSnapshot, ClientStatus,
 };
-use tessera_protocol::{CostEstimate, EventFrame, ItemId, RunEvent};
+use tessera_protocol::{
+    CostEstimate, EventFrame, ItemId, ProviderCapability, ProviderId, RunEvent,
+};
 
 #[test]
 fn client_projection_turns_core_events_into_ui_neutral_messages() {
@@ -146,6 +148,23 @@ fn client_snapshot_updates_status_from_live_usage_reported_events() {
     snapshot.apply_event(&EventFrame::new(
         "trace_usage",
         1,
+        RunEvent::ProviderCapabilityReported {
+            provider_id: ProviderId::from_static("mock"),
+            capability: ProviderCapability {
+                provider_id: ProviderId::from_static("mock"),
+                supports_streaming: true,
+                supports_reasoning_delta: true,
+                supports_cache_telemetry: true,
+                supports_cost_estimate: true,
+                supports_tool_calling: false,
+                max_context_tokens: Some(4_000),
+                extension: None,
+            },
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_usage",
+        2,
         RunEvent::UsageReported {
             input_tokens: Some(1_000),
             output_tokens: Some(200),
@@ -164,9 +183,35 @@ fn client_snapshot_updates_status_from_live_usage_reported_events() {
             latency_ms: Some(42),
         },
     ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_usage",
+        3,
+        RunEvent::UsageReported {
+            input_tokens: Some(500),
+            output_tokens: Some(50),
+            total_tokens: Some(550),
+            cache_read_tokens: Some(300),
+            cache_write_tokens: None,
+            cache_miss_tokens: Some(200),
+            estimated_cost: Some(CostEstimate {
+                amount: 0.0057,
+                currency: "USD".to_string(),
+                input_cost: Some(0.0040),
+                output_cost: Some(0.0017),
+                cache_read_cost: Some(0.0003),
+                cache_write_cost: None,
+            }),
+            latency_ms: Some(24),
+        },
+    ));
 
-    assert_eq!(snapshot.status.cache_summary, "cache 800/1000 (80%)");
-    assert_eq!(snapshot.status.cost_summary, "USD 0.0123");
+    assert_eq!(
+        snapshot.status.usage_summary,
+        "usage in 1500 / out 250 / total 1750"
+    );
+    assert_eq!(snapshot.status.cache_summary, "cache 1100/1500 (73%)");
+    assert_eq!(snapshot.status.cost_summary, "USD 0.0180");
+    assert_eq!(snapshot.status.context_summary, "ctx 500/4000 (12%)");
 }
 
 #[test]
@@ -197,6 +242,76 @@ fn client_snapshot_updates_status_from_replayed_usage_reported_records() {
 
     snapshot.apply_trace_record(&record);
 
+    assert_eq!(
+        snapshot.status.usage_summary,
+        "usage in 2000 / out 300 / total 2300"
+    );
     assert_eq!(snapshot.status.cache_summary, "cache 1500/2000 (75%)");
     assert_eq!(snapshot.status.cost_summary, "CNY 0.0456");
+    assert_eq!(snapshot.status.context_summary, "ctx 2000 tokens");
+}
+
+#[test]
+fn client_snapshot_uses_input_tokens_as_cache_denominator_when_miss_tokens_are_absent() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_cache_denominator",
+        1,
+        RunEvent::UsageReported {
+            input_tokens: Some(1_000),
+            output_tokens: Some(200),
+            total_tokens: Some(1_200),
+            cache_read_tokens: Some(800),
+            cache_write_tokens: None,
+            cache_miss_tokens: None,
+            estimated_cost: None,
+            latency_ms: None,
+        },
+    ));
+
+    assert_eq!(snapshot.status.cache_summary, "cache 800/1000 (80%)");
+}
+
+#[test]
+fn client_snapshot_updates_context_summary_from_replayed_provider_capability_records() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let capability_record = EventFrame::new(
+        "trace_context_replay",
+        1,
+        RunEvent::ProviderCapabilityReported {
+            provider_id: ProviderId::from_static("mock"),
+            capability: ProviderCapability {
+                provider_id: ProviderId::from_static("mock"),
+                supports_streaming: true,
+                supports_reasoning_delta: true,
+                supports_cache_telemetry: true,
+                supports_cost_estimate: true,
+                supports_tool_calling: false,
+                max_context_tokens: Some(8_000),
+                extension: None,
+            },
+        },
+    )
+    .to_trace_record();
+    let usage_record = EventFrame::new(
+        "trace_context_replay",
+        2,
+        RunEvent::UsageReported {
+            input_tokens: Some(2_000),
+            output_tokens: Some(300),
+            total_tokens: Some(2_300),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            cache_miss_tokens: None,
+            estimated_cost: None,
+            latency_ms: None,
+        },
+    )
+    .to_trace_record();
+
+    snapshot.apply_trace_record(&capability_record);
+    snapshot.apply_trace_record(&usage_record);
+
+    assert_eq!(snapshot.status.context_summary, "ctx 2000/8000 (25%)");
 }

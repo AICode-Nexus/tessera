@@ -34,14 +34,164 @@ pub struct ClientMessage {
     pub streaming: bool,
 }
 
+/// Provider-neutral telemetry projection shared by terminal and future GUI shells.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ClientTelemetrySummary {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub cache_miss_tokens: u64,
+    pub cache_total_tokens: u64,
+    pub latest_context_tokens: Option<u64>,
+    pub max_context_tokens: Option<u64>,
+    pub estimated_cost: Option<f64>,
+    pub cost_currency: Option<String>,
+    pub cost_currency_mixed: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct UsageTelemetryInput<'a> {
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    total_tokens: Option<u64>,
+    cache_read_tokens: Option<u64>,
+    cache_write_tokens: Option<u64>,
+    cache_miss_tokens: Option<u64>,
+    cost_amount: Option<f64>,
+    cost_currency: Option<&'a str>,
+}
+
+impl ClientTelemetrySummary {
+    fn record_capability(&mut self, max_context_tokens: Option<u64>) {
+        if max_context_tokens.is_some() {
+            self.max_context_tokens = max_context_tokens;
+        }
+    }
+
+    fn record_usage(&mut self, usage: UsageTelemetryInput<'_>) {
+        if let Some(input_tokens) = usage.input_tokens {
+            self.input_tokens = self.input_tokens.saturating_add(input_tokens);
+            self.latest_context_tokens = Some(input_tokens);
+        }
+        if let Some(output_tokens) = usage.output_tokens {
+            self.output_tokens = self.output_tokens.saturating_add(output_tokens);
+        }
+        let reported_total =
+            usage
+                .total_tokens
+                .or_else(|| match (usage.input_tokens, usage.output_tokens) {
+                    (Some(input), Some(output)) => Some(input.saturating_add(output)),
+                    (Some(input), None) => Some(input),
+                    (None, Some(output)) => Some(output),
+                    (None, None) => None,
+                });
+        if let Some(total_tokens) = reported_total {
+            self.total_tokens = self.total_tokens.saturating_add(total_tokens);
+        }
+        if let Some(cache_read_tokens) = usage.cache_read_tokens {
+            self.cache_read_tokens = self.cache_read_tokens.saturating_add(cache_read_tokens);
+        }
+        if let Some(cache_write_tokens) = usage.cache_write_tokens {
+            self.cache_write_tokens = self.cache_write_tokens.saturating_add(cache_write_tokens);
+        }
+        if let Some(cache_miss_tokens) = usage.cache_miss_tokens {
+            self.cache_miss_tokens = self.cache_miss_tokens.saturating_add(cache_miss_tokens);
+        }
+        if usage.cache_read_tokens.is_some() || usage.cache_miss_tokens.is_some() {
+            let cache_read_tokens = usage.cache_read_tokens.unwrap_or_default();
+            let cache_miss_tokens = usage.cache_miss_tokens.unwrap_or_default();
+            let reported_cache_total = cache_read_tokens.saturating_add(cache_miss_tokens);
+            let cache_total_tokens =
+                if usage.cache_read_tokens.is_some() && usage.cache_miss_tokens.is_none() {
+                    usage.input_tokens.unwrap_or(reported_cache_total)
+                } else if reported_cache_total > 0 {
+                    reported_cache_total
+                } else {
+                    usage.input_tokens.unwrap_or(reported_cache_total)
+                };
+            self.cache_total_tokens = self.cache_total_tokens.saturating_add(cache_total_tokens);
+        }
+        if let (Some(amount), Some(currency)) = (usage.cost_amount, usage.cost_currency) {
+            self.record_cost(amount, currency);
+        }
+    }
+
+    fn record_cost(&mut self, amount: f64, currency: &str) {
+        if let Some(existing_currency) = &self.cost_currency {
+            if existing_currency == currency && !self.cost_currency_mixed {
+                let total = self.estimated_cost.unwrap_or_default() + amount;
+                self.estimated_cost = Some(total);
+                return;
+            }
+
+            self.cost_currency_mixed = true;
+            self.estimated_cost = None;
+            return;
+        }
+
+        self.cost_currency = Some(currency.to_string());
+        self.estimated_cost = Some(amount);
+    }
+
+    fn usage_summary(&self) -> String {
+        format!(
+            "usage in {} / out {} / total {}",
+            self.input_tokens, self.output_tokens, self.total_tokens
+        )
+    }
+
+    fn cache_summary(&self) -> String {
+        if self.cache_total_tokens == 0 {
+            return "cache 0/0".to_string();
+        }
+
+        let percentage = self.cache_read_tokens.saturating_mul(100) / self.cache_total_tokens;
+        format!(
+            "cache {}/{} ({percentage}%)",
+            self.cache_read_tokens, self.cache_total_tokens
+        )
+    }
+
+    fn cost_summary(&self) -> String {
+        if self.cost_currency_mixed {
+            return "cost mixed".to_string();
+        }
+
+        match (self.estimated_cost, &self.cost_currency) {
+            (Some(amount), Some(currency)) => format!("{currency} {amount:.4}"),
+            _ => "CNY 0.0000".to_string(),
+        }
+    }
+
+    fn context_summary(&self) -> String {
+        let Some(context_tokens) = self.latest_context_tokens else {
+            return "ctx 0 tokens".to_string();
+        };
+
+        match self.max_context_tokens {
+            Some(max_context_tokens) if max_context_tokens > 0 => {
+                let percentage = context_tokens.saturating_mul(100) / max_context_tokens;
+                format!("ctx {context_tokens}/{max_context_tokens} ({percentage}%)")
+            }
+            _ => format!("ctx {context_tokens} tokens"),
+        }
+    }
+}
+
 /// UI-neutral status projection shared by terminal and future GUI shells.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClientStatus {
     pub active_profile: String,
     pub available_profiles: Vec<String>,
     pub reasoning_visible: bool,
+    pub usage_summary: String,
     pub cache_summary: String,
     pub cost_summary: String,
+    pub context_summary: String,
+    #[serde(default)]
+    pub telemetry: ClientTelemetrySummary,
 }
 
 impl ClientStatus {
@@ -71,8 +221,11 @@ impl ClientStatus {
             active_profile,
             available_profiles,
             reasoning_visible: false,
+            usage_summary: "usage in 0 / out 0 / total 0".to_string(),
             cache_summary: "cache 0/0".to_string(),
             cost_summary: "CNY 0.0000".to_string(),
+            context_summary: "ctx 0 tokens".to_string(),
+            telemetry: ClientTelemetrySummary::default(),
         }
     }
 
@@ -104,23 +257,26 @@ impl ClientStatus {
         })
     }
 
-    fn update_usage(
-        &mut self,
-        input_tokens: Option<u64>,
-        cache_read_tokens: Option<u64>,
-        cache_miss_tokens: Option<u64>,
-        cost_amount: Option<f64>,
-        cost_currency: Option<&str>,
-    ) {
-        if let Some(cache_summary) =
-            format_cache_summary(input_tokens, cache_read_tokens, cache_miss_tokens)
-        {
-            self.cache_summary = cache_summary;
-        }
+    fn update_provider_capability(&mut self, max_context_tokens: Option<u64>) {
+        self.telemetry.record_capability(max_context_tokens);
+        self.refresh_telemetry_summaries();
+    }
 
-        if let (Some(amount), Some(currency)) = (cost_amount, cost_currency) {
-            self.cost_summary = format!("{currency} {amount:.4}");
-        }
+    fn update_usage(&mut self, usage: UsageTelemetryInput<'_>) {
+        self.telemetry.record_usage(usage);
+        self.refresh_telemetry_summaries();
+    }
+
+    fn reset_telemetry(&mut self) {
+        self.telemetry = ClientTelemetrySummary::default();
+        self.refresh_telemetry_summaries();
+    }
+
+    fn refresh_telemetry_summaries(&mut self) {
+        self.usage_summary = self.telemetry.usage_summary();
+        self.cache_summary = self.telemetry.cache_summary();
+        self.cost_summary = self.telemetry.cost_summary();
+        self.context_summary = self.telemetry.context_summary();
     }
 }
 
@@ -267,7 +423,7 @@ impl ClientProjection {
 }
 
 /// Complete client-side snapshot for a shell render pass.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClientSnapshot {
     pub status: ClientStatus,
     pub projection: ClientProjection,
@@ -323,49 +479,82 @@ impl ClientSnapshot {
     }
 
     pub fn apply_event(&mut self, frame: &EventFrame) {
-        if let RunEvent::UsageReported {
-            input_tokens,
-            cache_read_tokens,
-            cache_miss_tokens,
-            estimated_cost,
-            ..
-        } = &frame.event
-        {
-            self.status.update_usage(
-                *input_tokens,
-                *cache_read_tokens,
-                *cache_miss_tokens,
-                estimated_cost.as_ref().map(|cost| cost.amount),
-                estimated_cost.as_ref().map(|cost| cost.currency.as_str()),
-            );
+        match &frame.event {
+            RunEvent::ProviderCapabilityReported { capability, .. } => self
+                .status
+                .update_provider_capability(capability.max_context_tokens),
+            RunEvent::UsageReported {
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                cache_miss_tokens,
+                estimated_cost,
+                ..
+            } => {
+                self.status.update_usage(UsageTelemetryInput {
+                    input_tokens: *input_tokens,
+                    output_tokens: *output_tokens,
+                    total_tokens: *total_tokens,
+                    cache_read_tokens: *cache_read_tokens,
+                    cache_write_tokens: *cache_write_tokens,
+                    cache_miss_tokens: *cache_miss_tokens,
+                    cost_amount: estimated_cost.as_ref().map(|cost| cost.amount),
+                    cost_currency: estimated_cost.as_ref().map(|cost| cost.currency.as_str()),
+                });
+            }
+            _ => {}
         }
         self.projection.reasoning_visible = self.status.reasoning_visible;
         self.projection.apply_event(frame);
     }
 
     pub fn apply_trace_record(&mut self, record: &TraceRecord) {
-        if record.event_kind == "usage_reported" {
-            let estimated_cost = record.payload.get("estimated_cost");
-            self.status.update_usage(
+        match record.event_kind.as_str() {
+            "provider_capability_reported" => self.status.update_provider_capability(
                 record
                     .payload
-                    .get("input_tokens")
+                    .get("capability")
+                    .and_then(|value| value.get("max_context_tokens"))
                     .and_then(|value| value.as_u64()),
-                record
-                    .payload
-                    .get("cache_read_tokens")
-                    .and_then(|value| value.as_u64()),
-                record
-                    .payload
-                    .get("cache_miss_tokens")
-                    .and_then(|value| value.as_u64()),
-                estimated_cost
-                    .and_then(|value| value.get("amount"))
-                    .and_then(|value| value.as_f64()),
-                estimated_cost
-                    .and_then(|value| value.get("currency"))
-                    .and_then(|value| value.as_str()),
-            );
+            ),
+            "usage_reported" => {
+                let estimated_cost = record.payload.get("estimated_cost");
+                self.status.update_usage(UsageTelemetryInput {
+                    input_tokens: record
+                        .payload
+                        .get("input_tokens")
+                        .and_then(|value| value.as_u64()),
+                    output_tokens: record
+                        .payload
+                        .get("output_tokens")
+                        .and_then(|value| value.as_u64()),
+                    total_tokens: record
+                        .payload
+                        .get("total_tokens")
+                        .and_then(|value| value.as_u64()),
+                    cache_read_tokens: record
+                        .payload
+                        .get("cache_read_tokens")
+                        .and_then(|value| value.as_u64()),
+                    cache_write_tokens: record
+                        .payload
+                        .get("cache_write_tokens")
+                        .and_then(|value| value.as_u64()),
+                    cache_miss_tokens: record
+                        .payload
+                        .get("cache_miss_tokens")
+                        .and_then(|value| value.as_u64()),
+                    cost_amount: estimated_cost
+                        .and_then(|value| value.get("amount"))
+                        .and_then(|value| value.as_f64()),
+                    cost_currency: estimated_cost
+                        .and_then(|value| value.get("currency"))
+                        .and_then(|value| value.as_str()),
+                });
+            }
+            _ => {}
         }
         self.projection.reasoning_visible = self.status.reasoning_visible;
         self.projection.apply_trace_record(record);
@@ -374,6 +563,7 @@ impl ClientSnapshot {
     pub fn start_new_thread(&mut self) {
         self.projection = ClientProjection::new(self.status.active_profile.clone());
         self.draft_input.clear();
+        self.status.reset_telemetry();
     }
 
     pub fn push_notice(&mut self, content: impl Into<String>) {
@@ -418,21 +608,4 @@ fn trace_record_item_id(record: &TraceRecord) -> Option<ItemId> {
             .and_then(|value| value.as_str())
             .map(ItemId::from)
     })
-}
-
-fn format_cache_summary(
-    input_tokens: Option<u64>,
-    cache_read_tokens: Option<u64>,
-    cache_miss_tokens: Option<u64>,
-) -> Option<String> {
-    let cache_read_tokens = cache_read_tokens?;
-    let total_tokens = match (cache_read_tokens, cache_miss_tokens, input_tokens) {
-        (read, Some(miss), _) if read + miss > 0 => read + miss,
-        (_, _, Some(input)) if input > 0 => input,
-        _ => return None,
-    };
-    let percentage = cache_read_tokens.saturating_mul(100) / total_tokens;
-    Some(format!(
-        "cache {cache_read_tokens}/{total_tokens} ({percentage}%)"
-    ))
 }

@@ -145,7 +145,7 @@
 - [ ] Task registry v1。
 - [ ] Tauri GUI shell spike：只接 mock/replay 或 read-only runtime，不引入第二套 provider 或 storage 访问路径。
 - [ ] Rust-to-TypeScript DTO 生成策略。
-- [ ] Usage/cache/cost/context telemetry summary：从 live events 和 trace 聚合，不依赖 provider 私有结构或 TUI footer。
+- [x] Usage/cache/cost/context telemetry summary：`tessera-client` 已从标准 live events 和 replay trace records 聚合 provider-neutral summary，TUI 只负责渲染。
 - [ ] Model router 草案，只记录 route decision，不默认自动路由。
 - [ ] No-progress loop detection 草案：连续只读/重复 repair/无输出循环先 stop / ask / summarize，不直接升档到更贵模型。
 - [ ] Artifact handle projection。
