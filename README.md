@@ -23,6 +23,7 @@ This repository now has the v0.1 Rust workspace scaffold and a mock-driven runti
 - [Technical Architecture](docs/technical-architecture.md)
 - [DeepSeek-TUI Lessons](docs/deepseek-tui-lessons.md)
 - [GUI-Ready Architecture](docs/gui-ready-architecture.md)
+- [ADR-001: GUI Architecture and Toolkit Direction](docs/adr/ADR-001-gui-architecture-and-toolkit.md)
 - [v0.1 Plan](docs/v0.1-plan.md)
 - [Global Plan](docs/global-plan.md)
 - [Protocol v0](docs/protocol-v0.md)
@@ -37,7 +38,8 @@ The current implementation contract is still architecture-led:
 - Keep the first implementation limited to `protocol`, `core`, `providers`, `storage`, `config`, `cli`, and `tui`.
 - Keep future tools, agents, memory, skills, learning, and swarm support as protocol-ready extensions, not v0.1 runtime features.
 - Keep CLI, TUI, and future GUI on top of the same headless runtime.
-- Keep client UI state in UI-neutral reducers and view models before choosing a GUI toolkit.
+- Keep client UI state in UI-neutral reducers and view models before implementing the Tauri-first GUI path.
+- Treat Tauri 2 + TypeScript/React/Vite as the default product GUI direction, with egui limited to possible internal inspector work and GPUI kept as a watch item.
 - Treat JSONL trace as the durable event truth and SQLite as a rebuildable index.
 - Access SQLite through `rusqlite`; build it with bundled SQLite for local release portability.
 
@@ -81,4 +83,4 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 - No tool execution.
 - No agent runtime.
 
-The next milestone is to extract the shared client view-model boundary, add `/new` / `/save` / `/export` basics, and then verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.
+The next milestone is to extract the shared client view-model boundary for TUI and future Tauri GUI reuse, add `/new` / `/save` / `/export` basics, and then verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.

@@ -283,9 +283,10 @@ TUI 是 view，不是 runtime。
 
 职责：
 
-- 桌面或 Web shell。
+- Tauri 2 桌面 shell。
 - 布局、菜单、快捷键、可访问性和渲染。
-- 展示 core/runtime API 事件和 trace projection。
+- 展示 `client` projection、core/runtime API 事件和 trace projection。
+- 通过 typed command/event bridge 与 Rust runtime 通信。
 
 允许依赖：
 
@@ -293,7 +294,9 @@ TUI 是 view，不是 runtime。
 - protocol。
 - config。
 - core public API 或 future runtime_api client。
-- 选定 GUI toolkit。
+- Tauri 2。
+- TypeScript/React/Vite frontend。
+- 由 Rust/schema 生成的 TypeScript DTO。
 
 禁止：
 
@@ -302,8 +305,11 @@ TUI 是 view，不是 runtime。
 - 直接执行 shell/file/git/http tool。
 - 依赖 TUI crate。
 - 持有真实 runtime 状态机。
+- 在 frontend 保存 secret、API key、cookie 或 provider auth header。
+- 在 frontend 直接发 provider HTTP 请求。
+- 暴露 `call_provider`、`read_sql`、`write_trace`、`execute_shell`、`run_tool` 一类 bridge command。
 
-GUI 是 client shell，不是第二套 runtime。
+GUI 是 client shell，不是第二套 runtime。产品 GUI 默认方向见 [ADR-001](adr/ADR-001-gui-architecture-and-toolkit.md)。
 
 ## 4. 暂不独立成 Crate 的能力
 

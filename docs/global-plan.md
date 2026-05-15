@@ -26,6 +26,7 @@
 - [x] 已提交并 push 到 `origin/main`：`43918fe feat: scaffold v0.1 runtime`。
 - [x] SQLite 通过 `rusqlite/bundled` 集成，降低本地发布时对系统 `libsqlite3` 的依赖。
 - [x] GUI-ready 方向写入架构：未来 GUI 必须复用 headless runtime、client intent 和 UI-neutral view model。
+- [x] GUI 技术架构和选型写入 ADR：产品 GUI 默认 Tauri 2 + TypeScript/React/Vite，egui 仅作为内部 inspector 候选，GPUI 继续观察。
 
 ## 2. v0.1 Runtime Checklist
 
@@ -96,8 +97,9 @@
 ### GUI Preparation
 
 - [x] GUI 不另起 runtime：架构约束已写入 `docs/gui-ready-architecture.md`、`docs/technical-architecture.md` 和 `docs/crate-boundaries.md`。
+- [x] GUI 技术选型 ADR：默认产品 GUI 方向为 Tauri 2 + TypeScript/React/Vite；GUI 实现仍等待 `client` 边界。
 - [~] UI-neutral view model：`ClientIntent` 已进入 TUI 状态层，message/status projection 仍在 `tui` crate 内，尚未拆出独立 `client` crate。
-- [ ] GUI 技术选型 spike：在 Tauri / egui / GPUI 中基于分发、可访问性、渲染复杂度和 AI 可维护性做一轮小样验证。
+- [~] GUI 技术选型 spike：架构决策已完成；Tauri mock/replay 小样验证仍待 v0.2。
 - [~] Live event bridge：core/CLI/TUI 已共享同一套 `EventFrame` 流；future GUI 复用契约已明确，待 GUI shell spike 验证。
 
 ### Quality Gates
@@ -125,15 +127,17 @@
 9. [x] TUI profile switch 入口。
 10. [x] Live event bridge：core event sink、CLI bridge、TUI live channel 已完成。
 11. [x] cancellation / timeout / backpressure 基础语义。
-12. [ ] GUI-ready client model 边界：把当前 TUI view-state 中可共享的 intent、message projection 和 status projection 固化为 UI-neutral API。
-13. [ ] v0.1 release checklist 和 tag 计划。
+12. [x] GUI 技术架构和选型 ADR：先锁定 Tauri-first 产品 GUI 路线和 AI-ready IPC/权限边界，不引入 v0.1 GUI 依赖。
+13. [ ] GUI-ready client model 边界：把当前 TUI view-state 中可共享的 intent、message projection 和 status projection 固化为 UI-neutral API。
+14. [ ] v0.1 release checklist 和 tag 计划。
 
 ## 4. v0.2 Checklist
 
 - [ ] Context workbench 初版。
 - [ ] Read-only runtime API。
 - [ ] Task registry v1。
-- [ ] GUI shell spike：只接 mock/read-only runtime，不引入第二套 provider 或 storage 访问路径。
+- [ ] Tauri GUI shell spike：只接 mock/replay 或 read-only runtime，不引入第二套 provider 或 storage 访问路径。
+- [ ] Rust-to-TypeScript DTO 生成策略。
 - [ ] Usage/cache/cost telemetry summary。
 - [ ] Model router 草案，只记录 route decision，不默认自动路由。
 - [ ] Artifact handle projection。
