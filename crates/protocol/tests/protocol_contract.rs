@@ -85,6 +85,7 @@ fn usage_and_route_decision_keep_ai_ready_telemetry() {
             selected_model: "mock-chat".to_string(),
             reasoning_level: Some("standard".to_string()),
             strategy: RouteStrategy::Manual,
+            decision_reason: Some("manual_profile_selected_auto_routing_disabled".to_string()),
             fallback_reason: None,
         },
     };
@@ -107,4 +108,8 @@ fn usage_and_route_decision_keep_ai_ready_telemetry() {
     );
     assert_eq!(route_record.event_kind, "route_decision_recorded");
     assert_eq!(route_record.payload["decision"]["strategy"], "manual");
+    assert_eq!(
+        route_record.payload["decision"]["decision_reason"],
+        "manual_profile_selected_auto_routing_disabled"
+    );
 }

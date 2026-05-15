@@ -2,12 +2,12 @@ use async_trait::async_trait;
 use futures::stream;
 use std::time::Duration;
 use tessera_core::{
-    ConversationEngine, ConversationRequest, CoreError, EventSinkAction, ReplayRunner, RunControls,
-    RuntimeEventQuery, RuntimeReader,
+    ConversationEngine, ConversationRequest, CoreError, EventSinkAction, ModelRouteRequest,
+    ModelRouter, ReplayRunner, RunControls, RuntimeEventQuery, RuntimeReader,
 };
 use tessera_protocol::{
     ArtifactId, ArtifactKind, ErrorSource, EventFrame, ItemId, ModelProfileId, NormalizedError,
-    ProviderCapability, ProviderId, RunEvent, TaskId,
+    ProviderCapability, ProviderId, RouteStrategy, RunEvent, TaskId,
 };
 use tessera_providers::{
     mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderRequest,
@@ -72,6 +72,42 @@ impl ChatProvider for FailingProvider {
     }
 }
 
+fn mock_capability() -> ProviderCapability {
+    ProviderCapability {
+        provider_id: ProviderId::from_static("mock"),
+        supports_streaming: true,
+        supports_reasoning_delta: true,
+        supports_cache_telemetry: true,
+        supports_cost_estimate: true,
+        supports_tool_calling: false,
+        max_context_tokens: Some(128_000),
+        extension: None,
+    }
+}
+
+#[test]
+fn model_router_draft_records_manual_reason_without_auto_routing() {
+    let requested_profile = ModelProfileId::from_static("manual-profile");
+    let decision = ModelRouter::draft().route(ModelRouteRequest {
+        requested_profile: Some(requested_profile.clone()),
+        default_profile: ModelProfileId::from_static("default-profile"),
+        requested_model: "manual-model".to_string(),
+        reasoning_level: Some("standard".to_string()),
+        provider_capability: Some(mock_capability()),
+    });
+
+    assert_eq!(decision.requested_profile, Some(requested_profile.clone()));
+    assert_eq!(decision.selected_profile, requested_profile);
+    assert_eq!(decision.selected_model, "manual-model");
+    assert_eq!(decision.reasoning_level.as_deref(), Some("standard"));
+    assert_eq!(decision.strategy, RouteStrategy::Manual);
+    assert_eq!(
+        decision.decision_reason.as_deref(),
+        Some("manual_profile_selected_auto_routing_disabled")
+    );
+    assert!(decision.fallback_reason.is_none());
+}
+
 #[tokio::test]
 async fn conversation_engine_drives_mock_provider_and_persists_trace() {
     let temp = tempfile::tempdir().unwrap();
@@ -100,6 +136,17 @@ async fn conversation_engine_drives_mock_provider_and_persists_trace() {
         .find(|record| record.event_kind == "user_message_recorded")
         .unwrap();
     assert_eq!(user_message.payload["text"], "hello from core");
+
+    let route_record = records
+        .iter()
+        .find(|record| record.event_kind == "route_decision_recorded")
+        .unwrap();
+    assert_eq!(route_record.payload["decision"]["strategy"], "manual");
+    assert_eq!(
+        route_record.payload["decision"]["decision_reason"],
+        "manual_profile_selected_auto_routing_disabled"
+    );
+    assert!(route_record.payload["decision"]["fallback_reason"].is_null());
 }
 
 #[tokio::test]

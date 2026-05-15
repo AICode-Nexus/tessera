@@ -394,6 +394,7 @@ pub struct RouteDecision {
     pub selected_model: String,
     pub reasoning_level: Option<String>,
     pub strategy: RouteStrategy,
+    pub decision_reason: Option<String>,
     pub fallback_reason: Option<String>,
 }
 ```

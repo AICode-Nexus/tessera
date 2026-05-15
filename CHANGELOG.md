@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added UI-neutral usage/cache/cost/context telemetry summaries in `tessera-client` from standard live events and replayed trace records, with TUI status rendering kept as a view-only consumer.
 - Added Task registry v1 with read-only runtime task summaries in `tessera-core` and UI-neutral `ClientTask` projection in `tessera-client` from live events and replayed trace records.
 - Added artifact handle projection with read-only runtime artifact summaries in `tessera-core` and UI-neutral `ClientArtifact` projection in `tessera-client` from `artifact_created` events and `artifact_refs`.
+- Added a draft `ModelRouter` in `tessera-core` that records manual/default route decisions with explicit route reasons while keeping auto routing disabled.
 
 ## [v0.1.0] - 2026-05-15
 

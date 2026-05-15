@@ -1,9 +1,9 @@
 use futures::TryStreamExt;
 use std::time::Duration;
 use tessera_protocol::{
-    ArtifactId, ArtifactKind, EventFrame, ItemId, ModelProfileId, ProviderId, RouteDecision,
-    RouteDecisionId, RouteStrategy, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId, Timestamp,
-    TraceRecord, TurnId,
+    ArtifactId, ArtifactKind, EventFrame, ItemId, ModelProfileId, ProviderCapability, ProviderId,
+    RouteDecision, RouteDecisionId, RouteStrategy, RunEvent, TaskId, TaskKind, TaskStatus,
+    ThreadId, Timestamp, TraceRecord, TurnId,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -74,6 +74,51 @@ pub struct ConversationOutcome {
 pub struct ConversationEngine<P> {
     provider: P,
     store: TraceStore,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelRouteRequest {
+    pub requested_profile: Option<ModelProfileId>,
+    pub default_profile: ModelProfileId,
+    pub requested_model: String,
+    pub reasoning_level: Option<String>,
+    pub provider_capability: Option<ProviderCapability>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ModelRouter;
+
+impl ModelRouter {
+    pub fn draft() -> Self {
+        Self
+    }
+
+    pub fn route(&self, request: ModelRouteRequest) -> RouteDecision {
+        let requested_profile = request.requested_profile.clone();
+        let selected_profile = requested_profile
+            .clone()
+            .unwrap_or_else(|| request.default_profile.clone());
+        let strategy = if requested_profile.is_some() {
+            RouteStrategy::Manual
+        } else {
+            RouteStrategy::DefaultProfile
+        };
+        let reason = if requested_profile.is_some() {
+            "manual_profile_selected_auto_routing_disabled"
+        } else {
+            "default_profile_selected_auto_routing_disabled"
+        };
+
+        RouteDecision {
+            requested_profile,
+            selected_profile,
+            selected_model: request.requested_model,
+            reasoning_level: request.reasoning_level,
+            strategy,
+            decision_reason: Some(reason.to_string()),
+            fallback_reason: None,
+        }
+    }
 }
 
 struct RunContext {
@@ -563,11 +608,6 @@ where
             item_id: user_item_id,
             text: prompt,
         });
-        append_event!(RunEvent::ProviderRequestStarted {
-            provider_id: request.provider_id.clone(),
-            profile_id: request.profile_id.clone(),
-            model: request.model.clone(),
-        });
 
         let capability = match self.provider.capability().await {
             Ok(capability) => capability,
@@ -575,28 +615,36 @@ where
                 return self.finish_failed(&mut context, error, &mut event_sink);
             }
         };
+        let route_decision = ModelRouter::draft().route(ModelRouteRequest {
+            requested_profile: Some(request.profile_id.clone()),
+            default_profile: request.profile_id.clone(),
+            requested_model: request.model.clone(),
+            reasoning_level: None,
+            provider_capability: Some(capability.clone()),
+        });
+        let selected_profile = route_decision.selected_profile.clone();
+        let selected_model = route_decision.selected_model.clone();
+
         append_event!(RunEvent::ProviderCapabilityReported {
             provider_id: request.provider_id.clone(),
             capability,
         });
         append_event!(RunEvent::RouteDecisionRecorded {
             decision_id: RouteDecisionId::new(),
-            decision: RouteDecision {
-                requested_profile: Some(request.profile_id.clone()),
-                selected_profile: request.profile_id.clone(),
-                selected_model: request.model.clone(),
-                reasoning_level: None,
-                strategy: RouteStrategy::Manual,
-                fallback_reason: None,
-            },
+            decision: route_decision,
+        });
+        append_event!(RunEvent::ProviderRequestStarted {
+            provider_id: request.provider_id.clone(),
+            profile_id: selected_profile.clone(),
+            model: selected_model.clone(),
         });
 
         let mut stream = match self
             .provider
             .stream_chat(ProviderRequest {
                 provider_id: request.provider_id.clone(),
-                profile_id: request.profile_id.clone(),
-                model: request.model.clone(),
+                profile_id: selected_profile,
+                model: selected_model,
                 prompt: request.prompt,
                 assistant_item_id,
             })
