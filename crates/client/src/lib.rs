@@ -136,10 +136,8 @@ impl ClientProjection {
             RunEvent::AssistantDelta { item_id, text } => {
                 self.append_to_streaming_message(ClientMessageRole::Assistant, item_id, text);
             }
-            RunEvent::AssistantReasoningDelta { item_id, text } => {
-                if self.reasoning_visible {
-                    self.append_to_streaming_message(ClientMessageRole::Reasoning, item_id, text);
-                }
+            RunEvent::AssistantReasoningDelta { item_id, text } if self.reasoning_visible => {
+                self.append_to_streaming_message(ClientMessageRole::Reasoning, item_id, text);
             }
             RunEvent::AssistantMessageCompleted { item_id } => {
                 self.complete_assistant_item(item_id);
@@ -177,16 +175,14 @@ impl ClientProjection {
                 };
                 self.append_to_streaming_message(ClientMessageRole::Assistant, item_id, text);
             }
-            "assistant_reasoning_delta" => {
+            "assistant_reasoning_delta" if self.reasoning_visible => {
                 let (Some(item_id), Some(text)) = (
                     item_id.as_ref(),
                     record.payload.get("text").and_then(|value| value.as_str()),
                 ) else {
                     return;
                 };
-                if self.reasoning_visible {
-                    self.append_to_streaming_message(ClientMessageRole::Reasoning, item_id, text);
-                }
+                self.append_to_streaming_message(ClientMessageRole::Reasoning, item_id, text);
             }
             "assistant_message_completed" => {
                 let Some(item_id) = item_id else {
