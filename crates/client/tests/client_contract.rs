@@ -2,7 +2,8 @@ use tessera_client::{
     ClientIntent, ClientMessageRole, ClientProjection, ClientSnapshot, ClientStatus,
 };
 use tessera_protocol::{
-    CostEstimate, EventFrame, ItemId, ProviderCapability, ProviderId, RunEvent,
+    CostEstimate, ErrorSource, EventFrame, ItemId, NormalizedError, ProviderCapability, ProviderId,
+    RunEvent, TaskId, TaskKind, TaskStatus,
 };
 
 #[test]
@@ -314,4 +315,117 @@ fn client_snapshot_updates_context_summary_from_replayed_provider_capability_rec
     snapshot.apply_trace_record(&usage_record);
 
     assert_eq!(snapshot.status.context_summary, "ctx 2000/8000 (25%)");
+}
+
+#[test]
+fn client_snapshot_updates_task_registry_from_live_task_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let task_id = TaskId::from_static("task_live");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_task_live",
+        1,
+        RunEvent::TaskCreated {
+            task_id: task_id.clone(),
+            kind: TaskKind::Chat,
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_task_live",
+        2,
+        RunEvent::TaskStarted {
+            task_id: task_id.clone(),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_task_live",
+        3,
+        RunEvent::TaskCompleted {
+            task_id: task_id.clone(),
+        },
+    ));
+
+    assert_eq!(snapshot.tasks.len(), 1);
+    assert_eq!(snapshot.tasks[0].task_id, task_id);
+    assert_eq!(snapshot.tasks[0].kind, Some(TaskKind::Chat));
+    assert_eq!(snapshot.tasks[0].status, TaskStatus::Completed);
+    assert!(snapshot.tasks[0].created_at.is_some());
+    assert!(snapshot.tasks[0].started_at.is_some());
+    assert!(snapshot.tasks[0].finished_at.is_some());
+    assert_eq!(snapshot.status.task_summary, "task completed");
+}
+
+#[test]
+fn client_snapshot_updates_task_registry_from_replayed_failed_and_cancelled_tasks() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let failed_task_id = TaskId::from_static("task_failed_replay");
+    let cancelled_task_id = TaskId::from_static("task_cancelled_replay");
+
+    let records = [
+        EventFrame::new(
+            "trace_task_replay",
+            1,
+            RunEvent::TaskCreated {
+                task_id: failed_task_id.clone(),
+                kind: TaskKind::Chat,
+            },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_task_replay",
+            2,
+            RunEvent::TaskFailed {
+                task_id: failed_task_id.clone(),
+                error: NormalizedError {
+                    code: "provider_rate_limited".to_string(),
+                    message: "provider rate limit reached".to_string(),
+                    retryable: true,
+                    source: ErrorSource::Provider,
+                    details: None,
+                },
+            },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_task_replay",
+            3,
+            RunEvent::TaskCreated {
+                task_id: cancelled_task_id.clone(),
+                kind: TaskKind::Replay,
+            },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_task_replay",
+            4,
+            RunEvent::TaskCancelled {
+                task_id: cancelled_task_id.clone(),
+                reason: Some("client stopped".to_string()),
+            },
+        )
+        .to_trace_record(),
+    ];
+
+    for record in records {
+        snapshot.apply_trace_record(&record);
+    }
+
+    assert_eq!(snapshot.tasks.len(), 2);
+    assert_eq!(snapshot.tasks[0].task_id, failed_task_id);
+    assert_eq!(snapshot.tasks[0].status, TaskStatus::Failed);
+    assert_eq!(
+        snapshot.tasks[0].error_code.as_deref(),
+        Some("provider_rate_limited")
+    );
+    assert_eq!(
+        snapshot.tasks[0].error_message.as_deref(),
+        Some("provider rate limit reached")
+    );
+    assert_eq!(snapshot.tasks[1].task_id, cancelled_task_id);
+    assert_eq!(snapshot.tasks[1].status, TaskStatus::Cancelled);
+    assert_eq!(
+        snapshot.tasks[1].cancel_reason.as_deref(),
+        Some("client stopped")
+    );
+    assert_eq!(snapshot.status.task_summary, "task cancelled");
 }

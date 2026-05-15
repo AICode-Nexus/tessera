@@ -181,6 +181,21 @@ pub enum TaskKind {
     LearningJob,
 }
 
+impl TaskKind {
+    pub fn from_snake_case(value: &str) -> Option<Self> {
+        match value {
+            "chat" => Some(Self::Chat),
+            "replay" => Some(Self::Replay),
+            "tool_run" => Some(Self::ToolRun),
+            "agent_run" => Some(Self::AgentRun),
+            "multi_agent_run" => Some(Self::MultiAgentRun),
+            "swarm_run" => Some(Self::SwarmRun),
+            "learning_job" => Some(Self::LearningJob),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {

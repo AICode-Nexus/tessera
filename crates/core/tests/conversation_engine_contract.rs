@@ -315,3 +315,27 @@ async fn runtime_reader_exposes_indexed_thread_and_task_ids_through_core() {
     assert_eq!(objects.tasks.len(), 1);
     assert!(objects.artifacts.is_empty());
 }
+
+#[tokio::test]
+async fn runtime_reader_lists_task_registry_from_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(MockProvider::default(), store);
+
+    let outcome = engine
+        .run_chat(ConversationRequest::mock("hello task registry"))
+        .await
+        .unwrap();
+
+    let reader = RuntimeReader::new(outcome.store);
+    let tasks = reader.list_tasks(&outcome.trace_id).unwrap();
+
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].kind, Some(tessera_protocol::TaskKind::Chat));
+    assert_eq!(tasks[0].status, tessera_protocol::TaskStatus::Completed);
+    assert!(tasks[0].created_at.is_some());
+    assert!(tasks[0].started_at.is_some());
+    assert!(tasks[0].finished_at.is_some());
+    assert!(tasks[0].error_code.is_none());
+    assert!(tasks[0].cancel_reason.is_none());
+}

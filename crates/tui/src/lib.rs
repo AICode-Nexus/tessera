@@ -69,6 +69,8 @@ pub fn status_line(state: &ChatViewState) -> Line<'static> {
         Span::raw(" | "),
         Span::raw(reasoning),
         Span::raw(" | "),
+        Span::raw(state.status.task_summary.clone()),
+        Span::raw(" | "),
         Span::raw(state.status.context_summary.clone()),
         Span::raw(" | "),
         Span::raw(state.status.usage_summary.clone()),

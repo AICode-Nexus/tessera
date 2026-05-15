@@ -1,5 +1,5 @@
 use tessera_protocol::{
-    CostEstimate, EventFrame, ItemId, ProviderCapability, ProviderId, RunEvent,
+    CostEstimate, EventFrame, ItemId, ProviderCapability, ProviderId, RunEvent, TaskId, TaskKind,
 };
 use tessera_tui::{
     apply_client_intent_locally, apply_live_event, chat_window_lines, draw_terminal_frame,
@@ -37,6 +37,7 @@ fn tui_status_line_contains_profile_reasoning_and_cost_placeholders() {
 
     assert!(spans.join("").contains("mock-default"));
     assert!(spans.join("").contains("reasoning"));
+    assert!(spans.join("").contains("task idle"));
     assert!(spans.join("").contains("usage in 0 / out 0 / total 0"));
     assert!(spans.join("").contains("cache 0/0"));
     assert!(spans.join("").contains("CNY 0.0000"));
@@ -102,6 +103,40 @@ fn tui_status_line_renders_live_usage_cache_cost_and_context_summary() {
     assert!(rendered.contains("cache 750/1000 (75%)"));
     assert!(rendered.contains("USD 0.0123"));
     assert!(rendered.contains("ctx 1000/4000 (25%)"));
+}
+
+#[test]
+fn tui_status_line_renders_live_task_summary() {
+    let mut state = ChatViewState::new("mock-default");
+    let task_id = TaskId::from_static("task_tui_live");
+
+    apply_live_event(
+        &mut state,
+        LiveClientEvent::Frame(Box::new(EventFrame::new(
+            "trace_tui_task",
+            1,
+            RunEvent::TaskCreated {
+                task_id: task_id.clone(),
+                kind: TaskKind::Chat,
+            },
+        ))),
+    );
+    apply_live_event(
+        &mut state,
+        LiveClientEvent::Frame(Box::new(EventFrame::new(
+            "trace_tui_task",
+            2,
+            RunEvent::TaskStarted { task_id },
+        ))),
+    );
+
+    let rendered = status_line(&state)
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+
+    assert!(rendered.contains("task running"));
 }
 
 #[test]

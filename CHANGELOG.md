@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added official Reasonix lessons covering cache-stable context, ordered parallel tool dispatch, tool-call repair telemetry, visible cost control, and no-progress loop policy without changing Tessera's model-agnostic scope.
 - Added UI-neutral cache/cost status projection in `tessera-client` from live `UsageReported` events and replayed `usage_reported` trace records.
 - Added UI-neutral usage/cache/cost/context telemetry summaries in `tessera-client` from standard live events and replayed trace records, with TUI status rendering kept as a view-only consumer.
+- Added Task registry v1 with read-only runtime task summaries in `tessera-core` and UI-neutral `ClientTask` projection in `tessera-client` from live events and replayed trace records.
 
 ## [v0.1.0] - 2026-05-15
 

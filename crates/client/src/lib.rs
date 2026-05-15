@@ -1,7 +1,10 @@
 //! UI-neutral client model for Tessera shells.
 
 use serde::{Deserialize, Serialize};
-use tessera_protocol::{EventFrame, ItemId, RunEvent, TaskId, TraceRecord};
+use tessera_protocol::{
+    EventFrame, ItemId, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId, Timestamp, TraceRecord,
+    TurnId,
+};
 
 /// User intent shared by CLI/TUI/GUI surfaces before it reaches runtime code.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -32,6 +35,49 @@ pub struct ClientMessage {
     pub content: String,
     pub item_id: Option<ItemId>,
     pub streaming: bool,
+}
+
+/// UI-neutral task projection shared by terminal and future GUI shells.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ClientTask {
+    pub task_id: TaskId,
+    pub kind: Option<TaskKind>,
+    pub status: TaskStatus,
+    pub thread_id: Option<ThreadId>,
+    pub turn_id: Option<TurnId>,
+    pub created_at: Option<Timestamp>,
+    pub started_at: Option<Timestamp>,
+    pub finished_at: Option<Timestamp>,
+    pub cancel_reason: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+}
+
+impl ClientTask {
+    fn new(task_id: TaskId) -> Self {
+        Self {
+            task_id,
+            kind: None,
+            status: TaskStatus::Pending,
+            thread_id: None,
+            turn_id: None,
+            created_at: None,
+            started_at: None,
+            finished_at: None,
+            cancel_reason: None,
+            error_code: None,
+            error_message: None,
+        }
+    }
+
+    fn update_scope(&mut self, thread_id: Option<ThreadId>, turn_id: Option<TurnId>) {
+        if thread_id.is_some() {
+            self.thread_id = thread_id;
+        }
+        if turn_id.is_some() {
+            self.turn_id = turn_id;
+        }
+    }
 }
 
 /// Provider-neutral telemetry projection shared by terminal and future GUI shells.
@@ -186,6 +232,7 @@ pub struct ClientStatus {
     pub active_profile: String,
     pub available_profiles: Vec<String>,
     pub reasoning_visible: bool,
+    pub task_summary: String,
     pub usage_summary: String,
     pub cache_summary: String,
     pub cost_summary: String,
@@ -221,6 +268,7 @@ impl ClientStatus {
             active_profile,
             available_profiles,
             reasoning_visible: false,
+            task_summary: "task idle".to_string(),
             usage_summary: "usage in 0 / out 0 / total 0".to_string(),
             cache_summary: "cache 0/0".to_string(),
             cost_summary: "CNY 0.0000".to_string(),
@@ -277,6 +325,10 @@ impl ClientStatus {
         self.cache_summary = self.telemetry.cache_summary();
         self.cost_summary = self.telemetry.cost_summary();
         self.context_summary = self.telemetry.context_summary();
+    }
+
+    fn update_task_summary(&mut self, tasks: &[ClientTask]) {
+        self.task_summary = latest_task_summary(tasks);
     }
 }
 
@@ -427,6 +479,7 @@ impl ClientProjection {
 pub struct ClientSnapshot {
     pub status: ClientStatus,
     pub projection: ClientProjection,
+    pub tasks: Vec<ClientTask>,
     pub draft_input: String,
 }
 
@@ -445,6 +498,7 @@ impl ClientSnapshot {
         Self {
             status: ClientStatus::with_profiles(active_profile.clone(), profiles),
             projection: ClientProjection::new(active_profile),
+            tasks: Vec::new(),
             draft_input: String::new(),
         }
     }
@@ -480,6 +534,55 @@ impl ClientSnapshot {
 
     pub fn apply_event(&mut self, frame: &EventFrame) {
         match &frame.event {
+            RunEvent::TaskCreated { task_id, kind } => {
+                let thread_id = frame.thread_id.clone();
+                let turn_id = frame.turn_id.clone();
+                let timestamp = frame.timestamp.clone();
+                let task = self.task_mut_or_insert(task_id);
+                task.kind = Some(kind.clone());
+                task.status = TaskStatus::Pending;
+                task.created_at = Some(timestamp);
+                task.finished_at = None;
+                task.cancel_reason = None;
+                task.error_code = None;
+                task.error_message = None;
+                task.update_scope(thread_id, turn_id);
+                self.status.update_task_summary(&self.tasks);
+            }
+            RunEvent::TaskStarted { task_id } => {
+                let thread_id = frame.thread_id.clone();
+                let turn_id = frame.turn_id.clone();
+                let timestamp = frame.timestamp.clone();
+                let task = self.task_mut_or_insert(task_id);
+                task.status = TaskStatus::Running;
+                task.started_at = Some(timestamp);
+                task.update_scope(thread_id, turn_id);
+                self.status.update_task_summary(&self.tasks);
+            }
+            RunEvent::TaskCompleted { task_id } => {
+                let timestamp = frame.timestamp.clone();
+                let task = self.task_mut_or_insert(task_id);
+                task.status = TaskStatus::Completed;
+                task.finished_at = Some(timestamp);
+                self.status.update_task_summary(&self.tasks);
+            }
+            RunEvent::TaskFailed { task_id, error } => {
+                let timestamp = frame.timestamp.clone();
+                let task = self.task_mut_or_insert(task_id);
+                task.status = TaskStatus::Failed;
+                task.finished_at = Some(timestamp);
+                task.error_code = Some(error.code.clone());
+                task.error_message = Some(error.message.clone());
+                self.status.update_task_summary(&self.tasks);
+            }
+            RunEvent::TaskCancelled { task_id, reason } => {
+                let timestamp = frame.timestamp.clone();
+                let task = self.task_mut_or_insert(task_id);
+                task.status = TaskStatus::Cancelled;
+                task.finished_at = Some(timestamp);
+                task.cancel_reason = reason.clone();
+                self.status.update_task_summary(&self.tasks);
+            }
             RunEvent::ProviderCapabilityReported { capability, .. } => self
                 .status
                 .update_provider_capability(capability.max_context_tokens),
@@ -512,6 +615,80 @@ impl ClientSnapshot {
 
     pub fn apply_trace_record(&mut self, record: &TraceRecord) {
         match record.event_kind.as_str() {
+            "task_created" => {
+                let Some(task_id) = trace_record_task_id(record) else {
+                    return;
+                };
+                let kind = record
+                    .payload
+                    .get("kind")
+                    .and_then(|value| value.as_str())
+                    .and_then(TaskKind::from_snake_case);
+                let task = self.task_mut_or_insert(&task_id);
+                task.kind = kind;
+                task.status = TaskStatus::Pending;
+                task.created_at = Some(record.timestamp.clone());
+                task.finished_at = None;
+                task.cancel_reason = None;
+                task.error_code = None;
+                task.error_message = None;
+                task.update_scope(record.thread_id.clone(), record.turn_id.clone());
+                self.status.update_task_summary(&self.tasks);
+            }
+            "task_started" => {
+                let Some(task_id) = trace_record_task_id(record) else {
+                    return;
+                };
+                let task = self.task_mut_or_insert(&task_id);
+                task.status = TaskStatus::Running;
+                task.started_at = Some(record.timestamp.clone());
+                task.update_scope(record.thread_id.clone(), record.turn_id.clone());
+                self.status.update_task_summary(&self.tasks);
+            }
+            "task_completed" => {
+                let Some(task_id) = trace_record_task_id(record) else {
+                    return;
+                };
+                let task = self.task_mut_or_insert(&task_id);
+                task.status = TaskStatus::Completed;
+                task.finished_at = Some(record.timestamp.clone());
+                self.status.update_task_summary(&self.tasks);
+            }
+            "task_failed" => {
+                let Some(task_id) = trace_record_task_id(record) else {
+                    return;
+                };
+                let task = self.task_mut_or_insert(&task_id);
+                task.status = TaskStatus::Failed;
+                task.finished_at = Some(record.timestamp.clone());
+                task.error_code = record
+                    .payload
+                    .get("error")
+                    .and_then(|error| error.get("code"))
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                task.error_message = record
+                    .payload
+                    .get("error")
+                    .and_then(|error| error.get("message"))
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                self.status.update_task_summary(&self.tasks);
+            }
+            "task_cancelled" => {
+                let Some(task_id) = trace_record_task_id(record) else {
+                    return;
+                };
+                let task = self.task_mut_or_insert(&task_id);
+                task.status = TaskStatus::Cancelled;
+                task.finished_at = Some(record.timestamp.clone());
+                task.cancel_reason = record
+                    .payload
+                    .get("reason")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                self.status.update_task_summary(&self.tasks);
+            }
             "provider_capability_reported" => self.status.update_provider_capability(
                 record
                     .payload
@@ -562,8 +739,10 @@ impl ClientSnapshot {
 
     pub fn start_new_thread(&mut self) {
         self.projection = ClientProjection::new(self.status.active_profile.clone());
+        self.tasks.clear();
         self.draft_input.clear();
         self.status.reset_telemetry();
+        self.status.update_task_summary(&self.tasks);
     }
 
     pub fn push_notice(&mut self, content: impl Into<String>) {
@@ -598,6 +777,17 @@ impl ClientSnapshot {
 
         output
     }
+
+    fn task_mut_or_insert(&mut self, task_id: &TaskId) -> &mut ClientTask {
+        if let Some(index) = self.tasks.iter().position(|task| &task.task_id == task_id) {
+            return &mut self.tasks[index];
+        }
+
+        self.tasks.push(ClientTask::new(task_id.clone()));
+        self.tasks
+            .last_mut()
+            .expect("task was just inserted into non-empty registry")
+    }
 }
 
 fn trace_record_item_id(record: &TraceRecord) -> Option<ItemId> {
@@ -608,4 +798,34 @@ fn trace_record_item_id(record: &TraceRecord) -> Option<ItemId> {
             .and_then(|value| value.as_str())
             .map(ItemId::from)
     })
+}
+
+fn trace_record_task_id(record: &TraceRecord) -> Option<TaskId> {
+    record.task_id.clone().or_else(|| {
+        record
+            .payload
+            .get("task_id")
+            .and_then(|value| value.as_str())
+            .map(TaskId::from)
+    })
+}
+
+fn latest_task_summary(tasks: &[ClientTask]) -> String {
+    let Some(task) = tasks.last() else {
+        return "task idle".to_string();
+    };
+
+    format!("task {}", task_status_label(&task.status))
+}
+
+fn task_status_label(status: &TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Pending => "pending",
+        TaskStatus::Running => "running",
+        TaskStatus::WaitingForApproval => "waiting",
+        TaskStatus::Paused => "paused",
+        TaskStatus::Completed => "completed",
+        TaskStatus::Failed => "failed",
+        TaskStatus::Cancelled => "cancelled",
+    }
 }

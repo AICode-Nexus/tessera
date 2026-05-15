@@ -2,7 +2,8 @@ use futures::TryStreamExt;
 use std::time::Duration;
 use tessera_protocol::{
     ArtifactId, EventFrame, ItemId, ModelProfileId, ProviderId, RouteDecision, RouteDecisionId,
-    RouteStrategy, RunEvent, TaskId, TaskKind, ThreadId, TraceRecord, TurnId,
+    RouteStrategy, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId, Timestamp, TraceRecord,
+    TurnId,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -137,6 +138,48 @@ pub struct RuntimeObjectIndex {
     pub artifacts: Vec<ArtifactId>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeTaskSummary {
+    pub task_id: TaskId,
+    pub kind: Option<TaskKind>,
+    pub status: TaskStatus,
+    pub thread_id: Option<ThreadId>,
+    pub turn_id: Option<TurnId>,
+    pub created_at: Option<Timestamp>,
+    pub started_at: Option<Timestamp>,
+    pub finished_at: Option<Timestamp>,
+    pub cancel_reason: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+}
+
+impl RuntimeTaskSummary {
+    fn new(task_id: TaskId) -> Self {
+        Self {
+            task_id,
+            kind: None,
+            status: TaskStatus::Pending,
+            thread_id: None,
+            turn_id: None,
+            created_at: None,
+            started_at: None,
+            finished_at: None,
+            cancel_reason: None,
+            error_code: None,
+            error_message: None,
+        }
+    }
+
+    fn update_scope(&mut self, thread_id: Option<ThreadId>, turn_id: Option<TurnId>) {
+        if thread_id.is_some() {
+            self.thread_id = thread_id;
+        }
+        if turn_id.is_some() {
+            self.turn_id = turn_id;
+        }
+    }
+}
+
 pub struct RuntimeReader {
     store: TraceStore,
 }
@@ -177,6 +220,114 @@ impl RuntimeReader {
             artifacts: objects.artifacts,
         })
     }
+
+    pub fn list_tasks(&self, trace_id: &str) -> Result<Vec<RuntimeTaskSummary>> {
+        let records = self.store.read_trace_records(trace_id)?;
+        let mut tasks = Vec::new();
+        for record in records {
+            apply_task_record(&mut tasks, &record);
+        }
+        Ok(tasks)
+    }
+}
+
+fn apply_task_record(tasks: &mut Vec<RuntimeTaskSummary>, record: &TraceRecord) {
+    match record.event_kind.as_str() {
+        "task_created" => {
+            let Some(task_id) = trace_record_task_id(record) else {
+                return;
+            };
+            let kind = record
+                .payload
+                .get("kind")
+                .and_then(|value| value.as_str())
+                .and_then(TaskKind::from_snake_case);
+            let task = task_mut_or_insert(tasks, &task_id);
+            task.kind = kind;
+            task.status = TaskStatus::Pending;
+            task.created_at = Some(record.timestamp.clone());
+            task.finished_at = None;
+            task.cancel_reason = None;
+            task.error_code = None;
+            task.error_message = None;
+            task.update_scope(record.thread_id.clone(), record.turn_id.clone());
+        }
+        "task_started" => {
+            let Some(task_id) = trace_record_task_id(record) else {
+                return;
+            };
+            let task = task_mut_or_insert(tasks, &task_id);
+            task.status = TaskStatus::Running;
+            task.started_at = Some(record.timestamp.clone());
+            task.update_scope(record.thread_id.clone(), record.turn_id.clone());
+        }
+        "task_completed" => {
+            let Some(task_id) = trace_record_task_id(record) else {
+                return;
+            };
+            let task = task_mut_or_insert(tasks, &task_id);
+            task.status = TaskStatus::Completed;
+            task.finished_at = Some(record.timestamp.clone());
+        }
+        "task_failed" => {
+            let Some(task_id) = trace_record_task_id(record) else {
+                return;
+            };
+            let task = task_mut_or_insert(tasks, &task_id);
+            task.status = TaskStatus::Failed;
+            task.finished_at = Some(record.timestamp.clone());
+            task.error_code = record
+                .payload
+                .get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            task.error_message = record
+                .payload
+                .get("error")
+                .and_then(|error| error.get("message"))
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+        }
+        "task_cancelled" => {
+            let Some(task_id) = trace_record_task_id(record) else {
+                return;
+            };
+            let task = task_mut_or_insert(tasks, &task_id);
+            task.status = TaskStatus::Cancelled;
+            task.finished_at = Some(record.timestamp.clone());
+            task.cancel_reason = record
+                .payload
+                .get("reason")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+        }
+        _ => {}
+    }
+}
+
+fn task_mut_or_insert<'a>(
+    tasks: &'a mut Vec<RuntimeTaskSummary>,
+    task_id: &TaskId,
+) -> &'a mut RuntimeTaskSummary {
+    if let Some(index) = tasks.iter().position(|task| &task.task_id == task_id) {
+        return &mut tasks[index];
+    }
+
+    tasks.push(RuntimeTaskSummary::new(task_id.clone()));
+    tasks
+        .last_mut()
+        .expect("task was just inserted into non-empty registry")
+}
+
+fn trace_record_task_id(record: &TraceRecord) -> Option<TaskId> {
+    record.task_id.clone().or_else(|| {
+        record
+            .payload
+            .get("task_id")
+            .and_then(|value| value.as_str())
+            .map(TaskId::from)
+    })
 }
 
 impl<'a> ReplayRunner<'a> {

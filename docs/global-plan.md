@@ -142,7 +142,7 @@
 
 - [ ] Context workbench 初版。
 - [x] Read-only runtime API 初版：`tessera-core` 提供 `RuntimeReader`，支持按 `trace_id` / `since_seq` / `limit` 读取 trace event page，并通过 core 查询 thread / turn / item / task / artifact ID 索引；HTTP/SSE 服务仍留到 v0.4。
-- [ ] Task registry v1。
+- [x] Task registry v1：`RuntimeReader::list_tasks` 可从 trace 重建 read-only task summaries，`tessera-client` 可从 live events / replay trace records 投影 `ClientTask` 和 task status summary，TUI 仍只渲染。
 - [ ] Tauri GUI shell spike：只接 mock/replay 或 read-only runtime，不引入第二套 provider 或 storage 访问路径。
 - [ ] Rust-to-TypeScript DTO 生成策略。
 - [x] Usage/cache/cost/context telemetry summary：`tessera-client` 已从标准 live events 和 replay trace records 聚合 provider-neutral summary，TUI 只负责渲染。
