@@ -25,6 +25,7 @@ This repository now has the v0.1 Rust workspace scaffold and a mock-driven runti
 - [GUI-Ready Architecture](docs/gui-ready-architecture.md)
 - [ADR-001: GUI Architecture and Toolkit Direction](docs/adr/ADR-001-gui-architecture-and-toolkit.md)
 - [v0.1 Plan](docs/v0.1-plan.md)
+- [v0.1 Release Checklist](docs/v0.1-release-checklist.md)
 - [Global Plan](docs/global-plan.md)
 - [Protocol v0](docs/protocol-v0.md)
 - [Trace Schema v0](docs/trace-schema-v0.md)
@@ -83,4 +84,4 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 - No tool execution.
 - No agent runtime.
 
-The next milestone is to prepare the v0.1 release checklist and verify real provider smoke paths when OpenAI-compatible or Ollama endpoints are reachable.
+The next milestone is to clear the `v0.1.0-alpha.1` release checklist, then verify real provider smoke paths before a final `v0.1.0` tag.

@@ -28,6 +28,7 @@
 - [x] GUI-ready 方向写入架构：未来 GUI 必须复用 headless runtime、client intent 和 UI-neutral view model。
 - [x] GUI 技术架构和选型写入 ADR：产品 GUI 默认 Tauri 2 + TypeScript/React/Vite，egui 仅作为内部 inspector 候选，GPUI 继续观察。
 - [x] GUI-ready client model 边界已落地：`tessera-client` 承载 `ClientIntent`、`ClientStatus`、`ClientProjection` 和 `ClientSnapshot`。
+- [x] v0.1 release checklist 和 tag plan 已写入 `docs/v0.1-release-checklist.md`。
 
 ## 2. v0.1 Runtime Checklist
 
@@ -131,7 +132,8 @@
 12. [x] GUI 技术架构和选型 ADR：先锁定 Tauri-first 产品 GUI 路线和 AI-ready IPC/权限边界，不引入 v0.1 GUI 依赖。
 13. [x] GUI-ready client model 边界：已抽出 `tessera-client`，TUI 的 intent、message projection 和 status projection 复用 UI-neutral API。
 14. [x] `/new`、`/save`、`/export` 基础入口。
-15. [ ] v0.1 release checklist 和 tag 计划。
+15. [x] v0.1 release checklist 和 tag 计划。
+16. [ ] `v0.1.0-alpha.1` pre-tag gate：本地门禁、CI、mock smoke、release notes section、clean tree。
 
 ## 4. v0.2 Checklist
 

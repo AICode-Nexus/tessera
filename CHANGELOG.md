@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added `/new`, `/save`, and `/export` basics through shared client slash-command intents, local TUI handling, and markdown projection export.
 - Added a GUI-ready architecture note so future desktop/web clients reuse the same headless runtime, client intents, and UI-neutral view model instead of forking runtime behavior from CLI/TUI.
 - Added ADR-001 for GUI architecture and toolkit direction, selecting a Tauri-first product GUI path with AI-ready typed IPC, permissions, fixture, and projection rules.
+- Added a v0.1 release checklist and tag plan covering alpha/final tag criteria, verification gates, known limitations, release notes, and rollback.
 - Added `tessera doctor --json` and `tessera chat --provider mock --prompt ...`.
 - Added a minimal Ratatui status-line surface for profile, reasoning, cache, and cost placeholders.
 - Added architecture, trace, protocol, crate-boundary, v0.1 planning, and DeepSeek-TUI lesson documents.
