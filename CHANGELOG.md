@@ -6,9 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v0.1.0] - 2026-05-15
+
 ### Added
 
 - Added provider HTTP error normalization for OpenAI-compatible and Ollama adapters, including provider-neutral error codes, retryability, safe details, and API-key/authorization/cookie redaction before trace persistence.
+- Verified the final v0.1 OpenAI-compatible live smoke path against a OneAPI-compatible endpoint using `deepseek-v4-pro`, including trace review for secret-like material.
 
 ### Changed
 

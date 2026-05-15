@@ -84,4 +84,4 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 - No tool execution.
 - No agent runtime.
 
-The next milestone is to clear the `v0.1.0-alpha.1` release checklist, then verify real provider smoke paths before a final `v0.1.0` tag.
+The next milestone after `v0.1.0` is the v0.2 planning slice around read-only runtime APIs, context workbench, task registry, and the GUI shell spike.

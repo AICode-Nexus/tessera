@@ -81,9 +81,9 @@
 - [x] `tessera chat --provider mock --prompt ...`。
 - [x] doctor 输出 data dir、trace writable、SQLite index health、provider profile。
 - [x] config-driven provider profile routing。
-- [~] CLI 使用 OpenAI-compatible provider 完成真实流式对话：代码路径已接入，缺 live smoke 验证。
+- [x] CLI 使用 OpenAI-compatible provider 完成真实流式对话：OneAPI-compatible endpoint + `deepseek-v4-pro` 已完成 live smoke，trace 已检查无 secret-like 内容。
 - [~] CLI 使用 Ollama provider 完成真实流式对话：代码路径已接入，缺 live smoke 验证。
-- [~] secret 只从 env 读取，禁止进入 trace 的集成测试：已覆盖缺失 env 时请求前失败且不写 trace，仍缺真实 provider 成功路径脱敏验证。
+- [x] secret 只从 env 读取，禁止进入 trace：已覆盖缺失 env 时请求前失败且不写 trace，并已检查真实 OpenAI-compatible 成功路径 trace 无 key / Authorization / Bearer / Cookie。
 
 ### TUI
 
@@ -112,7 +112,7 @@
 - [x] `tessera doctor --json` mock smoke。
 - [x] `tessera chat --provider mock --prompt "hello"` smoke。
 - [x] replay golden trace gate。
-- [x] live provider smoke gate，默认跳过。
+- [x] live provider smoke gate，默认跳过；OpenAI-compatible manual final smoke 已完成。
 
 ## 3. 下一步执行顺序
 
@@ -124,7 +124,7 @@
 4. [x] Thread / Turn / Item repository 查询 API。
 5. [x] Replay fixture 和 golden trace test。
 6. [x] `rusqlite/bundled` 发布可移植性配置。
-7. [ ] 真实 provider smoke 验证：当前环境 OpenAI-compatible env 未设置，Ollama `localhost:11434` 不可达。
+7. [x] 真实 provider smoke 验证：OpenAI-compatible / OneAPI-compatible endpoint + `deepseek-v4-pro` 已验证；Ollama `localhost:11434` 仍不可达但不阻塞 v0.1.0。
 8. [x] 最小 TUI chat loop：view/input/event reducer、terminal event loop、CLI `tui` 入口已完成。
 9. [x] TUI profile switch 入口。
 10. [x] Live event bridge：core event sink、CLI bridge、TUI live channel 已完成。
@@ -134,7 +134,7 @@
 14. [x] `/new`、`/save`、`/export` 基础入口。
 15. [x] v0.1 release checklist 和 tag 计划。
 16. [x] `v0.1.0-alpha.1` pre-tag gate：release notes section、本地门禁、mock smoke、clean tree、CI 均已确认，下一步可打 alpha tag。
-17. [ ] `v0.1.0` final gate：至少完成一个真实 provider smoke，并检查真实 provider 成功路径不会把 secret 写入 debug/log/trace。
+17. [x] `v0.1.0` final gate：OpenAI-compatible live smoke 已完成，并检查真实 provider 成功路径 trace 无 secret-like 内容；下一步可打 final tag。
 
 ## 4. v0.2 Checklist
 
