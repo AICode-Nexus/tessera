@@ -52,6 +52,8 @@ enum Commands {
         #[arg(long)]
         stdin: bool,
         #[arg(long)]
+        file: Option<PathBuf>,
+        #[arg(long)]
         resume: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
@@ -126,18 +128,25 @@ async fn main() -> anyhow::Result<()> {
             provider,
             prompt,
             stdin,
+            file,
             resume,
             config,
             data_dir,
         } => {
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
+            let prompt_source_count =
+                usize::from(prompt.is_some()) + usize::from(stdin) + usize::from(file.is_some());
+            if prompt_source_count > 1 {
+                anyhow::bail!("--prompt, --stdin, and --file cannot be combined");
+            }
+
             let prompt = if stdin {
-                if prompt.is_some() {
-                    anyhow::bail!("--stdin cannot be combined with --prompt");
-                }
                 let mut input = String::new();
                 std::io::stdin().read_to_string(&mut input)?;
+                Some(input.trim_end_matches(['\r', '\n']).to_string())
+            } else if let Some(path) = file {
+                let input = std::fs::read_to_string(path)?;
                 Some(input.trim_end_matches(['\r', '\n']).to_string())
             } else {
                 prompt

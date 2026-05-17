@@ -43,6 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added `tessera sessions` with text and JSON output for top-level trace-backed session discovery.
 - Added `tessera transcript <trace_id>` with markdown and JSON output for REPL-free transcript inspection.
 - Added `tessera chat --stdin` for pipe-friendly one-shot prompts.
+- Added `tessera chat --file <path>` for file-backed one-shot prompts.
 
 ## [v0.1.0] - 2026-05-15
 

@@ -41,6 +41,7 @@ fn chat_help_lists_resume_option() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("--resume <RESUME>"));
     assert!(stdout.contains("--stdin"));
+    assert!(stdout.contains("--file <FILE>"));
 }
 
 #[test]
@@ -709,6 +710,78 @@ default_model = "mock-chat"
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("mock response to: hello from stdin"));
+}
+
+#[tokio::test]
+async fn chat_command_path_reads_prompt_from_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    let prompt_path = temp.path().join("prompt.md");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(&prompt_path, "hello from file\n").unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--config"])
+        .arg(&config_path)
+        .args(["--provider", "offline", "--file"])
+        .arg(&prompt_path)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("mock response to: hello from file"));
+}
+
+#[test]
+fn chat_command_path_rejects_multiple_prompt_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    let prompt_path = temp.path().join("prompt.md");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(&prompt_path, "hello from file\n").unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--config"])
+        .arg(&config_path)
+        .args(["--provider", "offline", "--prompt", "hello", "--file"])
+        .arg(&prompt_path)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("cannot be combined"));
 }
 
 #[tokio::test]
