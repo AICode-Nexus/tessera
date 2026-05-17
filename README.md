@@ -93,9 +93,10 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- transcript <trace_id> 
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- transcript <trace_id> --config ./tessera.toml --json
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --resume <trace_id>
+PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --continue
 ```
 
-Use `chat --stdin` to pipe a prompt into one-shot chat, or `chat --file <path>` to read a prompt from a UTF-8 file. Add `--json` to a one-shot chat command to emit `trace_id` and `assistant_text` for scripts. Use `tessera sessions` to list trace-backed sessions and `tessera transcript <trace_id>` to inspect one without entering the REPL. In interactive `chat` mode, use `/help`, `/new`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id>`, `/status`, `/export`, and `/quit`. You can also start directly from a prior trace with `chat --resume <trace_id>`. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
+Use `chat --stdin` to pipe a prompt into one-shot chat, or `chat --file <path>` to read a prompt from a UTF-8 file. Add `--json` to a one-shot chat command to emit `trace_id` and `assistant_text` for scripts. Use `tessera sessions` to list trace-backed sessions and `tessera transcript <trace_id>` to inspect one without entering the REPL. In interactive `chat` mode, use `/help`, `/new`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id>`, `/status`, `/export`, and `/quit`. You can also start directly from a prior trace with `chat --resume <trace_id>` or resume the most recent trace with `chat --continue`. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
 
 Run the GUI shell spike:
 

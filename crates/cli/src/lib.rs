@@ -286,6 +286,14 @@ pub fn list_sessions(data_dir: impl AsRef<Path>) -> Result<Vec<CliSessionSummary
         .collect())
 }
 
+pub fn latest_session_trace_id(data_dir: impl AsRef<Path>) -> Result<String> {
+    list_sessions(data_dir)?
+        .into_iter()
+        .next()
+        .map(|session| session.trace_id)
+        .ok_or_else(|| anyhow::anyhow!("no sessions found to continue"))
+}
+
 pub fn format_session_lines(sessions: &[CliSessionSummary]) -> Vec<String> {
     if sessions.is_empty() {
         return vec!["no sessions found".to_string()];

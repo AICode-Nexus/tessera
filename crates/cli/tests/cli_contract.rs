@@ -43,6 +43,7 @@ fn chat_help_lists_resume_option() {
     assert!(stdout.contains("--stdin"));
     assert!(stdout.contains("--file <FILE>"));
     assert!(stdout.contains("--json"));
+    assert!(stdout.contains("--continue"));
 }
 
 #[test]
@@ -555,6 +556,126 @@ async fn repl_can_start_from_resume_trace_id_and_continue_with_history() {
         .messages
         .iter()
         .any(|message| message.content == "continue from startup"));
+}
+
+#[tokio::test]
+async fn chat_continue_starts_from_latest_trace_and_continues_with_history() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    let config = resolve_config(Some(config_path.clone())).unwrap();
+    run_chat_with_config(&data_dir, &config, "offline", "older session")
+        .await
+        .unwrap();
+    let latest_trace_id = run_chat_with_config(&data_dir, &config, "offline", "latest session")
+        .await
+        .unwrap()
+        .trace_id;
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--config"])
+        .arg(&config_path)
+        .args(["--provider", "offline", "--continue"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"continue latest\n/quit\n")
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(&format!("resumed trace {latest_trace_id}")));
+    assert!(stdout.contains("history messages: 3"));
+    assert!(stdout.contains("continue latest"));
+}
+
+#[test]
+fn chat_continue_rejects_missing_session() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--config"])
+        .arg(&config_path)
+        .args(["--provider", "offline", "--continue"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("no sessions found to continue"));
+}
+
+#[test]
+fn chat_continue_rejects_one_shot_prompt_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--config"])
+        .arg(&config_path)
+        .args(["--provider", "offline", "--continue", "--prompt", "hello"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("--continue cannot be combined"));
 }
 
 #[tokio::test]

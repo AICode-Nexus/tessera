@@ -55,6 +55,8 @@ enum Commands {
         file: Option<PathBuf>,
         #[arg(long)]
         json: bool,
+        #[arg(long = "continue")]
+        continue_last: bool,
         #[arg(long)]
         resume: Option<String>,
         #[arg(long)]
@@ -132,6 +134,7 @@ async fn main() -> anyhow::Result<()> {
             stdin,
             file,
             json,
+            continue_last,
             resume,
             config,
             data_dir,
@@ -142,6 +145,14 @@ async fn main() -> anyhow::Result<()> {
                 usize::from(prompt.is_some()) + usize::from(stdin) + usize::from(file.is_some());
             if prompt_source_count > 1 {
                 anyhow::bail!("--prompt, --stdin, and --file cannot be combined");
+            }
+            if continue_last && (prompt_source_count > 0 || resume.is_some()) {
+                anyhow::bail!(
+                    "--continue cannot be combined with --prompt, --stdin, --file, or --resume"
+                );
+            }
+            if resume.is_some() && prompt_source_count > 0 {
+                anyhow::bail!("--resume is only supported in interactive chat mode");
             }
 
             let prompt = if stdin {
@@ -156,9 +167,6 @@ async fn main() -> anyhow::Result<()> {
             };
 
             if let Some(prompt) = prompt {
-                if resume.is_some() {
-                    anyhow::bail!("--resume is only supported in interactive chat mode");
-                }
                 let outcome =
                     tessera_cli::run_chat_with_config(data_dir, &config, &provider, prompt).await?;
                 if json {
@@ -171,6 +179,11 @@ async fn main() -> anyhow::Result<()> {
                 if json {
                     anyhow::bail!("--json is only supported with --prompt, --stdin, or --file");
                 }
+                let resume = if continue_last {
+                    Some(tessera_cli::latest_session_trace_id(&data_dir)?)
+                } else {
+                    resume
+                };
                 tessera_cli::run_chat_repl_with_config_and_resume(
                     data_dir, config, provider, resume,
                 )

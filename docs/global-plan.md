@@ -87,6 +87,7 @@
 - [x] `tessera transcript <trace_id>`：顶层 transcript inspect 命令，可输出 markdown 或 `--json`，复用 trace projection，不重新请求 provider。
 - [x] `tessera chat --provider mock` 交互式 CLI REPL：无 `--prompt` 时进入 Claude/Codex 风格命令行聊天壳，支持 `/help`、`/new`、`/profiles`、`/profile <id>`、`/sessions`、`/resume <trace_id>`、`/status`、`/export`、`/quit`，并复用 `tessera-client` projection 与 core live event stream。
 - [x] `tessera chat --resume <trace_id>`：启动交互式 CLI 时直接投影旧 trace，不需要先进入 REPL 再手动输入 `/resume`。
+- [x] `tessera chat --continue`：启动交互式 CLI 时自动投影最近更新的 trace session，下一轮 prompt 继续带 restored history。
 - [x] `tessera init` 安全配置模板：生成 mock / Ollama / OpenAI-compatible 示例，只写 secret env var 名称，不写 provider secret。
 - [x] CLI session list / resume：REPL 支持 `/sessions` 和 `/resume <trace_id>`，通过 `RuntimeReader` 只读 trace summary 和 trace record projection，不重新请求 provider。
 - [x] CLI resumed-session continuation：`/resume <trace_id>` 后的下一轮 prompt 会把恢复出的 user/assistant transcript 作为 provider-visible chat history，同时新 trace 只记录当前用户 turn。
@@ -156,6 +157,7 @@
 24. [x] CLI stdin prompt：`tessera chat --stdin` 已接入 one-shot chat path，可从管道读取 prompt 并继续通过 core/provider/storage 完整链路执行。
 25. [x] CLI file prompt：`tessera chat --file <path>` 已接入 one-shot chat path，可从 UTF-8 文件读取 prompt 并继续通过 core/provider/storage 完整链路执行。
 26. [x] CLI JSON chat output：`tessera chat --json` 已接入 one-shot chat path，输出稳定 `trace_id` / `assistant_text` JSON，并拒绝无 prompt source 的交互模式。
+27. [x] CLI continue latest session：`tessera chat --continue` 已复用 read-only session list 找到最近 trace，并进入与 `--resume` 相同的交互恢复路径。
 
 ## 4. v0.2 Checklist
 

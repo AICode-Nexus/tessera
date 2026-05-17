@@ -45,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added `tessera chat --stdin` for pipe-friendly one-shot prompts.
 - Added `tessera chat --file <path>` for file-backed one-shot prompts.
 - Added `tessera chat --json` for script-friendly one-shot chat output containing `trace_id` and `assistant_text`.
+- Added `tessera chat --continue` to start the interactive CLI from the most recent trace-backed session.
 
 ## [v0.1.0] - 2026-05-15
 
