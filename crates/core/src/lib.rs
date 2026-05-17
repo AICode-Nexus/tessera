@@ -15,7 +15,7 @@ use tessera_protocol::{
     ToolSideEffect, TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail,
     WorkspaceScope,
 };
-use tessera_providers::{ChatProvider, ProviderError, ProviderRequest};
+use tessera_providers::{ChatProvider, ProviderError, ProviderMessage, ProviderRequest};
 use tessera_storage::TraceStore;
 
 #[derive(Debug, thiserror::Error)]
@@ -63,6 +63,7 @@ pub struct ConversationRequest {
     pub profile_id: ModelProfileId,
     pub model: String,
     pub prompt: String,
+    pub history: Vec<ProviderMessage>,
 }
 
 impl ConversationRequest {
@@ -73,7 +74,14 @@ impl ConversationRequest {
             profile_id: ModelProfileId::from_static("mock-default"),
             model: "mock-chat".to_string(),
             prompt: prompt.into(),
+            history: Vec::new(),
         }
+    }
+
+    pub fn provider_messages(&self) -> Vec<ProviderMessage> {
+        let mut messages = self.history.clone();
+        messages.push(ProviderMessage::user(self.prompt.clone()));
+        messages
     }
 }
 
@@ -1867,6 +1875,7 @@ where
         let assistant_item_id = ItemId::new();
         let mut assistant_text = String::new();
         let mut no_progress_detector = NoProgressDetector::default();
+        let provider_messages = request.provider_messages();
         let prompt = request.prompt.clone();
 
         macro_rules! append_event {
@@ -1937,6 +1946,7 @@ where
                 profile_id: selected_profile,
                 model: selected_model,
                 prompt: request.prompt,
+                messages: provider_messages,
                 assistant_item_id,
             })
             .await

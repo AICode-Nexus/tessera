@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use futures::stream;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tessera_core::{
     ContextWorkbench, ConversationEngine, ConversationRequest, CoreError, DiagnosticsReporter,
@@ -21,7 +22,8 @@ use tessera_protocol::{
     ToolResultStatus, ToolSideEffect, WorkspaceCheckpoint, WorkspaceScope,
 };
 use tessera_providers::{
-    mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderRequest,
+    mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderMessage,
+    ProviderMessageRole, ProviderRequest,
 };
 use tessera_storage::TraceStore;
 
@@ -109,6 +111,36 @@ impl ChatProvider for EmptyAssistantProvider {
         Ok(Box::pin(stream::iter(vec![
             Ok(RunEvent::AssistantMessageStarted {
                 item_id: item_id.clone(),
+            }),
+            Ok(RunEvent::AssistantMessageCompleted { item_id }),
+        ])))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct CapturingProvider {
+    captured_request: Arc<Mutex<Option<ProviderRequest>>>,
+}
+
+#[async_trait]
+impl ChatProvider for CapturingProvider {
+    async fn capability(&self) -> tessera_providers::Result<ProviderCapability> {
+        Ok(mock_capability())
+    }
+
+    async fn stream_chat(
+        &self,
+        request: ProviderRequest,
+    ) -> tessera_providers::Result<ProviderEventStream> {
+        let item_id = request.assistant_item_id.clone();
+        *self.captured_request.lock().unwrap() = Some(request);
+        Ok(Box::pin(stream::iter(vec![
+            Ok(RunEvent::AssistantMessageStarted {
+                item_id: item_id.clone(),
+            }),
+            Ok(RunEvent::AssistantDelta {
+                item_id: item_id.clone(),
+                text: "captured".to_string(),
             }),
             Ok(RunEvent::AssistantMessageCompleted { item_id }),
         ])))
@@ -915,6 +947,44 @@ async fn conversation_engine_drives_mock_provider_and_persists_trace() {
 }
 
 #[tokio::test]
+async fn conversation_engine_passes_history_to_provider_without_retracing_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let captured_request = Arc::new(Mutex::new(None));
+    let provider = CapturingProvider {
+        captured_request: captured_request.clone(),
+    };
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(provider, store);
+    let mut request = ConversationRequest::mock("current question");
+    request.history = vec![
+        ProviderMessage::user("prior question"),
+        ProviderMessage::assistant("prior answer"),
+    ];
+
+    let outcome = engine.run_chat(request).await.unwrap();
+    let captured = captured_request.lock().unwrap().clone().unwrap();
+
+    assert_eq!(captured.messages.len(), 3);
+    assert_eq!(captured.messages[0].role, ProviderMessageRole::User);
+    assert_eq!(captured.messages[0].content, "prior question");
+    assert_eq!(captured.messages[1].role, ProviderMessageRole::Assistant);
+    assert_eq!(captured.messages[1].content, "prior answer");
+    assert_eq!(captured.messages[2].role, ProviderMessageRole::User);
+    assert_eq!(captured.messages[2].content, "current question");
+
+    let user_records = outcome
+        .store
+        .read_trace_records(&outcome.trace_id)
+        .unwrap()
+        .into_iter()
+        .filter(|record| record.event_kind == "user_message_recorded")
+        .collect::<Vec<_>>();
+
+    assert_eq!(user_records.len(), 1);
+    assert_eq!(user_records[0].payload["text"], "current question");
+}
+
+#[tokio::test]
 async fn conversation_engine_records_normalized_provider_errors_before_returning_failure() {
     let temp = tempfile::tempdir().unwrap();
     let store = TraceStore::open(temp.path()).unwrap();
@@ -1014,6 +1084,7 @@ async fn conversation_engine_records_timeout_when_provider_stalls() {
         profile_id: ModelProfileId::from_static("hanging"),
         model: "hanging-model".to_string(),
         prompt: "hello timeout".to_string(),
+        history: Vec::new(),
     };
 
     let outcome = engine
@@ -1044,6 +1115,7 @@ async fn conversation_engine_records_no_progress_and_stops_when_provider_finishe
         profile_id: ModelProfileId::from_static("empty-default"),
         model: "empty-chat".to_string(),
         prompt: "hello empty".to_string(),
+        history: Vec::new(),
     };
 
     let outcome = engine.run_chat(request).await.unwrap();

@@ -1,6 +1,6 @@
 use futures::TryStreamExt;
 use tessera_protocol::{ItemId, ModelProfileId, ProviderId, RunEvent};
-use tessera_providers::{mock::MockProvider, ChatProvider, ProviderRequest};
+use tessera_providers::{mock::MockProvider, ChatProvider, ProviderMessage, ProviderRequest};
 
 #[tokio::test]
 async fn mock_provider_reports_capability_and_streams_standard_events() {
@@ -16,6 +16,11 @@ async fn mock_provider_reports_capability_and_streams_standard_events() {
             profile_id: ModelProfileId::from_static("mock-default"),
             model: "mock-chat".to_string(),
             prompt: "hello".to_string(),
+            messages: vec![
+                ProviderMessage::user("prior question"),
+                ProviderMessage::assistant("prior answer"),
+                ProviderMessage::user("hello"),
+            ],
             assistant_item_id: assistant_item_id.clone(),
         })
         .await
@@ -31,6 +36,10 @@ async fn mock_provider_reports_capability_and_streams_standard_events() {
     assert!(events.iter().any(|event| matches!(
         event,
         RunEvent::AssistantReasoningDelta { text, .. } if text.contains("mock reasoning")
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        RunEvent::AssistantDelta { text, .. } if text.contains("history messages: 3")
     )));
     assert!(events.iter().any(|event| matches!(
         event,

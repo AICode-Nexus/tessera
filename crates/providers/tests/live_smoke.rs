@@ -23,6 +23,7 @@ async fn openai_compatible_live_smoke_streams_standard_events() {
             profile_id: ModelProfileId::from_static("openai-compatible-live"),
             model,
             prompt: "Reply with one short sentence.".to_string(),
+            messages: Vec::new(),
             assistant_item_id,
         })
         .await
@@ -52,6 +53,7 @@ async fn ollama_live_smoke_streams_standard_events() {
             profile_id: ModelProfileId::from_static("ollama-live"),
             model,
             prompt: "Reply with one short sentence.".to_string(),
+            messages: Vec::new(),
             assistant_item_id,
         })
         .await

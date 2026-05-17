@@ -1,6 +1,6 @@
 # Tessera Global Plan
 
-日期：2026-05-14
+日期：2026-05-17
 
 本文是 Tessera 的全局推进清单。它不替代 `docs/v0.1-plan.md` 的阶段细节，也不替代架构文档；它用于回答三个问题：
 
@@ -80,9 +80,10 @@
 
 - [x] `tessera doctor --json`。
 - [x] `tessera chat --provider mock --prompt ...`。
-- [x] `tessera chat --provider mock` 交互式 CLI REPL：无 `--prompt` 时进入 Claude/Codex 风格命令行聊天壳，支持 `/help`、`/new`、`/profiles`、`/profile <id>`、`/status`、`/export`、`/quit`，并复用 `tessera-client` projection 与 core live event stream。
+- [x] `tessera chat --provider mock` 交互式 CLI REPL：无 `--prompt` 时进入 Claude/Codex 风格命令行聊天壳，支持 `/help`、`/new`、`/profiles`、`/profile <id>`、`/sessions`、`/resume <trace_id>`、`/status`、`/export`、`/quit`，并复用 `tessera-client` projection 与 core live event stream。
 - [x] `tessera init` 安全配置模板：生成 mock / Ollama / OpenAI-compatible 示例，只写 secret env var 名称，不写 provider secret。
 - [x] CLI session list / resume：REPL 支持 `/sessions` 和 `/resume <trace_id>`，通过 `RuntimeReader` 只读 trace summary 和 trace record projection，不重新请求 provider。
+- [x] CLI resumed-session continuation：`/resume <trace_id>` 后的下一轮 prompt 会把恢复出的 user/assistant transcript 作为 provider-visible chat history，同时新 trace 只记录当前用户 turn。
 - [x] doctor 输出 data dir、trace writable、SQLite index health、provider profile。
 - [x] config-driven provider profile routing。
 - [x] CLI 使用 OpenAI-compatible provider 完成真实流式对话：OneAPI-compatible endpoint + `deepseek-v4-pro` 已完成 live smoke，trace 已检查无 secret-like 内容。
@@ -142,6 +143,7 @@
 17. [x] `v0.1.0` final gate：OpenAI-compatible live smoke 已完成，并检查真实 provider 成功路径 trace 无 secret-like 内容；下一步可打 final tag。
 18. [x] 纯 CLI REPL 初版：`tessera chat` 缺省进入交互壳，保留 `--prompt` 单轮模式；命令解析和 session projection 有 contract tests。
 19. [x] CLI runtime v2：`tessera init`、`/sessions`、`/resume <trace_id>` 已完成；history/resume 基于 read-only runtime reader，不绕过 core。
+20. [x] CLI resumed-session continuation：provider-neutral `ProviderMessage` / `ConversationRequest.history` 已接入 provider/core/CLI；恢复 session 后下一次 prompt 会携带恢复出的 user/assistant 历史。
 
 ## 4. v0.2 Checklist
 

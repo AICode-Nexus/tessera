@@ -43,8 +43,16 @@ pub mod mock {
         }
 
         async fn stream_chat(&self, request: ProviderRequest) -> Result<ProviderEventStream> {
+            let message_count = request.chat_messages().len();
             let assistant_item_id = request.assistant_item_id;
-            let response = format!("{} to: {}", self.response_prefix, request.prompt);
+            let response = if message_count > 1 {
+                format!(
+                    "{} to: {} (history messages: {message_count})",
+                    self.response_prefix, request.prompt
+                )
+            } else {
+                format!("{} to: {}", self.response_prefix, request.prompt)
+            };
             let events = vec![
                 Ok(RunEvent::AssistantMessageStarted {
                     item_id: assistant_item_id.clone(),
@@ -87,13 +95,70 @@ pub mod mock {
 pub type ProviderEventStream =
     Pin<Box<dyn Stream<Item = std::result::Result<RunEvent, ProviderError>> + Send>>;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderMessageRole {
+    System,
+    User,
+    Assistant,
+}
+
+impl ProviderMessageRole {
+    pub fn as_chat_role(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::User => "user",
+            Self::Assistant => "assistant",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderMessage {
+    pub role: ProviderMessageRole,
+    pub content: String,
+}
+
+impl ProviderMessage {
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: ProviderMessageRole::System,
+            content: content.into(),
+        }
+    }
+
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: ProviderMessageRole::User,
+            content: content.into(),
+        }
+    }
+
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: ProviderMessageRole::Assistant,
+            content: content.into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderRequest {
     pub provider_id: ProviderId,
     pub profile_id: ModelProfileId,
     pub model: String,
     pub prompt: String,
+    pub messages: Vec<ProviderMessage>,
     pub assistant_item_id: ItemId,
+}
+
+impl ProviderRequest {
+    pub fn chat_messages(&self) -> Vec<ProviderMessage> {
+        if self.messages.is_empty() {
+            return vec![ProviderMessage::user(self.prompt.clone())];
+        }
+
+        self.messages.clone()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

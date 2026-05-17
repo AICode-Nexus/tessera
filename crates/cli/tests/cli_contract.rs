@@ -365,6 +365,19 @@ async fn repl_prompt_streams_live_events_into_client_snapshot() {
         .messages
         .iter()
         .any(|message| message.content.contains("mock response")));
+
+    let mut follow_up_text = String::new();
+    run_repl_prompt_with_writer(
+        temp.path(),
+        &config,
+        &mut session,
+        "continue from that",
+        |delta| follow_up_text.push_str(delta),
+    )
+    .await
+    .unwrap();
+
+    assert!(follow_up_text.contains("history messages: 3"));
 }
 
 #[test]
@@ -441,6 +454,19 @@ async fn repl_sessions_and_resume_use_trace_projection_without_provider_call() {
         .messages
         .iter()
         .any(|message| message.content.contains("mock response")));
+
+    let mut follow_up_text = String::new();
+    run_repl_prompt_with_writer(
+        temp.path(),
+        &config,
+        &mut session,
+        "continue from that",
+        |delta| follow_up_text.push_str(delta),
+    )
+    .await
+    .unwrap();
+
+    assert!(follow_up_text.contains("history messages: 3"));
 }
 
 #[tokio::test]

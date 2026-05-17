@@ -61,13 +61,21 @@ impl ChatProvider for OpenAiCompatibleProvider {
     }
 
     async fn stream_chat(&self, request: ProviderRequest) -> Result<ProviderEventStream> {
+        let messages = request
+            .chat_messages()
+            .into_iter()
+            .map(|message| {
+                json!({
+                    "role": message.role.as_chat_role(),
+                    "content": message.content,
+                })
+            })
+            .collect::<Vec<_>>();
         let body = json!({
             "model": request.model,
             "stream": true,
             "stream_options": { "include_usage": true },
-            "messages": [
-                { "role": "user", "content": request.prompt }
-            ]
+            "messages": messages,
         });
 
         let mut builder = self.client.post(self.endpoint()).json(&body);

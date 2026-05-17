@@ -4,7 +4,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tessera_client::ClientSnapshot;
+use tessera_client::{ClientMessageRole, ClientSnapshot};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
     ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction,
@@ -13,7 +13,7 @@ use tessera_core::{
 use tessera_protocol::{EventFrame, ModelProfileId, ProviderId, RunEvent};
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
-    ChatProvider,
+    ChatProvider, ProviderMessage,
 };
 use tessera_storage::TraceStore;
 use tessera_tui::{ChatViewState, LiveClientEvent};
@@ -250,6 +250,22 @@ pub fn parse_repl_command(input: &str) -> Option<CliReplCommand> {
     })
 }
 
+pub fn provider_history_from_snapshot(snapshot: &ClientSnapshot) -> Vec<ProviderMessage> {
+    snapshot
+        .projection
+        .messages
+        .iter()
+        .filter(|message| !message.content.trim().is_empty())
+        .filter_map(|message| match message.role {
+            ClientMessageRole::User => Some(ProviderMessage::user(message.content.clone())),
+            ClientMessageRole::Assistant => {
+                Some(ProviderMessage::assistant(message.content.clone()))
+            }
+            ClientMessageRole::System | ClientMessageRole::Reasoning => None,
+        })
+        .collect()
+}
+
 pub async fn run_repl_prompt_with_writer<F>(
     data_dir: impl AsRef<Path>,
     config: &TesseraConfig,
@@ -261,14 +277,22 @@ where
     F: FnMut(&str),
 {
     let provider_id = session.snapshot.status.active_profile.clone();
+    let history = provider_history_from_snapshot(&session.snapshot);
     let snapshot = &mut session.snapshot;
-    run_chat_with_config_and_events(data_dir, config, &provider_id, prompt, |frame| {
-        snapshot.apply_event(frame);
-        if let RunEvent::AssistantDelta { text, .. } = &frame.event {
-            write_delta(text);
-        }
-        EventSinkAction::Continue
-    })
+    run_chat_with_config_history_and_events(
+        data_dir,
+        config,
+        &provider_id,
+        prompt,
+        history,
+        |frame| {
+            snapshot.apply_event(frame);
+            if let RunEvent::AssistantDelta { text, .. } = &frame.event {
+                write_delta(text);
+            }
+            EventSinkAction::Continue
+        },
+    )
     .await
 }
 
@@ -498,6 +522,29 @@ pub async fn run_chat_with_config_and_events<F, R>(
     config: &TesseraConfig,
     provider_id: &str,
     prompt: impl Into<String>,
+    event_sink: F,
+) -> Result<ConversationOutcome>
+where
+    F: FnMut(&EventFrame) -> R,
+    R: Into<EventSinkAction>,
+{
+    run_chat_with_config_history_and_events(
+        data_dir,
+        config,
+        provider_id,
+        prompt,
+        Vec::new(),
+        event_sink,
+    )
+    .await
+}
+
+pub async fn run_chat_with_config_history_and_events<F, R>(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+    provider_id: &str,
+    prompt: impl Into<String>,
+    history: Vec<ProviderMessage>,
     mut event_sink: F,
 ) -> Result<ConversationOutcome>
 where
@@ -517,6 +564,7 @@ where
                 profile,
                 MockProvider::default(),
                 prompt,
+                history,
                 &mut event_sink,
             )
             .await
@@ -531,8 +579,15 @@ where
                 api_key,
                 ProviderId::from(profile.id.as_str()),
             );
-            run_chat_for_provider_with_events(data_dir, profile, provider, prompt, &mut event_sink)
-                .await
+            run_chat_for_provider_with_events(
+                data_dir,
+                profile,
+                provider,
+                prompt,
+                history,
+                &mut event_sink,
+            )
+            .await
         }
         "ollama" => {
             let base_url = profile
@@ -540,8 +595,15 @@ where
                 .as_deref()
                 .unwrap_or("http://localhost:11434");
             let provider = OllamaProvider::new(base_url, ProviderId::from(profile.id.as_str()));
-            run_chat_for_provider_with_events(data_dir, profile, provider, prompt, &mut event_sink)
-                .await
+            run_chat_for_provider_with_events(
+                data_dir,
+                profile,
+                provider,
+                prompt,
+                history,
+                &mut event_sink,
+            )
+            .await
         }
         other => Err(anyhow::anyhow!(
             "unsupported provider kind `{other}` for profile `{}`",
@@ -608,6 +670,7 @@ async fn run_chat_for_provider_with_events<P, F, R>(
     profile: &ProviderProfile,
     provider: P,
     prompt: impl Into<String>,
+    history: Vec<ProviderMessage>,
     event_sink: &mut F,
 ) -> Result<ConversationOutcome>
 where
@@ -625,6 +688,7 @@ where
                 profile_id: ModelProfileId::from(profile.id.as_str()),
                 model: profile.default_model.clone(),
                 prompt: prompt.into(),
+                history,
             },
             event_sink,
         )
