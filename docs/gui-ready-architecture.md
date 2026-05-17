@@ -12,7 +12,7 @@
 - Runtime 仍然 Rust-first：provider、storage、trace、policy、task lifecycle 都在 Rust core / future runtime API 内。
 - `egui` 只作为 Rust-first 内部诊断面板或轻量 inspector 候选，不作为产品 GUI 默认方向。
 - `GPUI` 继续观察，不进入 v0.1/v0.2 默认路径。
-- v0.1 不引入 GUI 依赖；UI-neutral `client` 边界已先行抽出。
+- v0.1 不引入 GUI 依赖；UI-neutral `client` 边界已先行抽出。v0.2 已增加 Tauri shell spike，但仍只接 mock/replay 和 read-only projection。
 
 这不是立即开始 GUI 实现。它是为了让后续 `client`、TUI、CLI bridge、trace projection 的实现不走偏。
 
@@ -37,6 +37,12 @@ apps/gui-tauri web shell
 apps/gui-tauri src-tauri bridge
   |
   v
+crates/gui-bridge
+  |
+  +--> typed mock/replay commands
+  +--> bounded GUI event buffer
+  |
+  v
 crates/client
   |
   +--> UI-neutral ClientIntent
@@ -51,12 +57,17 @@ core runtime / future runtime_api
   +--> config
   v
 protocol + trace
+
+crates/gui-bindings
+  -> generates apps/gui-tauri/src/generated/bindings.ts from protocol/client/gui-bridge DTOs
 ```
 
 其中：
 
 - `apps/gui-tauri web shell` 只负责窗口、菜单、布局、快捷键、可访问性和渲染。
 - `src-tauri bridge` 只暴露最小命令和事件通道，不实现业务状态机。
+- `gui-bridge` 提供 typed command DTO、mock/replay projection 和 bounded event buffer，不接 provider/storage。
+- `gui-bindings` 从 Rust DTO 生成 TypeScript bindings，防止 frontend 手写 schema 漂移。
 - `client` 负责 UI-neutral intent、message projection、status projection、task projection。
 - `core runtime` 是唯一真实执行来源。
 - `trace` 是 GUI debug、replay 和 AI 辅助修复的共同事实。
@@ -93,17 +104,19 @@ terminal key / GUI action
 
 当前 `tessera-client` 已经承接 TUI 和未来 GUI 共享的 client model：
 
-- 用户输入转成 `ClientIntent`，其中 profile switch 和 prompt submit 使用同一套 UI-neutral intent。
+- 用户输入转成 `ClientIntent`，其中 profile switch、prompt submit、approval approve/deny、memory proposal accept/reject 使用同一套 UI-neutral intent。
 - core event / trace record 转成 `ClientProjection` 消息列表。
 - provider/profile/reasoning/cache/cost/task state/artifact state 进入 `ClientStatus` 投影。
 
 后续应抽出的 UI-neutral 能力：
 
-- `ClientIntent`：`SubmitPrompt`、`SwitchProfile`、`NewThread`、`SaveThread`、`ExportThread`、`CancelTask`。
-- `ClientStatus`：profile、model、reasoning、cache、cost、task state。
+- `ClientIntent`：`SubmitPrompt`、`SwitchProfile`、`NewThread`、`SaveThread`、`ExportThread`、`CancelTask`、`ApproveToolCall`、`DenyToolCall`、`AcceptMemoryProposal`、`RejectMemoryProposal`。
+- `ClientStatus`：profile、model、reasoning、cache、cost、task state、approval summary、memory proposal summary。
 - `ClientMessage`：role、content、reasoning、streaming、trace refs。
 - `ClientTask`：task id、kind、status、started/completed/finished、cancel reason、error summary，已由 task registry 初版补齐。
 - `ClientArtifact`：artifact id、kind、关联 thread/turn/task/item、created timestamp、referencing event kinds，已由 artifact handle projection 补齐。
+- `ClientApproval`：approval id、call/tool id、status、reason、permissions 和 side effects，供 TUI/GUI 展示审批状态；真实审批执行仍归 runtime/policy 边界。
+- `ClientMemoryProposal`：proposal id、状态、标题、摘要、来源 item 和 reason，供 TUI/GUI 展示记忆建议；真实长期记忆写入仍归 future memory runtime。
 - `ClientProjection`：从 `EventFrame` / `TraceRecord` 生成稳定 view state。
 - `ClientSnapshot`：GUI/TUI 初始加载和 replay 恢复使用的完整投影。
 
@@ -116,7 +129,6 @@ Tauri bridge 只允许暴露 typed command：
 - `list_profiles`
 - `load_client_snapshot`
 - `submit_client_intent`
-- `start_chat`
 - `cancel_task`
 - `load_trace_projection`
 - `export_thread`
@@ -141,7 +153,7 @@ ClientEvent::Error(NormalizedError)
 
 规则：
 
-- DTO 从 Rust 类型生成 TypeScript 类型，避免手写两套 schema。
+- DTO 从 Rust 类型生成 TypeScript 类型，避免手写两套 schema；当前输出为 `apps/gui-tauri/src/generated/bindings.ts`。
 - 事件通道必须 bounded；满了要回传 backpressure/cancel，而不是无限堆积。
 - 前端只消费 `ClientEvent` 或 `ClientSnapshot`，不解析 provider 私有响应。
 - 大内容只通过 artifact handle 展示，前端不接收无限 transcript blob。
@@ -176,7 +188,7 @@ GUI 代码必须 AI-ready，而不是只追求 UI 能跑：
 - 每个复杂组件有 mock/replay story 数据。
 - 前端组件不持有业务状态机，只接收 snapshot/patch。
 - 组件文件保持小而明确，避免巨型 `App.tsx`。
-- 所有跨边界类型从 Rust schema 生成或由单一 schema 派生。
+- 所有跨边界类型从 Rust schema 生成或由单一 schema 派生；GUI shell 通过 `src/types.ts` re-export generated DTO。
 - UI 文案、快捷键、命令名集中配置，避免散落硬编码。
 - 关键控件保留稳定 selector，方便 Playwright 和 AI 自动化验证。
 - GUI bug 优先用 replay trace 复现，而不是依赖真实 provider。
@@ -198,7 +210,7 @@ AI 修改 GUI 时优先做小任务：
 - v0.1：live event bridge 已让 core/CLI/TUI 消费同一套 `EventFrame` 流，并保证 GUI 后续复用同一契约。
 - v0.1：cancellation / timeout / backpressure 已进入 core/CLI/TUI 基础语义。
 - v0.1：已抽出 `tessera-client` crate，包含 `ClientIntent`、`ClientStatus`、`ClientProjection` 和 `ClientSnapshot`。
-- v0.2：做 Tauri GUI shell spike，验证 toolkit、布局、快捷键、可访问性、IPC、分发体积和 mock/replay 启动。
+- v0.2：已新增 Tauri GUI shell spike，验证 toolkit、布局、IPC、mock/replay submit/cancel/replay 路径和 bounded GUI event buffer；完整 runtime API / live provider GUI path 仍后置。
 
 Tauri spike 验收标准：
 
@@ -206,7 +218,7 @@ Tauri spike 验收标准：
 - 不直接依赖 provider SDK 或 SQLite internals。
 - 只通过 typed commands 和 bounded event channel 接入 Rust。
 - 至少覆盖一个 submit/cancel/replay 的 UI 路径。
-- 有可重复的截图或浏览器自动化验证方案。
+- 有可重复的自动化验证方案：当前 `App.smoke.test.tsx` 用 Vitest + Testing Library 覆盖 mock/replay load、submit、cancel、new-thread 和 icon action accessible names；Playwright/Chromium 真实浏览器截图仍作为后续环境门禁。
 
 ## 10. 不做
 

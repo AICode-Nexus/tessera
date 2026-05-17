@@ -158,7 +158,6 @@ Allowed bridge commands:
 - `list_profiles`
 - `load_client_snapshot`
 - `submit_client_intent`
-- `start_chat`
 - `cancel_task`
 - `load_trace_projection`
 - `export_thread`
@@ -178,9 +177,10 @@ The GUI must start with mock/replay support and a bounded event channel before a
 
 - [x] Extract `crates/client` or `core::client` with `ClientIntent`, `ClientProjection`, and `ClientSnapshot`.
 - [x] Move TUI message/status projection onto the shared client model.
-- [ ] Define Rust-to-TypeScript binding generation strategy for GUI DTOs.
-- [ ] Build a Tauri spike using mock/replay only.
-- [ ] Add GUI automation checks after the spike exists.
+- [x] Define Rust-to-TypeScript binding generation strategy for GUI DTOs.
+- [x] Build a Tauri spike using mock/replay only.
+- [x] Add deterministic GUI smoke automation after the spike exists.
+- [ ] Add real-browser screenshot automation once Playwright/Chromium is stable in the local/CI environment.
 
 ## References
 

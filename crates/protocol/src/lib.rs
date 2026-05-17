@@ -11,7 +11,9 @@ pub type ExtensionMap = BTreeMap<String, Value>;
 macro_rules! id_type {
     ($name:ident, $prefix:literal) => {
         #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+        #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
         #[serde(transparent)]
+        #[cfg_attr(feature = "bindings", ts(type = "string"))]
         pub struct $name(String);
 
         impl $name {
@@ -64,9 +66,25 @@ id_type!(ProviderId, "provider");
 id_type!(ModelProfileId, "profile");
 id_type!(WindowId, "window");
 id_type!(RouteDecisionId, "route");
+id_type!(SkillId, "skill");
+id_type!(ToolId, "tool");
+id_type!(ToolCallId, "tool_call");
+id_type!(ToolDispatchId, "tool_dispatch");
+id_type!(ToolResultId, "tool_result");
+id_type!(ToolRepairId, "tool_repair");
+id_type!(ApprovalId, "approval");
+id_type!(PolicyDecisionId, "policy");
+id_type!(SandboxDecisionId, "sandbox");
+id_type!(OsSandboxProfileId, "os_sandbox");
+id_type!(SnapshotId, "snapshot");
+id_type!(ContextId, "context");
+id_type!(DiagnosticReportId, "diagnostics");
+id_type!(MemoryProposalId, "memory_proposal");
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 #[serde(transparent)]
+#[cfg_attr(feature = "bindings", ts(type = "string"))]
 pub struct Timestamp(String);
 
 impl Timestamp {
@@ -170,6 +188,7 @@ pub struct Item {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum TaskKind {
     Chat,
@@ -197,6 +216,7 @@ impl TaskKind {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Pending,
@@ -221,6 +241,7 @@ pub struct Task {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactKind {
     Trace,
@@ -260,6 +281,424 @@ pub struct Artifact {
     pub created_at: Timestamp,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticSeverity {
+    Error,
+    Warning,
+    Information,
+    Hint,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DiagnosticRange {
+    pub start_line: u32,
+    pub start_character: u32,
+    pub end_line: u32,
+    pub end_character: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Diagnostic {
+    pub severity: DiagnosticSeverity,
+    pub code: Option<String>,
+    pub message: String,
+    pub uri: Option<String>,
+    pub range: Option<DiagnosticRange>,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DiagnosticReport {
+    pub report_id: DiagnosticReportId,
+    pub source: String,
+    #[serde(default)]
+    pub diagnostics: Vec<Diagnostic>,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryProposalStatus {
+    Pending,
+    Applied,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct MemoryProposal {
+    pub proposal_id: MemoryProposalId,
+    pub status: MemoryProposalStatus,
+    pub title: String,
+    pub summary: String,
+    pub source_item_id: Option<ItemId>,
+    pub reason: Option<String>,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextSourceKind {
+    File,
+    Directory,
+    Workspace,
+    Artifact,
+    Trace,
+    Inline,
+    Url,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextSource {
+    pub kind: ContextSourceKind,
+    pub uri: Option<String>,
+    pub label: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextPlacement {
+    StablePrefix,
+    AppendOnlyTranscript,
+    VolatileScratch,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextReference {
+    pub id: ContextId,
+    pub source: ContextSource,
+    pub placement: ContextPlacement,
+    pub estimated_tokens: u64,
+    pub pinned: bool,
+    pub summary: Option<String>,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextBudget {
+    pub max_tokens: u64,
+    pub reserved_output_tokens: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillSourceKind {
+    BuiltIn,
+    Workspace,
+    User,
+    Bundled,
+    External,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SkillSource {
+    pub kind: SkillSourceKind,
+    pub uri: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillEntrypointFormat {
+    SkillMd,
+    SkillToml,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SkillEntrypoint {
+    pub format: SkillEntrypointFormat,
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SkillRequirements {
+    #[serde(default)]
+    pub tools: Vec<String>,
+    #[serde(default)]
+    pub context: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SkillPolicy {
+    pub default_permission: String,
+    pub network: String,
+    pub write_files: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SkillManifest {
+    pub id: SkillId,
+    pub name: String,
+    pub version: Option<String>,
+    pub description: String,
+    pub source: SkillSource,
+    pub entrypoint: SkillEntrypoint,
+    pub requirements: SkillRequirements,
+    pub policy: SkillPolicy,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolPermission {
+    FilesystemRead,
+    FilesystemWrite,
+    Network,
+    Shell,
+    Git,
+    EnvRead,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolSideEffect {
+    ReadOnly,
+    WritesWorkspace,
+    WritesOutsideWorkspace,
+    Network,
+    Shell,
+    PersistentState,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ToolDescriptor {
+    pub id: ToolId,
+    pub display_name: String,
+    pub description: String,
+    pub input_schema: Value,
+    pub output_schema: Value,
+    #[serde(default)]
+    pub required_permissions: Vec<ToolPermission>,
+    #[serde(default)]
+    pub side_effects: Vec<ToolSideEffect>,
+    #[serde(default)]
+    pub parallel_safe: bool,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ToolCallRequest {
+    pub call_id: ToolCallId,
+    pub tool_id: ToolId,
+    pub input: Value,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyOutcome {
+    Allow,
+    Deny,
+    AskUser,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ToolPolicyDecision {
+    pub decision_id: PolicyDecisionId,
+    pub call_id: ToolCallId,
+    pub tool_id: ToolId,
+    pub outcome: PolicyOutcome,
+    pub reason: String,
+    #[serde(default)]
+    pub required_permissions: Vec<ToolPermission>,
+    #[serde(default)]
+    pub side_effects: Vec<ToolSideEffect>,
+    pub approval_id: Option<ApprovalId>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalStatus {
+    Pending,
+    Approved,
+    Denied,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ToolApproval {
+    pub approval_id: ApprovalId,
+    pub call_id: ToolCallId,
+    pub tool_id: ToolId,
+    pub status: ApprovalStatus,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ToolDispatch {
+    pub dispatch_id: ToolDispatchId,
+    pub call_id: ToolCallId,
+    pub tool_id: ToolId,
+    pub declared_index: u32,
+    #[serde(default)]
+    pub parallel_safe: bool,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolResultStatus {
+    Succeeded,
+    Failed,
+    Skipped,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ToolResult {
+    pub result_id: ToolResultId,
+    pub call_id: ToolCallId,
+    pub tool_id: ToolId,
+    pub declared_index: u32,
+    pub status: ToolResultStatus,
+    pub output: Value,
+    pub error: Option<NormalizedError>,
+    #[serde(default)]
+    pub artifact_refs: Vec<ArtifactId>,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolRepairKind {
+    FlattenedNestedCalls,
+    ScavengedJson,
+    TruncatedArguments,
+    CallStormDetected,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ToolRepairReport {
+    pub repair_id: ToolRepairId,
+    pub call_id: Option<ToolCallId>,
+    pub tool_id: Option<ToolId>,
+    pub kind: ToolRepairKind,
+    pub reason: String,
+    pub original_call_count: Option<u32>,
+    pub repaired_call_count: Option<u32>,
+    pub truncated_bytes: Option<u64>,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceScope {
+    pub workspace_root: String,
+    #[serde(default)]
+    pub allowed_roots: Vec<String>,
+    #[serde(default)]
+    pub denied_roots: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceAccess {
+    Read,
+    Write,
+    Execute,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceGuardrail {
+    pub scope: WorkspaceScope,
+    pub requested_path: Option<String>,
+    pub resolved_path: Option<String>,
+    pub access: WorkspaceAccess,
+    pub within_workspace: bool,
+    #[serde(default)]
+    pub required_permissions: Vec<ToolPermission>,
+    #[serde(default)]
+    pub side_effects: Vec<ToolSideEffect>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxDecisionKind {
+    Allow,
+    Deny,
+    AskUser,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SandboxDecision {
+    pub decision_id: SandboxDecisionId,
+    pub call_id: Option<ToolCallId>,
+    pub tool_id: Option<ToolId>,
+    pub kind: SandboxDecisionKind,
+    pub reason: String,
+    pub guardrail: WorkspaceGuardrail,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OsSandboxMode {
+    ReadOnly,
+    WorkspaceWrite,
+    NetworkRequired,
+    Denied,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OsSandboxFilesystem {
+    ReadOnly,
+    WorkspaceWrite,
+    Denied,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OsSandboxNetwork {
+    Disabled,
+    Requested,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OsSandboxShell {
+    Denied,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct OsSandboxProfile {
+    pub profile_id: OsSandboxProfileId,
+    pub mode: OsSandboxMode,
+    pub workspace_root: Option<String>,
+    pub filesystem: OsSandboxFilesystem,
+    pub network: OsSandboxNetwork,
+    pub shell: OsSandboxShell,
+    pub requires_checkpoint: bool,
+    pub reason: String,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SnapshotKind {
+    SideGit,
+    FileArchive,
+    External,
+}
+
+impl SnapshotKind {
+    pub fn from_snake_case(value: &str) -> Option<Self> {
+        match value {
+            "side_git" => Some(Self::SideGit),
+            "file_archive" => Some(Self::FileArchive),
+            "external" => Some(Self::External),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceCheckpoint {
+    pub id: SnapshotId,
+    pub kind: SnapshotKind,
+    pub storage_uri: String,
+    pub workspace_root: Option<String>,
+    pub parent_snapshot_id: Option<SnapshotId>,
+    pub summary: Option<String>,
+    pub metadata: Option<ExtensionMap>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CostEstimate {
     pub amount: f64,
@@ -268,6 +707,33 @@ pub struct CostEstimate {
     pub output_cost: Option<f64>,
     pub cache_read_cost: Option<f64>,
     pub cache_write_cost: Option<f64>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoProgressSignalKind {
+    RepeatedReadOnly,
+    RepeatedRepair,
+    NoOutput,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoProgressAction {
+    Stop,
+    AskUser,
+    Summarize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct NoProgressLoop {
+    pub kind: NoProgressSignalKind,
+    pub consecutive_count: u32,
+    pub threshold: u32,
+    pub action: NoProgressAction,
+    pub reason: String,
+    #[serde(default)]
+    pub route_escalation_allowed: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -391,9 +857,58 @@ pub enum RunEvent {
         task_id: TaskId,
         reason: Option<String>,
     },
+    NoProgressLoopDetected {
+        task_id: TaskId,
+        signal: NoProgressLoop,
+    },
+    DiagnosticsReported {
+        report: DiagnosticReport,
+    },
+    MemoryWriteProposed {
+        proposal: MemoryProposal,
+    },
+    MemoryWriteApplied {
+        proposal: MemoryProposal,
+    },
+    MemoryWriteRejected {
+        proposal: MemoryProposal,
+    },
     ArtifactCreated {
         artifact_id: ArtifactId,
         kind: ArtifactKind,
+    },
+    SnapshotCreated {
+        checkpoint: WorkspaceCheckpoint,
+    },
+    ToolCallRequested {
+        request: ToolCallRequest,
+    },
+    ToolPolicyDecisionRecorded {
+        decision: ToolPolicyDecision,
+    },
+    SandboxDecisionRecorded {
+        decision: SandboxDecision,
+    },
+    OsSandboxProfileSelected {
+        profile: OsSandboxProfile,
+    },
+    ToolDispatchStarted {
+        dispatch: ToolDispatch,
+    },
+    ToolDispatchCompleted {
+        result: ToolResult,
+    },
+    ToolResultRecorded {
+        result: ToolResult,
+    },
+    ToolRepairReported {
+        report: ToolRepairReport,
+    },
+    ToolCallApproved {
+        approval: ToolApproval,
+    },
+    ToolCallDenied {
+        approval: ToolApproval,
     },
     Error {
         error: NormalizedError,
@@ -422,7 +937,23 @@ impl RunEvent {
             Self::TaskCompleted { .. } => "task_completed",
             Self::TaskFailed { .. } => "task_failed",
             Self::TaskCancelled { .. } => "task_cancelled",
+            Self::NoProgressLoopDetected { .. } => "no_progress_loop_detected",
+            Self::DiagnosticsReported { .. } => "diagnostics_reported",
+            Self::MemoryWriteProposed { .. } => "memory_write_proposed",
+            Self::MemoryWriteApplied { .. } => "memory_write_applied",
+            Self::MemoryWriteRejected { .. } => "memory_write_rejected",
             Self::ArtifactCreated { .. } => "artifact_created",
+            Self::SnapshotCreated { .. } => "snapshot_created",
+            Self::ToolCallRequested { .. } => "tool_call_requested",
+            Self::ToolPolicyDecisionRecorded { .. } => "tool_policy_decision_recorded",
+            Self::SandboxDecisionRecorded { .. } => "sandbox_decision_recorded",
+            Self::OsSandboxProfileSelected { .. } => "os_sandbox_profile_selected",
+            Self::ToolDispatchStarted { .. } => "tool_dispatch_started",
+            Self::ToolDispatchCompleted { .. } => "tool_dispatch_completed",
+            Self::ToolResultRecorded { .. } => "tool_result",
+            Self::ToolRepairReported { .. } => "tool_repair_reported",
+            Self::ToolCallApproved { .. } => "tool_call_approved",
+            Self::ToolCallDenied { .. } => "tool_call_denied",
             Self::Error { .. } => "error",
             Self::Done => "done",
         }
@@ -445,7 +976,8 @@ impl RunEvent {
             | Self::TaskStarted { task_id }
             | Self::TaskCompleted { task_id }
             | Self::TaskFailed { task_id, .. }
-            | Self::TaskCancelled { task_id, .. } => Some(task_id.clone()),
+            | Self::TaskCancelled { task_id, .. }
+            | Self::NoProgressLoopDetected { task_id, .. } => Some(task_id.clone()),
             _ => None,
         }
     }
@@ -529,8 +1061,30 @@ impl RunEvent {
             Self::TaskCancelled { task_id, reason } => {
                 json!({ "task_id": task_id, "reason": reason })
             }
+            Self::NoProgressLoopDetected { task_id, signal } => {
+                json!({ "task_id": task_id, "signal": signal })
+            }
+            Self::DiagnosticsReported { report } => json!({ "report": report }),
+            Self::MemoryWriteProposed { proposal }
+            | Self::MemoryWriteApplied { proposal }
+            | Self::MemoryWriteRejected { proposal } => json!({ "proposal": proposal }),
             Self::ArtifactCreated { artifact_id, kind } => {
                 json!({ "artifact_id": artifact_id, "kind": kind })
+            }
+            Self::SnapshotCreated { checkpoint } => {
+                json!({ "checkpoint": checkpoint })
+            }
+            Self::ToolCallRequested { request } => json!({ "request": request }),
+            Self::ToolPolicyDecisionRecorded { decision } => json!({ "decision": decision }),
+            Self::SandboxDecisionRecorded { decision } => json!({ "decision": decision }),
+            Self::OsSandboxProfileSelected { profile } => json!({ "profile": profile }),
+            Self::ToolDispatchStarted { dispatch } => json!({ "dispatch": dispatch }),
+            Self::ToolDispatchCompleted { result } | Self::ToolResultRecorded { result } => {
+                json!({ "result": result })
+            }
+            Self::ToolRepairReported { report } => json!({ "report": report }),
+            Self::ToolCallApproved { approval } | Self::ToolCallDenied { approval } => {
+                json!({ "approval": approval })
             }
             Self::Error { error } => json!({ "error": error }),
             Self::Done => json!({}),
@@ -617,6 +1171,7 @@ impl EventFrame {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct TraceRecord {
     pub schema_version: u32,
     pub trace_id: String,

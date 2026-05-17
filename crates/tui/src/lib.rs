@@ -73,6 +73,10 @@ pub fn status_line(state: &ChatViewState) -> Line<'static> {
         Span::raw(" | "),
         Span::raw(state.status.artifact_summary.clone()),
         Span::raw(" | "),
+        Span::raw(state.status.approval_summary.clone()),
+        Span::raw(" | "),
+        Span::raw(state.status.memory_summary.clone()),
+        Span::raw(" | "),
         Span::raw(state.status.context_summary.clone()),
         Span::raw(" | "),
         Span::raw(state.status.usage_summary.clone()),
@@ -172,7 +176,12 @@ pub fn apply_client_intent_locally(state: &mut ChatViewState, intent: &ClientInt
             true
         }
         ClientIntent::SwitchProfile { .. } => true,
-        ClientIntent::SubmitPrompt { .. } | ClientIntent::CancelTask { .. } => false,
+        ClientIntent::SubmitPrompt { .. }
+        | ClientIntent::CancelTask { .. }
+        | ClientIntent::ApproveToolCall { .. }
+        | ClientIntent::DenyToolCall { .. }
+        | ClientIntent::AcceptMemoryProposal { .. }
+        | ClientIntent::RejectMemoryProposal { .. } => false,
     }
 }
 
@@ -291,7 +300,11 @@ where
                 | ClientIntent::NewThread
                 | ClientIntent::SaveThread
                 | ClientIntent::ExportThread
-                | ClientIntent::CancelTask { .. } => {}
+                | ClientIntent::CancelTask { .. }
+                | ClientIntent::ApproveToolCall { .. }
+                | ClientIntent::DenyToolCall { .. }
+                | ClientIntent::AcceptMemoryProposal { .. }
+                | ClientIntent::RejectMemoryProposal { .. } => {}
             },
         }
     }

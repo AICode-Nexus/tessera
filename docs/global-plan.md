@@ -103,7 +103,7 @@
 - [x] GUI 不另起 runtime：架构约束已写入 `docs/gui-ready-architecture.md`、`docs/technical-architecture.md` 和 `docs/crate-boundaries.md`。
 - [x] GUI 技术选型 ADR：默认产品 GUI 方向为 Tauri 2 + TypeScript/React/Vite；GUI 实现仍等待 `client` 边界。
 - [x] UI-neutral view model：`tessera-client` 已提供 `ClientIntent`、`ClientStatus`、`ClientProjection`、`ClientSnapshot`，TUI 已切换为复用该模型。
-- [~] GUI 技术选型 spike：架构决策已完成；Tauri mock/replay 小样验证仍待 v0.2。
+- [x] GUI 技术选型 spike：已新增 `apps/gui-tauri` Tauri 2 + React/Vite shell 和 `tessera-gui-bridge`，只接 mock/replay 与 read-only projection。
 - [~] Live event bridge：core/CLI/TUI 已共享同一套 `EventFrame` 流；future GUI 复用契约已明确，待 GUI shell spike 验证。
 
 ### Quality Gates
@@ -140,34 +140,36 @@
 
 ## 4. v0.2 Checklist
 
-- [ ] Context workbench 初版。
+- [x] Context workbench 初版：`tessera-protocol` 定义 `ContextReference` / `ContextSource` / `ContextPlacement` / `ContextBudget`，`tessera-core` 提供纯内存 `ContextWorkbench` add/remove/list/budget summary；先区分 stable prefix、append-only transcript 和 volatile scratch，不读取文件内容、不构建 prompt。
 - [x] Read-only runtime API 初版：`tessera-core` 提供 `RuntimeReader`，支持按 `trace_id` / `since_seq` / `limit` 读取 trace event page，并通过 core 查询 thread / turn / item / task / artifact ID 索引；HTTP/SSE 服务仍留到 v0.4。
 - [x] Task registry v1：`RuntimeReader::list_tasks` 可从 trace 重建 read-only task summaries，`tessera-client` 可从 live events / replay trace records 投影 `ClientTask` 和 task status summary，TUI 仍只渲染。
-- [ ] Tauri GUI shell spike：只接 mock/replay 或 read-only runtime，不引入第二套 provider 或 storage 访问路径。
-- [ ] Rust-to-TypeScript DTO 生成策略。
+- [x] Tauri GUI shell spike：`apps/gui-tauri` 提供 Tauri 2 + React/Vite shell，`tessera-gui-bridge` 提供 typed mock/replay commands、bounded GUI event buffer、submit/cancel/replay 投影；不依赖 provider SDK、storage internals 或 TUI。
+- [x] Rust-to-TypeScript DTO 生成策略：`tessera-gui-bindings` 使用 `ts-rs` 从 `protocol` / `client` / `gui-bridge` 的 GUI DTO 生成 `apps/gui-tauri/src/generated/bindings.ts`，并用 contract test 校验 checked-in 文件与 Rust 生成一致；只生成 DTO，不生成 runtime。
+- [x] GUI automation smoke check：`apps/gui-tauri/src/App.smoke.test.tsx` 用 Vitest + Testing Library 覆盖 mock/replay load、submit、cancel、new-thread 和 icon action accessible names；真实 Playwright/browser screenshot gate 仍留作环境稳定后的后续检查。
 - [x] Usage/cache/cost/context telemetry summary：`tessera-client` 已从标准 live events 和 replay trace records 聚合 provider-neutral summary，TUI 只负责渲染。
 - [x] Model router 草案：`tessera-core` 已提供 draft `ModelRouter`，只记录 manual/default `RouteDecision` 和 `decision_reason`，不默认自动路由。
-- [ ] No-progress loop detection 草案：连续只读/重复 repair/无输出循环先 stop / ask / summarize，不直接升档到更贵模型。
+- [x] No-progress loop detection 草案：`tessera-protocol` 定义 `NoProgressLoop` / `no_progress_loop_detected`，`tessera-core` 提供 draft `NoProgressDetector`，连续只读/重复 repair/无输出循环先 stop / ask / summarize，不直接升档到更贵模型。
 - [x] Artifact handle projection：`RuntimeReader::list_artifacts` 可从 `artifact_created` 和 `artifact_refs` 重建 read-only artifact summaries，`tessera-client` 可投影 `ClientArtifact` 和 artifact status summary，TUI 仍只渲染。
-- [ ] Skill registry schema，只读，不执行 skill runtime。
-- [ ] Snapshot/checkpoint schema 设计。
-- [ ] 分发计划：Cargo、GitHub Releases、Homebrew、npm wrapper、Docker。
+- [x] Skill registry schema：`tessera-protocol` 定义 `SkillManifest` / `SkillSource` / `SkillEntrypoint` / requirements / policy，`tessera-core` 提供只读 `SkillRegistry` list/find；兼容 `SKILL.md` metadata，不执行 skill runtime。
+- [x] Snapshot/checkpoint schema 设计：`tessera-protocol` 定义 `SnapshotId`、`WorkspaceCheckpoint`、`SnapshotKind` 和 `snapshot_created` event，`RuntimeReader::list_snapshots` 可只读投影 checkpoint metadata；不实现 restore/revert。
+- [x] 分发计划：`docs/distribution-plan.md` 已定义 Cargo、GitHub Releases、Homebrew、npm wrapper、Docker 的 channel ownership、release assets、checksum、Cargo 发布顺序、镜像变量和 v0.3+ acceptance checklist；v0.2 不实际发布渠道。
 
 ## 5. v0.3-v0.4 Checklist
 
-- [ ] Tool descriptor。
-- [ ] Tool descriptor `parallel_safe` 字段：默认 false，第三方/MCP tool 必须显式 opt in。
-- [ ] Tool dispatcher ordered result append：允许安全并发执行，但 trace append 和模型可见 tool result 保持声明顺序。
-- [ ] Tool-call repair telemetry：记录 flatten/scavenge/truncation/storm 等修复摘要，不把 provider 原始 reasoning 写入 trace。
-- [ ] Policy gate。
-- [ ] Approval UI。
-- [ ] Workspace guardrail。
-- [ ] OS sandbox。
-- [ ] Workspace checkpoint。
-- [ ] MCP adapter，将 MCP tool 转成 Tessera ToolCall。
-- [ ] HTTP/SSE runtime API。
-- [ ] Diagnostics / LSP event。
-- [ ] Memory proposal UI。
+- [x] Release identity metadata：`tessera --version` 输出 crate version 和构建 git SHA，作为 GitHub Releases、Homebrew、npm wrapper 和 Docker 的共同前置。
+- [x] Tool descriptor：`tessera-protocol` 定义 `ToolDescriptor` / `ToolId` / `ToolPermission` / `ToolSideEffect`，`tessera-core` 提供只读 `ToolRegistry` list/find；不执行工具。
+- [x] Tool descriptor `parallel_safe` 字段：默认 false，第三方/MCP tool 必须显式 opt in。
+- [x] Policy gate：`tessera-protocol` 定义 `ToolCallRequest` / `ToolPolicyDecision` / `ToolApproval` 和 tool policy trace events，`tessera-core` 提供 draft `PolicyGate`，只输出 allow / ask_user / deny metadata，不执行工具。
+- [x] Tool dispatcher ordered result append：`tessera-protocol` 定义 `ToolDispatch` / `ToolResult` 和 `tool_dispatch_started` / `tool_dispatch_completed` / `tool_result` events，`tessera-core` 提供 `OrderedToolResultBuffer`，允许底层并发完成但只按声明顺序释放 trace/model-visible result；不执行工具。
+- [x] Tool-call repair telemetry：`tessera-protocol` 定义 `ToolRepairReport` / `ToolRepairKind` 和 `tool_repair_reported` event，`tessera-core` 提供 `ToolRepairTelemetry` helper，记录 flatten/scavenge/truncation/storm 等 provider-neutral 修复摘要；不把 provider 原始 reasoning/raw text 写入 trace。
+- [x] Approval UI：`tessera-client` 投影 pending/resolved tool approvals，提供 `/approve` / `/deny` UI-neutral intents 和 approval summary，TUI status-line 可展示 pending approval；GUI bridge 接受 typed approval intents 但不执行工具。
+- [x] Workspace guardrail / sandbox decision schema：`tessera-protocol` 定义 `WorkspaceScope` / `WorkspaceGuardrail` / `SandboxDecision` 和 `sandbox_decision_recorded` event，`tessera-core` 提供 draft `WorkspaceGuardrailChecker`，只做词法路径归一和 metadata 判定；不执行工具、不读写文件、不提供 OS sandbox。
+- [x] OS sandbox profile foundation：`tessera-protocol` 定义 `OsSandboxProfile` / `OsSandboxMode` / filesystem/network/shell metadata 和 `os_sandbox_profile_selected` event，`tessera-core` 提供 `OsSandboxPlanner`，只根据 tool descriptor 选择 read-only / workspace-write / network-required / denied profile；不启动 OS sandbox、不执行工具、不打开网络。
+- [x] Workspace checkpoint foundation：`tessera-core` 提供 `WorkspaceCheckpointPlanner`，只在 sandbox profile 标记 `requires_checkpoint` 时生成 `WorkspaceCheckpoint` metadata 和 `tessera://snapshots/<id>` URI；不创建 side-git、不读写文件、不 restore/revert。
+- [x] MCP adapter foundation：`tessera-core` 提供 `McpToolAdapter` / `McpToolSpec` / `McpToolAnnotations`，把 MCP tool metadata 和 call arguments 转成 Tessera `ToolDescriptor` / `ToolCallRequest`；MCP annotations 只作为不可信 hint，`parallel_safe` 默认 false，不连接 MCP server、不执行 tool。
+- [x] HTTP/SSE runtime API foundation：`tessera-core` 提供 `RuntimeHttpApi` / `RuntimeHttpEventRequest` / `RuntimeSseFrame`，复用 `RuntimeReader` 输出只读 event page JSON 和 SSE frame 编码；不启动 HTTP server、不监听端口、不拥有第二套 runtime。
+- [x] Diagnostics / LSP event foundation：`tessera-protocol` 定义 `DiagnosticReport` / `Diagnostic` / `DiagnosticRange` / `DiagnosticSeverity` 和 `diagnostics_reported` event，`tessera-core` 提供 `DiagnosticsReporter` helper；不启动 LSP server、不运行 compiler、不读取文件。
+- [x] Memory proposal UI foundation：`tessera-protocol` 定义 `MemoryProposal` / `MemoryProposalStatus` 和 memory proposal events，`tessera-client` 投影 pending/applied/rejected proposals，提供 `/remember` / `/forget` UI-neutral intents，TUI status-line 展示 pending memory proposal；GUI bridge 接受 typed memory intents 但不写入长期 memory runtime。
 
 ## 6. v0.5+ Checklist
 

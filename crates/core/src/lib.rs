@@ -1,9 +1,19 @@
 use futures::TryStreamExt;
+use std::collections::BTreeMap;
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 use tessera_protocol::{
-    ArtifactId, ArtifactKind, EventFrame, ItemId, ModelProfileId, ProviderCapability, ProviderId,
-    RouteDecision, RouteDecisionId, RouteStrategy, RunEvent, TaskId, TaskKind, TaskStatus,
-    ThreadId, Timestamp, TraceRecord, TurnId,
+    ArtifactId, ArtifactKind, ContextBudget, ContextId, ContextPlacement, ContextReference,
+    Diagnostic, DiagnosticReport, DiagnosticReportId, EventFrame, ExtensionMap, ItemId,
+    ModelProfileId, NoProgressAction, NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem,
+    OsSandboxMode, OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId, OsSandboxShell,
+    PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, RouteDecision,
+    RouteDecisionId, RouteStrategy, RunEvent, SandboxDecision, SandboxDecisionId,
+    SandboxDecisionKind, SkillId, SkillManifest, SnapshotId, SnapshotKind, TaskId, TaskKind,
+    TaskStatus, ThreadId, Timestamp, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId,
+    ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult,
+    ToolSideEffect, TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail,
+    WorkspaceScope,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -14,6 +24,8 @@ pub enum CoreError {
     Provider(#[from] tessera_providers::ProviderError),
     #[error("storage failed: {0}")]
     Storage(#[from] tessera_storage::StorageError),
+    #[error("json failed: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;
@@ -121,6 +133,993 @@ impl ModelRouter {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NoProgressPolicy {
+    pub no_output_threshold: u32,
+    pub repeated_read_only_threshold: u32,
+    pub repeated_repair_threshold: u32,
+}
+
+impl Default for NoProgressPolicy {
+    fn default() -> Self {
+        Self {
+            no_output_threshold: 1,
+            repeated_read_only_threshold: 3,
+            repeated_repair_threshold: 3,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NoProgressObservation {
+    AssistantOutput,
+    NoOutput,
+    ReadOnlyStep,
+    RepairStep,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NoProgressDetector {
+    policy: NoProgressPolicy,
+    no_output_count: u32,
+    read_only_count: u32,
+    repair_count: u32,
+    current_assistant_message_has_output: bool,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SkillRegistry {
+    manifests: Vec<SkillManifest>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ToolRegistry {
+    descriptors: Vec<ToolDescriptor>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct McpToolAnnotations {
+    pub title: Option<String>,
+    pub read_only_hint: Option<bool>,
+    pub destructive_hint: Option<bool>,
+    pub idempotent_hint: Option<bool>,
+    pub open_world_hint: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct McpToolSpec {
+    pub server_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub input_schema: serde_json::Value,
+    pub output_schema: Option<serde_json::Value>,
+    pub annotations: McpToolAnnotations,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct McpToolAdapter;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DiagnosticsReporter;
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OrderedToolResultBuffer {
+    dispatches: Vec<ToolDispatch>,
+    order: Vec<u32>,
+    next_cursor: usize,
+    pending_results: BTreeMap<u32, ToolResult>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ToolRepairTelemetry;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PolicyGate;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceGuardrailChecker {
+    scope: WorkspaceScope,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OsSandboxPlanner {
+    workspace_root: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceCheckpointPlanner {
+    kind: SnapshotKind,
+    storage_prefix: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContextBudgetSummary {
+    pub max_tokens: u64,
+    pub reserved_output_tokens: u64,
+    pub available_tokens: u64,
+    pub used_tokens: u64,
+    pub remaining_tokens: u64,
+    pub stable_prefix_tokens: u64,
+    pub append_only_transcript_tokens: u64,
+    pub volatile_scratch_tokens: u64,
+    pub over_budget: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContextWorkbench {
+    budget: ContextBudget,
+    references: Vec<ContextReference>,
+}
+
+impl ContextWorkbench {
+    pub fn new(budget: ContextBudget) -> Self {
+        Self {
+            budget,
+            references: Vec::new(),
+        }
+    }
+
+    pub fn from_references<I>(budget: ContextBudget, references: I) -> Self
+    where
+        I: IntoIterator<Item = ContextReference>,
+    {
+        Self {
+            budget,
+            references: references.into_iter().collect(),
+        }
+    }
+
+    pub fn add_reference(&mut self, reference: ContextReference) {
+        if let Some(index) = self
+            .references
+            .iter()
+            .position(|existing| existing.id == reference.id)
+        {
+            self.references[index] = reference;
+            return;
+        }
+
+        self.references.push(reference);
+    }
+
+    pub fn remove_reference(&mut self, context_id: &ContextId) -> Option<ContextReference> {
+        let index = self
+            .references
+            .iter()
+            .position(|reference| &reference.id == context_id)?;
+        Some(self.references.remove(index))
+    }
+
+    pub fn list_references(&self) -> &[ContextReference] {
+        &self.references
+    }
+
+    pub fn summary(&self) -> ContextBudgetSummary {
+        let mut stable_prefix_tokens = 0_u64;
+        let mut append_only_transcript_tokens = 0_u64;
+        let mut volatile_scratch_tokens = 0_u64;
+
+        for reference in &self.references {
+            match reference.placement {
+                ContextPlacement::StablePrefix => {
+                    stable_prefix_tokens =
+                        stable_prefix_tokens.saturating_add(reference.estimated_tokens);
+                }
+                ContextPlacement::AppendOnlyTranscript => {
+                    append_only_transcript_tokens =
+                        append_only_transcript_tokens.saturating_add(reference.estimated_tokens);
+                }
+                ContextPlacement::VolatileScratch => {
+                    volatile_scratch_tokens =
+                        volatile_scratch_tokens.saturating_add(reference.estimated_tokens);
+                }
+            }
+        }
+
+        let used_tokens = stable_prefix_tokens
+            .saturating_add(append_only_transcript_tokens)
+            .saturating_add(volatile_scratch_tokens);
+        let available_tokens = self
+            .budget
+            .max_tokens
+            .saturating_sub(self.budget.reserved_output_tokens);
+        let remaining_tokens = available_tokens.saturating_sub(used_tokens);
+
+        ContextBudgetSummary {
+            max_tokens: self.budget.max_tokens,
+            reserved_output_tokens: self.budget.reserved_output_tokens,
+            available_tokens,
+            used_tokens,
+            remaining_tokens,
+            stable_prefix_tokens,
+            append_only_transcript_tokens,
+            volatile_scratch_tokens,
+            over_budget: used_tokens > available_tokens,
+        }
+    }
+}
+
+impl SkillRegistry {
+    pub fn from_manifests<I>(manifests: I) -> Self
+    where
+        I: IntoIterator<Item = SkillManifest>,
+    {
+        Self {
+            manifests: manifests.into_iter().collect(),
+        }
+    }
+
+    pub fn list_skills(&self) -> Vec<SkillManifest> {
+        self.manifests.clone()
+    }
+
+    pub fn find_skill(&self, skill_id: &SkillId) -> Option<&SkillManifest> {
+        self.manifests
+            .iter()
+            .find(|manifest| &manifest.id == skill_id)
+    }
+}
+
+impl ToolRegistry {
+    pub fn from_descriptors<I>(descriptors: I) -> Self
+    where
+        I: IntoIterator<Item = ToolDescriptor>,
+    {
+        Self {
+            descriptors: descriptors.into_iter().collect(),
+        }
+    }
+
+    pub fn list_tools(&self) -> Vec<ToolDescriptor> {
+        self.descriptors.clone()
+    }
+
+    pub fn find_tool(&self, tool_id: &ToolId) -> Option<&ToolDescriptor> {
+        self.descriptors
+            .iter()
+            .find(|descriptor| &descriptor.id == tool_id)
+    }
+}
+
+impl McpToolAdapter {
+    pub fn descriptor_from_spec(&self, spec: &McpToolSpec) -> ToolDescriptor {
+        ToolDescriptor {
+            id: ToolId::from(format!(
+                "tool_mcp_{}_{}",
+                sanitize_mcp_id_fragment(&spec.server_id),
+                sanitize_mcp_id_fragment(&spec.name)
+            )),
+            display_name: spec
+                .annotations
+                .title
+                .clone()
+                .unwrap_or_else(|| spec.name.clone()),
+            description: spec
+                .description
+                .clone()
+                .unwrap_or_else(|| format!("MCP tool {}", spec.name)),
+            input_schema: spec.input_schema.clone(),
+            output_schema: spec
+                .output_schema
+                .clone()
+                .unwrap_or_else(|| serde_json::json!({ "type": "object" })),
+            required_permissions: mcp_required_permissions(&spec.annotations),
+            side_effects: mcp_side_effects(&spec.annotations),
+            parallel_safe: false,
+            metadata: Some(mcp_tool_metadata(spec)),
+        }
+    }
+
+    pub fn request_from_arguments(
+        &self,
+        descriptor: &ToolDescriptor,
+        arguments: serde_json::Value,
+    ) -> ToolCallRequest {
+        let mut metadata = ExtensionMap::new();
+        if let Some(descriptor_metadata) = &descriptor.metadata {
+            for key in [
+                "mcp_server_id",
+                "mcp_tool_name",
+                "mcp_read_only_hint",
+                "mcp_destructive_hint",
+                "mcp_idempotent_hint",
+                "mcp_open_world_hint",
+            ] {
+                if let Some(value) = descriptor_metadata.get(key) {
+                    metadata.insert(key.to_string(), value.clone());
+                }
+            }
+        }
+        metadata.insert(
+            "mcp_adapter".to_string(),
+            serde_json::Value::String("metadata_only".to_string()),
+        );
+
+        ToolCallRequest {
+            call_id: tessera_protocol::ToolCallId::new(),
+            tool_id: descriptor.id.clone(),
+            input: arguments,
+            metadata: Some(metadata),
+        }
+    }
+}
+
+impl DiagnosticsReporter {
+    pub fn report<I>(&self, source: impl Into<String>, diagnostics: I) -> DiagnosticReport
+    where
+        I: IntoIterator<Item = Diagnostic>,
+    {
+        DiagnosticReport {
+            report_id: DiagnosticReportId::new(),
+            source: source.into(),
+            diagnostics: diagnostics.into_iter().collect(),
+            metadata: None,
+        }
+    }
+
+    pub fn report_event(&self, report: DiagnosticReport) -> RunEvent {
+        RunEvent::DiagnosticsReported { report }
+    }
+}
+
+fn mcp_tool_metadata(spec: &McpToolSpec) -> ExtensionMap {
+    let mut metadata = ExtensionMap::new();
+    metadata.insert(
+        "mcp_server_id".to_string(),
+        serde_json::Value::String(spec.server_id.clone()),
+    );
+    metadata.insert(
+        "mcp_tool_name".to_string(),
+        serde_json::Value::String(spec.name.clone()),
+    );
+    insert_optional_bool(
+        &mut metadata,
+        "mcp_read_only_hint",
+        spec.annotations.read_only_hint,
+    );
+    insert_optional_bool(
+        &mut metadata,
+        "mcp_destructive_hint",
+        spec.annotations.destructive_hint,
+    );
+    insert_optional_bool(
+        &mut metadata,
+        "mcp_idempotent_hint",
+        spec.annotations.idempotent_hint,
+    );
+    insert_optional_bool(
+        &mut metadata,
+        "mcp_open_world_hint",
+        spec.annotations.open_world_hint,
+    );
+    metadata
+}
+
+fn insert_optional_bool(metadata: &mut ExtensionMap, key: &str, value: Option<bool>) {
+    if let Some(value) = value {
+        metadata.insert(key.to_string(), serde_json::Value::Bool(value));
+    }
+}
+
+fn mcp_required_permissions(annotations: &McpToolAnnotations) -> Vec<ToolPermission> {
+    if annotations.open_world_hint.unwrap_or(true) {
+        vec![ToolPermission::Network]
+    } else {
+        Vec::new()
+    }
+}
+
+fn mcp_side_effects(annotations: &McpToolAnnotations) -> Vec<ToolSideEffect> {
+    if annotations.open_world_hint.unwrap_or(true) {
+        return vec![ToolSideEffect::Network];
+    }
+
+    if annotations.read_only_hint == Some(true) && annotations.destructive_hint != Some(true) {
+        vec![ToolSideEffect::ReadOnly]
+    } else {
+        vec![ToolSideEffect::PersistentState]
+    }
+}
+
+fn sanitize_mcp_id_fragment(value: &str) -> String {
+    let mut sanitized = String::new();
+    let mut previous_was_separator = false;
+
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            sanitized.push(character.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !sanitized.is_empty() && !previous_was_separator {
+            sanitized.push('_');
+            previous_was_separator = true;
+        }
+    }
+
+    while sanitized.ends_with('_') {
+        sanitized.pop();
+    }
+
+    if sanitized.is_empty() {
+        "unknown".to_string()
+    } else {
+        sanitized
+    }
+}
+
+impl OrderedToolResultBuffer {
+    pub fn from_dispatches<I>(dispatches: I) -> Self
+    where
+        I: IntoIterator<Item = ToolDispatch>,
+    {
+        let mut dispatches: Vec<ToolDispatch> = dispatches.into_iter().collect();
+        dispatches.sort_by_key(|dispatch| dispatch.declared_index);
+        let order = dispatches
+            .iter()
+            .map(|dispatch| dispatch.declared_index)
+            .collect();
+
+        Self {
+            dispatches,
+            order,
+            next_cursor: 0,
+            pending_results: BTreeMap::new(),
+        }
+    }
+
+    pub fn start_events(&self) -> Vec<RunEvent> {
+        self.dispatches
+            .iter()
+            .cloned()
+            .map(|dispatch| RunEvent::ToolDispatchStarted { dispatch })
+            .collect()
+    }
+
+    pub fn record_completion(&mut self, result: ToolResult) -> Vec<RunEvent> {
+        self.pending_results.insert(result.declared_index, result);
+        let mut released = Vec::new();
+
+        while let Some(next_index) = self.order.get(self.next_cursor).copied() {
+            let Some(result) = self.pending_results.remove(&next_index) else {
+                break;
+            };
+
+            released.push(RunEvent::ToolDispatchCompleted {
+                result: result.clone(),
+            });
+            released.push(RunEvent::ToolResultRecorded { result });
+            self.next_cursor += 1;
+        }
+
+        released
+    }
+}
+
+impl ToolRepairTelemetry {
+    pub fn flattened_nested_calls(
+        &self,
+        call_id: Option<tessera_protocol::ToolCallId>,
+        tool_id: Option<ToolId>,
+        original_call_count: u32,
+        repaired_call_count: u32,
+        reason: impl Into<String>,
+    ) -> ToolRepairReport {
+        tool_repair_report(
+            ToolRepairKind::FlattenedNestedCalls,
+            call_id,
+            tool_id,
+            Some(original_call_count),
+            Some(repaired_call_count),
+            None,
+            reason,
+        )
+    }
+
+    pub fn scavenged_json(
+        &self,
+        call_id: Option<tessera_protocol::ToolCallId>,
+        tool_id: Option<ToolId>,
+        original_call_count: u32,
+        repaired_call_count: u32,
+        reason: impl Into<String>,
+    ) -> ToolRepairReport {
+        tool_repair_report(
+            ToolRepairKind::ScavengedJson,
+            call_id,
+            tool_id,
+            Some(original_call_count),
+            Some(repaired_call_count),
+            None,
+            reason,
+        )
+    }
+
+    pub fn truncated_arguments(
+        &self,
+        call_id: Option<tessera_protocol::ToolCallId>,
+        tool_id: Option<ToolId>,
+        truncated_bytes: u64,
+        reason: impl Into<String>,
+    ) -> ToolRepairReport {
+        tool_repair_report(
+            ToolRepairKind::TruncatedArguments,
+            call_id,
+            tool_id,
+            None,
+            None,
+            Some(truncated_bytes),
+            reason,
+        )
+    }
+
+    pub fn call_storm_detected(
+        &self,
+        original_call_count: u32,
+        repaired_call_count: u32,
+        reason: impl Into<String>,
+    ) -> ToolRepairReport {
+        tool_repair_report(
+            ToolRepairKind::CallStormDetected,
+            None,
+            None,
+            Some(original_call_count),
+            Some(repaired_call_count),
+            None,
+            reason,
+        )
+    }
+}
+
+fn tool_repair_report(
+    kind: ToolRepairKind,
+    call_id: Option<tessera_protocol::ToolCallId>,
+    tool_id: Option<ToolId>,
+    original_call_count: Option<u32>,
+    repaired_call_count: Option<u32>,
+    truncated_bytes: Option<u64>,
+    reason: impl Into<String>,
+) -> ToolRepairReport {
+    ToolRepairReport {
+        repair_id: ToolRepairId::new(),
+        call_id,
+        tool_id,
+        kind,
+        reason: reason.into(),
+        original_call_count,
+        repaired_call_count,
+        truncated_bytes,
+        metadata: None,
+    }
+}
+
+impl PolicyGate {
+    pub fn evaluate(
+        &self,
+        descriptor: &ToolDescriptor,
+        request: &ToolCallRequest,
+    ) -> ToolPolicyDecision {
+        let outcome = if is_denied_until_sandbox(descriptor) {
+            PolicyOutcome::Deny
+        } else if is_read_only(descriptor) {
+            PolicyOutcome::Allow
+        } else {
+            PolicyOutcome::AskUser
+        };
+        let approval_id = match outcome {
+            PolicyOutcome::AskUser => Some(tessera_protocol::ApprovalId::new()),
+            PolicyOutcome::Allow | PolicyOutcome::Deny => None,
+        };
+        let reason = match outcome {
+            PolicyOutcome::Allow => "read_only_tool_allowed",
+            PolicyOutcome::AskUser => "side_effect_requires_user_approval",
+            PolicyOutcome::Deny => "dangerous_tool_denied_until_sandbox_exists",
+        };
+
+        ToolPolicyDecision {
+            decision_id: PolicyDecisionId::new(),
+            call_id: request.call_id.clone(),
+            tool_id: request.tool_id.clone(),
+            outcome,
+            reason: reason.to_string(),
+            required_permissions: descriptor.required_permissions.clone(),
+            side_effects: descriptor.side_effects.clone(),
+            approval_id,
+        }
+    }
+}
+
+impl WorkspaceGuardrailChecker {
+    pub fn new(scope: WorkspaceScope) -> Self {
+        Self { scope }
+    }
+
+    pub fn scope(&self) -> &WorkspaceScope {
+        &self.scope
+    }
+
+    pub fn evaluate_tool_path(
+        &self,
+        descriptor: &ToolDescriptor,
+        request: &ToolCallRequest,
+        requested_path: impl AsRef<str>,
+    ) -> SandboxDecision {
+        let requested_path = requested_path.as_ref();
+        let access = workspace_access(descriptor);
+        let workspace_root = normalize_lexical(Path::new(&self.scope.workspace_root));
+        let resolved_path = resolve_workspace_path(&workspace_root, requested_path);
+        let within_workspace = resolved_path.starts_with(&workspace_root);
+        let (kind, reason) = if is_denied_until_sandbox(descriptor) {
+            (
+                SandboxDecisionKind::Deny,
+                "dangerous_tool_denied_until_sandbox_exists",
+            )
+        } else if !within_workspace {
+            (SandboxDecisionKind::Deny, "path_outside_workspace")
+        } else if access == WorkspaceAccess::Write {
+            (
+                SandboxDecisionKind::AskUser,
+                "workspace_write_requires_approval",
+            )
+        } else {
+            (SandboxDecisionKind::Allow, "workspace_read_allowed")
+        };
+
+        SandboxDecision {
+            decision_id: SandboxDecisionId::new(),
+            call_id: Some(request.call_id.clone()),
+            tool_id: Some(request.tool_id.clone()),
+            kind,
+            reason: reason.to_string(),
+            guardrail: WorkspaceGuardrail {
+                scope: self.scope.clone(),
+                requested_path: Some(requested_path.to_string()),
+                resolved_path: Some(path_to_string(&resolved_path)),
+                access,
+                within_workspace,
+                required_permissions: descriptor.required_permissions.clone(),
+                side_effects: descriptor.side_effects.clone(),
+            },
+            metadata: None,
+        }
+    }
+}
+
+impl OsSandboxPlanner {
+    pub fn new(workspace_root: impl Into<String>) -> Self {
+        Self {
+            workspace_root: workspace_root.into(),
+        }
+    }
+
+    pub fn plan_tool(&self, descriptor: &ToolDescriptor) -> OsSandboxProfile {
+        let (mode, filesystem, network, requires_checkpoint, reason) =
+            if is_denied_until_sandbox(descriptor) {
+                (
+                    OsSandboxMode::Denied,
+                    OsSandboxFilesystem::Denied,
+                    OsSandboxNetwork::Disabled,
+                    false,
+                    "dangerous_tool_requires_real_os_sandbox",
+                )
+            } else if requires_network(descriptor) {
+                (
+                    OsSandboxMode::NetworkRequired,
+                    OsSandboxFilesystem::ReadOnly,
+                    OsSandboxNetwork::Requested,
+                    false,
+                    "network_tool_requires_sandbox_policy",
+                )
+            } else if requires_workspace_write(descriptor) {
+                (
+                    OsSandboxMode::WorkspaceWrite,
+                    OsSandboxFilesystem::WorkspaceWrite,
+                    OsSandboxNetwork::Disabled,
+                    true,
+                    "workspace_write_requires_checkpointed_sandbox",
+                )
+            } else {
+                (
+                    OsSandboxMode::ReadOnly,
+                    OsSandboxFilesystem::ReadOnly,
+                    OsSandboxNetwork::Disabled,
+                    false,
+                    "read_only_tool_uses_read_only_sandbox_profile",
+                )
+            };
+
+        OsSandboxProfile {
+            profile_id: OsSandboxProfileId::new(),
+            mode,
+            workspace_root: Some(self.workspace_root.clone()),
+            filesystem,
+            network,
+            shell: OsSandboxShell::Denied,
+            requires_checkpoint,
+            reason: reason.to_string(),
+            metadata: None,
+        }
+    }
+}
+
+impl WorkspaceCheckpointPlanner {
+    pub fn new(kind: SnapshotKind, storage_prefix: impl Into<String>) -> Self {
+        let storage_prefix = storage_prefix.into();
+        Self {
+            kind,
+            storage_prefix: storage_prefix.trim_end_matches('/').to_string(),
+        }
+    }
+
+    pub fn plan_required_checkpoint(
+        &self,
+        sandbox_profile: &OsSandboxProfile,
+        parent_snapshot_id: Option<SnapshotId>,
+        summary: impl Into<String>,
+    ) -> Option<WorkspaceCheckpoint> {
+        if !sandbox_profile.requires_checkpoint {
+            return None;
+        }
+
+        Some(self.plan_checkpoint(
+            sandbox_profile.workspace_root.clone(),
+            parent_snapshot_id,
+            summary,
+        ))
+    }
+
+    pub fn plan_checkpoint(
+        &self,
+        workspace_root: Option<String>,
+        parent_snapshot_id: Option<SnapshotId>,
+        summary: impl Into<String>,
+    ) -> WorkspaceCheckpoint {
+        let id = SnapshotId::new();
+        WorkspaceCheckpoint {
+            storage_uri: format!("{}/{}", self.storage_prefix, id.as_str()),
+            id,
+            kind: self.kind,
+            workspace_root,
+            parent_snapshot_id,
+            summary: Some(summary.into()),
+            metadata: None,
+        }
+    }
+}
+
+fn is_read_only(descriptor: &ToolDescriptor) -> bool {
+    let permissions_are_read_only = descriptor
+        .required_permissions
+        .iter()
+        .all(|permission| matches!(permission, ToolPermission::FilesystemRead));
+    let side_effects_are_read_only = descriptor
+        .side_effects
+        .iter()
+        .all(|side_effect| matches!(side_effect, ToolSideEffect::ReadOnly));
+
+    permissions_are_read_only && side_effects_are_read_only
+}
+
+fn requires_network(descriptor: &ToolDescriptor) -> bool {
+    descriptor
+        .required_permissions
+        .iter()
+        .any(|permission| matches!(permission, ToolPermission::Network))
+        || descriptor
+            .side_effects
+            .iter()
+            .any(|side_effect| matches!(side_effect, ToolSideEffect::Network))
+}
+
+fn requires_workspace_write(descriptor: &ToolDescriptor) -> bool {
+    descriptor.required_permissions.iter().any(|permission| {
+        matches!(
+            permission,
+            ToolPermission::FilesystemWrite | ToolPermission::Git
+        )
+    }) || descriptor.side_effects.iter().any(|side_effect| {
+        matches!(
+            side_effect,
+            ToolSideEffect::WritesWorkspace | ToolSideEffect::PersistentState
+        )
+    })
+}
+
+fn workspace_access(descriptor: &ToolDescriptor) -> WorkspaceAccess {
+    if descriptor
+        .required_permissions
+        .iter()
+        .any(|permission| matches!(permission, ToolPermission::Shell))
+        || descriptor
+            .side_effects
+            .iter()
+            .any(|side_effect| matches!(side_effect, ToolSideEffect::Shell))
+    {
+        WorkspaceAccess::Execute
+    } else if requires_workspace_write(descriptor)
+        || descriptor
+            .side_effects
+            .iter()
+            .any(|side_effect| matches!(side_effect, ToolSideEffect::WritesOutsideWorkspace))
+    {
+        WorkspaceAccess::Write
+    } else {
+        WorkspaceAccess::Read
+    }
+}
+
+fn is_denied_until_sandbox(descriptor: &ToolDescriptor) -> bool {
+    descriptor
+        .required_permissions
+        .iter()
+        .any(|permission| matches!(permission, ToolPermission::Shell | ToolPermission::EnvRead))
+        || descriptor.side_effects.iter().any(|side_effect| {
+            matches!(
+                side_effect,
+                ToolSideEffect::Shell | ToolSideEffect::WritesOutsideWorkspace
+            )
+        })
+}
+
+fn resolve_workspace_path(workspace_root: &Path, requested_path: &str) -> PathBuf {
+    let requested_path = Path::new(requested_path);
+    let joined = if requested_path.is_absolute() {
+        PathBuf::from(requested_path)
+    } else {
+        workspace_root.join(requested_path)
+    };
+
+    normalize_lexical(&joined)
+}
+
+fn normalize_lexical(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(Path::new("/")),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push("..");
+                }
+            }
+            Component::Normal(segment) => normalized.push(segment),
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    }
+}
+
+fn path_to_string(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+impl Default for NoProgressDetector {
+    fn default() -> Self {
+        Self::new(NoProgressPolicy::default())
+    }
+}
+
+impl NoProgressDetector {
+    pub fn new(policy: NoProgressPolicy) -> Self {
+        Self {
+            policy,
+            no_output_count: 0,
+            read_only_count: 0,
+            repair_count: 0,
+            current_assistant_message_has_output: false,
+        }
+    }
+
+    pub fn observe_event(&mut self, event: &RunEvent) -> Option<NoProgressLoop> {
+        match event {
+            RunEvent::AssistantMessageStarted { .. } => {
+                self.current_assistant_message_has_output = false;
+                None
+            }
+            RunEvent::AssistantDelta { text, .. } => {
+                if text.trim().is_empty() {
+                    None
+                } else {
+                    self.current_assistant_message_has_output = true;
+                    self.record_observation(NoProgressObservation::AssistantOutput)
+                }
+            }
+            RunEvent::AssistantMessageCompleted { .. } => {
+                if self.current_assistant_message_has_output {
+                    self.current_assistant_message_has_output = false;
+                    None
+                } else {
+                    self.record_observation(NoProgressObservation::NoOutput)
+                }
+            }
+            _ => None,
+        }
+    }
+
+    pub fn record_observation(
+        &mut self,
+        observation: NoProgressObservation,
+    ) -> Option<NoProgressLoop> {
+        match observation {
+            NoProgressObservation::AssistantOutput => {
+                self.no_output_count = 0;
+                self.read_only_count = 0;
+                self.repair_count = 0;
+                None
+            }
+            NoProgressObservation::NoOutput => {
+                self.no_output_count = self.no_output_count.saturating_add(1);
+                self.read_only_count = 0;
+                self.repair_count = 0;
+                no_progress_loop(
+                    NoProgressSignalKind::NoOutput,
+                    self.no_output_count,
+                    self.policy.no_output_threshold,
+                )
+            }
+            NoProgressObservation::ReadOnlyStep => {
+                self.read_only_count = self.read_only_count.saturating_add(1);
+                self.no_output_count = 0;
+                self.repair_count = 0;
+                no_progress_loop(
+                    NoProgressSignalKind::RepeatedReadOnly,
+                    self.read_only_count,
+                    self.policy.repeated_read_only_threshold,
+                )
+            }
+            NoProgressObservation::RepairStep => {
+                self.repair_count = self.repair_count.saturating_add(1);
+                self.no_output_count = 0;
+                self.read_only_count = 0;
+                no_progress_loop(
+                    NoProgressSignalKind::RepeatedRepair,
+                    self.repair_count,
+                    self.policy.repeated_repair_threshold,
+                )
+            }
+        }
+    }
+}
+
+fn no_progress_loop(
+    kind: NoProgressSignalKind,
+    consecutive_count: u32,
+    threshold: u32,
+) -> Option<NoProgressLoop> {
+    let threshold = threshold.max(1);
+    if consecutive_count < threshold {
+        return None;
+    }
+
+    let (action, reason) = match kind {
+        NoProgressSignalKind::NoOutput => {
+            (NoProgressAction::Stop, "assistant_completed_without_output")
+        }
+        NoProgressSignalKind::RepeatedReadOnly => (
+            NoProgressAction::AskUser,
+            "repeated_read_only_steps_without_new_output",
+        ),
+        NoProgressSignalKind::RepeatedRepair => (
+            NoProgressAction::Summarize,
+            "repeated_repair_steps_without_new_output",
+        ),
+    };
+
+    Some(NoProgressLoop {
+        kind,
+        consecutive_count,
+        threshold,
+        action,
+        reason: reason.to_string(),
+        route_escalation_allowed: false,
+    })
+}
+
 struct RunContext {
     trace_id: String,
     thread_id: ThreadId,
@@ -172,6 +1171,72 @@ pub struct RuntimeEventPage {
     pub trace_id: String,
     pub records: Vec<TraceRecord>,
     pub next_since_seq: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeHttpEventRequest {
+    pub trace_id: String,
+    pub since_seq: Option<u64>,
+    pub limit: Option<usize>,
+}
+
+impl RuntimeHttpEventRequest {
+    pub fn new(trace_id: impl Into<String>) -> Self {
+        Self {
+            trace_id: trace_id.into(),
+            since_seq: None,
+            limit: None,
+        }
+    }
+
+    pub fn since_seq(mut self, seq: u64) -> Self {
+        self.since_seq = Some(seq);
+        self
+    }
+
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    fn into_query(self) -> RuntimeEventQuery {
+        let mut query = RuntimeEventQuery::new(self.trace_id);
+        if let Some(since_seq) = self.since_seq {
+            query = query.since_seq(since_seq);
+        }
+        if let Some(limit) = self.limit {
+            query = query.limit(limit);
+        }
+        query
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeSseFrame {
+    pub id: String,
+    pub event: String,
+    pub data: String,
+}
+
+impl RuntimeSseFrame {
+    pub fn encode(&self) -> String {
+        let mut encoded = String::new();
+        encoded.push_str("id: ");
+        encoded.push_str(&self.id);
+        encoded.push('\n');
+        encoded.push_str("event: ");
+        encoded.push_str(&self.event);
+        encoded.push('\n');
+
+        for line in self.data.lines() {
+            encoded.push_str("data: ");
+            encoded.push_str(line);
+            encoded.push('\n');
+        }
+
+        encoded.push('\n');
+        encoded
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -283,8 +1348,41 @@ impl RuntimeArtifactSummary {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeSnapshotSummary {
+    pub snapshot_id: SnapshotId,
+    pub kind: Option<SnapshotKind>,
+    pub task_id: Option<TaskId>,
+    pub turn_id: Option<TurnId>,
+    pub created_at: Option<Timestamp>,
+    pub storage_uri: Option<String>,
+    pub workspace_root: Option<String>,
+    pub parent_snapshot_id: Option<SnapshotId>,
+    pub summary: Option<String>,
+}
+
+impl RuntimeSnapshotSummary {
+    fn new(snapshot_id: SnapshotId) -> Self {
+        Self {
+            snapshot_id,
+            kind: None,
+            task_id: None,
+            turn_id: None,
+            created_at: None,
+            storage_uri: None,
+            workspace_root: None,
+            parent_snapshot_id: None,
+            summary: None,
+        }
+    }
+}
+
 pub struct RuntimeReader {
     store: TraceStore,
+}
+
+pub struct RuntimeHttpApi {
+    reader: RuntimeReader,
 }
 
 impl RuntimeReader {
@@ -340,6 +1438,51 @@ impl RuntimeReader {
             apply_artifact_record(&mut artifacts, &record);
         }
         Ok(artifacts)
+    }
+
+    pub fn list_snapshots(&self, trace_id: &str) -> Result<Vec<RuntimeSnapshotSummary>> {
+        let records = self.store.read_trace_records(trace_id)?;
+        let mut snapshots = Vec::new();
+        for record in records {
+            apply_snapshot_record(&mut snapshots, &record);
+        }
+        Ok(snapshots)
+    }
+}
+
+impl RuntimeHttpApi {
+    pub fn new(reader: RuntimeReader) -> Self {
+        Self { reader }
+    }
+
+    pub fn list_events(&self, request: RuntimeHttpEventRequest) -> Result<RuntimeEventPage> {
+        self.reader.list_events(request.into_query())
+    }
+
+    pub fn list_events_json(&self, request: RuntimeHttpEventRequest) -> Result<serde_json::Value> {
+        let page = self.list_events(request)?;
+        Ok(serde_json::json!({
+            "trace_id": page.trace_id,
+            "records": page.records,
+            "next_since_seq": page.next_since_seq,
+        }))
+    }
+
+    pub fn sse_event_frames(
+        &self,
+        request: RuntimeHttpEventRequest,
+    ) -> Result<Vec<RuntimeSseFrame>> {
+        let page = self.list_events(request)?;
+        page.records
+            .into_iter()
+            .map(|record| {
+                Ok(RuntimeSseFrame {
+                    id: record.seq.to_string(),
+                    event: record.event_kind.clone(),
+                    data: serde_json::to_string(&record)?,
+                })
+            })
+            .collect()
     }
 }
 
@@ -503,6 +1646,67 @@ fn trace_record_artifact_id(record: &TraceRecord) -> Option<ArtifactId> {
         .map(ArtifactId::from)
 }
 
+fn apply_snapshot_record(snapshots: &mut Vec<RuntimeSnapshotSummary>, record: &TraceRecord) {
+    if record.event_kind != "snapshot_created" {
+        return;
+    }
+
+    let Some(snapshot_id) = trace_record_snapshot_id(record) else {
+        return;
+    };
+    let checkpoint = &record.payload["checkpoint"];
+    let snapshot = snapshot_mut_or_insert(snapshots, &snapshot_id);
+    snapshot.kind = checkpoint
+        .get("kind")
+        .and_then(|value| value.as_str())
+        .and_then(SnapshotKind::from_snake_case);
+    snapshot.task_id = record.task_id.clone();
+    snapshot.turn_id = record.turn_id.clone();
+    snapshot.created_at = Some(record.timestamp.clone());
+    snapshot.storage_uri = checkpoint
+        .get("storage_uri")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    snapshot.workspace_root = checkpoint
+        .get("workspace_root")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    snapshot.parent_snapshot_id = checkpoint
+        .get("parent_snapshot_id")
+        .and_then(|value| value.as_str())
+        .map(SnapshotId::from);
+    snapshot.summary = checkpoint
+        .get("summary")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+}
+
+fn snapshot_mut_or_insert<'a>(
+    snapshots: &'a mut Vec<RuntimeSnapshotSummary>,
+    snapshot_id: &SnapshotId,
+) -> &'a mut RuntimeSnapshotSummary {
+    if let Some(index) = snapshots
+        .iter()
+        .position(|snapshot| &snapshot.snapshot_id == snapshot_id)
+    {
+        return &mut snapshots[index];
+    }
+
+    snapshots.push(RuntimeSnapshotSummary::new(snapshot_id.clone()));
+    snapshots
+        .last_mut()
+        .expect("snapshot was just inserted into non-empty registry")
+}
+
+fn trace_record_snapshot_id(record: &TraceRecord) -> Option<SnapshotId> {
+    record
+        .payload
+        .get("checkpoint")
+        .and_then(|checkpoint| checkpoint.get("id"))
+        .and_then(|value| value.as_str())
+        .map(SnapshotId::from)
+}
+
 impl<'a> ReplayRunner<'a> {
     pub fn new(store: &'a TraceStore) -> Self {
         Self { store }
@@ -576,6 +1780,7 @@ where
         let user_item_id = ItemId::new();
         let assistant_item_id = ItemId::new();
         let mut assistant_text = String::new();
+        let mut no_progress_detector = NoProgressDetector::default();
         let prompt = request.prompt.clone();
 
         macro_rules! append_event {
@@ -686,10 +1891,25 @@ where
                 break;
             };
 
+            let no_progress_signal = no_progress_detector.observe_event(&event);
             if let RunEvent::AssistantDelta { text, .. } = &event {
                 assistant_text.push_str(text);
             }
             append_event!(event);
+            if let Some(signal) = no_progress_signal {
+                let task_id = context.task_id.clone();
+                append_event!(RunEvent::NoProgressLoopDetected {
+                    task_id,
+                    signal: signal.clone(),
+                });
+                return self.finish_cancelled(
+                    trace_id,
+                    assistant_text,
+                    &mut context,
+                    format!("no progress: {}", signal.reason),
+                    &mut event_sink,
+                );
+            }
         }
 
         append_event!(RunEvent::ProviderRequestCompleted {

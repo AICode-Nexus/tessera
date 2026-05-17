@@ -15,6 +15,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added Task registry v1 with read-only runtime task summaries in `tessera-core` and UI-neutral `ClientTask` projection in `tessera-client` from live events and replayed trace records.
 - Added artifact handle projection with read-only runtime artifact summaries in `tessera-core` and UI-neutral `ClientArtifact` projection in `tessera-client` from `artifact_created` events and `artifact_refs`.
 - Added a draft `ModelRouter` in `tessera-core` that records manual/default route decisions with explicit route reasons while keeping auto routing disabled.
+- Added a draft no-progress loop detector and provider-neutral `no_progress_loop_detected` event so no-output, repeated read-only, and repeated repair loops stop/ask/summarize before any future route escalation.
+- Added a read-only skill registry schema with `SKILL.md`-compatible manifest metadata in `tessera-protocol` and a non-executing `SkillRegistry` in `tessera-core`.
+- Added workspace checkpoint schema with provider-neutral `snapshot_created` trace events and read-only `RuntimeReader::list_snapshots` projection, without restore/revert execution.
+- Added an initial context workbench schema and pure in-memory budget projection for stable prefix, append-only transcript, and volatile scratch references without loading file contents.
+- Added the first Tauri GUI shell spike with a tested `tessera-gui-bridge`, typed mock/replay commands, bounded GUI event backpressure, and a React/Vite shell that renders shared `ClientSnapshot` projection without provider or storage access.
+- Added `tessera-gui-bindings` to generate GUI TypeScript DTOs from Rust `protocol` / `client` / `gui-bridge` types, plus a contract test that keeps `apps/gui-tauri/src/generated/bindings.ts` in sync.
+- Added a deterministic GUI smoke test for the Tauri shell covering mock/replay load, prompt submission, cancellation, new-thread reset, and toolbar action accessibility names.
+- Added a v0.2 distribution plan covering GitHub Releases, Cargo, Homebrew, npm wrapper, Docker, checksums, publish ordering, mirror knobs, and v0.3+ acceptance gates.
+- Added release identity metadata so `tessera --version` reports both the crate version and build git SHA.
+- Added a provider-neutral `ToolDescriptor` schema and read-only `ToolRegistry` for tool metadata, with `parallel_safe` defaulting to false and no tool execution path.
+- Added tool call request, policy decision, and approval trace metadata plus a draft `PolicyGate` that produces `allow` / `ask_user` / `deny` decisions without executing tools.
+- Added tool dispatch/result trace metadata plus an `OrderedToolResultBuffer` that releases out-of-order completions in declared order without executing tools.
+- Added tool-call repair telemetry metadata plus a `ToolRepairTelemetry` helper for provider-neutral flatten/scavenge/truncation/storm summaries without raw provider reasoning.
+- Added approval UI projection with pending/resolved approval state, `/approve` and `/deny` client intents, and TUI approval status without executing tools.
+- Added workspace guardrail and sandbox decision metadata plus a draft `WorkspaceGuardrailChecker` that records lexical path decisions without file IO, tool execution, or an OS sandbox.
+- Added OS sandbox profile metadata plus an `OsSandboxPlanner` that maps tool descriptors to read-only, workspace-write, network-required, or denied profiles without starting a sandbox, opening network access, or executing tools.
+- Added a `WorkspaceCheckpointPlanner` that creates checkpoint metadata only for sandbox profiles requiring checkpoints, without creating side-git state, touching files, or implementing restore/revert.
+- Added a metadata-only `McpToolAdapter` that converts MCP tool specs and arguments into Tessera `ToolDescriptor` and `ToolCallRequest` values while treating MCP annotations as untrusted hints and avoiding MCP server execution.
+- Added a read-only `RuntimeHttpApi` foundation that wraps `RuntimeReader` event pages as JSON and SSE frames without starting an HTTP server, binding ports, or owning runtime execution.
+- Added provider-neutral diagnostics metadata with `diagnostics_reported` events and a `DiagnosticsReporter` helper for LSP-style ranges without starting LSP servers, compilers, or file reads.
+- Added memory proposal UI foundations with provider-neutral memory proposal events, client pending/applied/rejected projection, `/remember` and `/forget` intents, TUI status rendering, and typed GUI bridge handling without long-term memory writes.
 
 ## [v0.1.0] - 2026-05-15
 

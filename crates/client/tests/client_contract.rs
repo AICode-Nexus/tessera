@@ -1,9 +1,13 @@
 use tessera_client::{
-    ClientIntent, ClientMessageRole, ClientProjection, ClientSnapshot, ClientStatus,
+    ClientApprovalStatus, ClientIntent, ClientMemoryProposalStatus, ClientMessageRole,
+    ClientProjection, ClientSnapshot, ClientStatus,
 };
 use tessera_protocol::{
-    ArtifactId, ArtifactKind, CostEstimate, ErrorSource, EventFrame, ItemId, NormalizedError,
-    ProviderCapability, ProviderId, RunEvent, TaskId, TaskKind, TaskStatus,
+    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, CostEstimate, ErrorSource, EventFrame,
+    ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus, NormalizedError,
+    PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, RunEvent, TaskId, TaskKind,
+    TaskStatus, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
+    ToolSideEffect,
 };
 
 #[test]
@@ -98,6 +102,38 @@ fn client_snapshot_maps_slash_commands_to_ui_neutral_intents() {
     snapshot.draft_input = "/export".to_string();
     assert_eq!(snapshot.submit_input(), Some(ClientIntent::ExportThread));
 
+    snapshot.draft_input = "/approve approval_write_readme".to_string();
+    assert_eq!(
+        snapshot.submit_input(),
+        Some(ClientIntent::ApproveToolCall {
+            approval_id: ApprovalId::from_static("approval_write_readme")
+        })
+    );
+
+    snapshot.draft_input = "/deny approval_write_readme".to_string();
+    assert_eq!(
+        snapshot.submit_input(),
+        Some(ClientIntent::DenyToolCall {
+            approval_id: ApprovalId::from_static("approval_write_readme")
+        })
+    );
+
+    snapshot.draft_input = "/remember memory_proposal_prefers_rust".to_string();
+    assert_eq!(
+        snapshot.submit_input(),
+        Some(ClientIntent::AcceptMemoryProposal {
+            proposal_id: MemoryProposalId::from_static("memory_proposal_prefers_rust")
+        })
+    );
+
+    snapshot.draft_input = "/forget memory_proposal_prefers_rust".to_string();
+    assert_eq!(
+        snapshot.submit_input(),
+        Some(ClientIntent::RejectMemoryProposal {
+            proposal_id: MemoryProposalId::from_static("memory_proposal_prefers_rust")
+        })
+    );
+
     snapshot.draft_input = "/explain this command".to_string();
     assert_eq!(
         snapshot.submit_input(),
@@ -105,6 +141,140 @@ fn client_snapshot_maps_slash_commands_to_ui_neutral_intents() {
             profile_id: "mock-default".to_string(),
             prompt: "/explain this command".to_string(),
         })
+    );
+}
+
+#[test]
+fn client_snapshot_projects_pending_and_resolved_tool_approvals() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let approval_id = ApprovalId::from_static("approval_write_readme");
+    let call_id = ToolCallId::from_static("tool_call_write_readme");
+    let tool_id = ToolId::from_static("tool_workspace_write");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_approval",
+        1,
+        RunEvent::ToolPolicyDecisionRecorded {
+            decision: ToolPolicyDecision {
+                decision_id: PolicyDecisionId::from_static("policy_write_readme"),
+                call_id: call_id.clone(),
+                tool_id: tool_id.clone(),
+                outcome: PolicyOutcome::AskUser,
+                reason: "workspace_write_requires_approval".to_string(),
+                required_permissions: vec![ToolPermission::FilesystemWrite],
+                side_effects: vec![ToolSideEffect::WritesWorkspace],
+                approval_id: Some(approval_id.clone()),
+            },
+        },
+    ));
+
+    assert_eq!(snapshot.approvals.len(), 1);
+    assert_eq!(snapshot.approvals[0].approval_id, approval_id);
+    assert_eq!(snapshot.approvals[0].call_id, call_id);
+    assert_eq!(snapshot.approvals[0].tool_id, tool_id);
+    assert_eq!(snapshot.approvals[0].status, ClientApprovalStatus::Pending);
+    assert_eq!(
+        snapshot.approvals[0].required_permissions,
+        vec!["filesystem_write"]
+    );
+    assert_eq!(snapshot.status.approval_summary, "approvals 1 pending");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_approval",
+        2,
+        RunEvent::ToolCallApproved {
+            approval: ToolApproval {
+                approval_id: ApprovalId::from_static("approval_write_readme"),
+                call_id: ToolCallId::from_static("tool_call_write_readme"),
+                tool_id: ToolId::from_static("tool_workspace_write"),
+                status: ApprovalStatus::Approved,
+                reason: Some("user approved workspace write".to_string()),
+            },
+        },
+    ));
+
+    assert_eq!(snapshot.approvals[0].status, ClientApprovalStatus::Approved);
+    assert_eq!(
+        snapshot.approvals[0].reason.as_deref(),
+        Some("user approved workspace write")
+    );
+    assert_eq!(snapshot.status.approval_summary, "approvals 0 pending");
+}
+
+#[test]
+fn client_snapshot_projects_memory_proposals_for_ui_review() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let proposal_id = MemoryProposalId::from_static("memory_proposal_prefers_rust");
+    let pending = MemoryProposal {
+        proposal_id: proposal_id.clone(),
+        status: MemoryProposalStatus::Pending,
+        title: "Preferred language".to_string(),
+        summary: "User prefers Rust-first implementations.".to_string(),
+        source_item_id: Some(ItemId::from_static("item_memory_source")),
+        reason: Some("explicit preference".to_string()),
+        metadata: None,
+    };
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_memory_client",
+        1,
+        RunEvent::MemoryWriteProposed {
+            proposal: pending.clone(),
+        },
+    ));
+
+    assert_eq!(snapshot.memory_proposals.len(), 1);
+    assert_eq!(snapshot.memory_proposals[0].proposal_id, proposal_id);
+    assert_eq!(
+        snapshot.memory_proposals[0].status,
+        ClientMemoryProposalStatus::Pending
+    );
+    assert_eq!(
+        snapshot.memory_proposals[0].summary,
+        "User prefers Rust-first implementations."
+    );
+    assert_eq!(snapshot.status.memory_summary, "memory 1 pending");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_memory_client",
+        2,
+        RunEvent::MemoryWriteApplied {
+            proposal: MemoryProposal {
+                status: MemoryProposalStatus::Applied,
+                ..pending.clone()
+            },
+        },
+    ));
+
+    assert_eq!(
+        snapshot.memory_proposals[0].status,
+        ClientMemoryProposalStatus::Applied
+    );
+    assert_eq!(snapshot.status.memory_summary, "memory 0 pending");
+
+    let mut replayed = ClientSnapshot::new("mock-default");
+    replayed.apply_trace_record(
+        &EventFrame::new(
+            "trace_memory_client",
+            3,
+            RunEvent::MemoryWriteRejected {
+                proposal: MemoryProposal {
+                    status: MemoryProposalStatus::Rejected,
+                    reason: Some("user rejected".to_string()),
+                    ..pending
+                },
+            },
+        )
+        .to_trace_record(),
+    );
+
+    assert_eq!(
+        replayed.memory_proposals[0].status,
+        ClientMemoryProposalStatus::Rejected
+    );
+    assert_eq!(
+        replayed.memory_proposals[0].reason.as_deref(),
+        Some("user rejected")
     );
 }
 

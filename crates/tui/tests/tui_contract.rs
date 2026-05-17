@@ -1,6 +1,8 @@
 use tessera_protocol::{
-    ArtifactId, ArtifactKind, CostEstimate, EventFrame, ItemId, ProviderCapability, ProviderId,
-    RunEvent, TaskId, TaskKind,
+    ApprovalId, ArtifactId, ArtifactKind, CostEstimate, EventFrame, ItemId, MemoryProposal,
+    MemoryProposalId, MemoryProposalStatus, PolicyDecisionId, PolicyOutcome, ProviderCapability,
+    ProviderId, RunEvent, TaskId, TaskKind, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
+    ToolSideEffect,
 };
 use tessera_tui::{
     apply_client_intent_locally, apply_live_event, chat_window_lines, draw_terminal_frame,
@@ -164,6 +166,39 @@ fn tui_status_line_renders_live_artifact_summary() {
         .collect::<String>();
 
     assert!(rendered.contains("artifacts 1"));
+}
+
+#[test]
+fn tui_status_line_renders_pending_approval_summary() {
+    let mut state = ChatViewState::new("mock-default");
+
+    apply_live_event(
+        &mut state,
+        LiveClientEvent::Frame(Box::new(EventFrame::new(
+            "trace_tui_approval",
+            1,
+            RunEvent::ToolPolicyDecisionRecorded {
+                decision: ToolPolicyDecision {
+                    decision_id: PolicyDecisionId::from_static("policy_write_readme"),
+                    call_id: ToolCallId::from_static("tool_call_write_readme"),
+                    tool_id: ToolId::from_static("tool_workspace_write"),
+                    outcome: PolicyOutcome::AskUser,
+                    reason: "workspace_write_requires_approval".to_string(),
+                    required_permissions: vec![ToolPermission::FilesystemWrite],
+                    side_effects: vec![ToolSideEffect::WritesWorkspace],
+                    approval_id: Some(ApprovalId::from_static("approval_write_readme")),
+                },
+            },
+        ))),
+    );
+
+    let rendered = status_line(&state)
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+
+    assert!(rendered.contains("approvals 1 pending"));
 }
 
 #[test]
@@ -359,6 +394,38 @@ fn profile_switch_cycles_available_profiles_as_client_intents() {
         })
     );
     assert_eq!(state.status.active_profile, "mock-default");
+}
+
+#[test]
+fn tui_status_line_renders_pending_memory_proposal_summary() {
+    let mut state = ChatViewState::new("mock-default");
+
+    apply_live_event(
+        &mut state,
+        LiveClientEvent::Frame(Box::new(EventFrame::new(
+            "trace_tui_memory",
+            1,
+            RunEvent::MemoryWriteProposed {
+                proposal: MemoryProposal {
+                    proposal_id: MemoryProposalId::from_static("memory_proposal_tui"),
+                    status: MemoryProposalStatus::Pending,
+                    title: "Preferred language".to_string(),
+                    summary: "User prefers Rust-first work.".to_string(),
+                    source_item_id: None,
+                    reason: None,
+                    metadata: None,
+                },
+            },
+        ))),
+    );
+
+    let rendered = status_line(&state)
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+
+    assert!(rendered.contains("memory 1 pending"));
 }
 
 #[test]

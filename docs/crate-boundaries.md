@@ -22,8 +22,15 @@ tui  -> client
 tui  -> core
 tui  -> config
 
-future gui -> client/core/runtime_api
-future gui -> config
+apps/gui-tauri -> gui-bridge
+apps/gui-tauri -> client/protocol
+gui-bindings -> gui-bridge
+gui-bindings -> client
+gui-bindings -> protocol
+gui-bridge -> client
+gui-bridge -> protocol
+future gui runtime integration -> core/runtime_api
+future gui runtime integration -> config
 
 client -> protocol
 core -> protocol
@@ -56,6 +63,14 @@ gui -> providers
 gui -> storage internals
 gui -> tui
 gui -> cli internals
+gui-bindings -> core
+gui-bindings -> providers
+gui-bindings -> storage
+gui-bindings -> tui
+gui-bridge -> core
+gui-bridge -> providers
+gui-bridge -> storage
+gui-bridge -> tui
 ```
 
 CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli -> tui` 只允许作为本地二进制的命令入口编排，不允许把 TUI 状态变成 CLI 或 core 的运行时状态。这样才能保证只有一个真实 runtime 来源。
@@ -284,6 +299,57 @@ TUI 是 view，不是 runtime。
 
 `client` 已作为 v0.1 的窄边界 crate 独立出来。它只做纯投影和 intent schema，不拥有 runtime，不持有 provider/storage 权限。
 
+### gui-bindings
+
+职责：
+
+- 从 Rust DTO 生成 TypeScript bindings。
+- 校验 checked-in `apps/gui-tauri/src/generated/bindings.ts` 与 Rust 生成一致。
+- 保持 GUI IPC/view model 的单一 schema 来源。
+
+允许依赖：
+
+- protocol。
+- client。
+- gui-bridge。
+- ts-rs。
+
+禁止：
+
+- core runtime ownership。
+- provider SDK。
+- storage internals 或 SQLite。
+- TUI crate。
+- shell/file/git/http tool 执行。
+- 生成 runtime、provider、storage 或 tool 访问代码。
+
+`gui-bindings` 只生成 DTO，不生成行为。
+
+### gui-bridge
+
+职责：
+
+- GUI typed command DTO。
+- mock/replay `ClientSnapshot` projection。
+- bounded GUI event buffer 和 backpressure。
+- read-only trace record projection 入口。
+
+允许依赖：
+
+- client。
+- protocol。
+- serde。
+
+禁止：
+
+- core runtime ownership。
+- provider SDK。
+- storage internals 或 SQLite。
+- TUI crate。
+- shell/file/git/http tool 执行。
+
+`gui-bridge` 是 Tauri shell 的窄后端边界，不是 runtime API，也不是 provider/storage 旁路。
+
 ### future gui
 
 职责：
@@ -296,6 +362,7 @@ TUI 是 view，不是 runtime。
 允许依赖：
 
 - `client`。
+- `gui-bridge`。
 - protocol。
 - config。
 - core public API 或 future runtime_api client。
@@ -354,20 +421,73 @@ DeepSeek-TUI 的解析暴露出几个必须提前固化的边界。
 - `RouteDecision` 必须写 trace。
 - provider 只执行已选定的真实 model/profile。
 
+### no_progress_detector
+
+无进展循环检测不应被 provider adapter 或 UI 私自解释成“需要更贵模型”。
+
+推荐边界：
+
+- `no_progress_detector` 可以先作为 `core` 内部草案模块。
+- 输入是标准 `RunEvent` 或未来 agent/tool loop 的 provider-neutral observation。
+- 输出是 `NoProgressLoop`，并通过 `no_progress_loop_detected` 写 trace。
+- 当前 action 只能是 `stop`、`ask_user` 或 `summarize`，`route_escalation_allowed` 默认为 false。
+- TUI/GUI 只展示 signal 和 task 状态，不拥有检测或路由升档逻辑。
+
+### context_workbench
+
+Context workbench 第一版只管理上下文引用和 token budget，不读取文件，也不构建 provider prompt。
+
+推荐边界：
+
+- `protocol` 定义 `ContextReference`、`ContextSource`、`ContextPlacement` 和 `ContextBudget`。
+- `core` 提供纯内存 `ContextWorkbench`，只做 add/remove/list 和 budget summary。
+- placement 必须显式区分 `stable_prefix`、`append_only_transcript` 和 `volatile_scratch`。
+- source reference 只保存 uri/label/summary/估算 token，不保存文件内容或大块 bytes。
+- 后续真实 context loader、compaction 和 handle read 必须写 trace，并遵守 policy/sandbox。
+
+### skill_registry
+
+Skill registry 第一版是只读 schema 和 discovery 边界，不是可执行插件系统。
+
+推荐边界：
+
+- `protocol` 定义 `SkillManifest`、`SkillSource`、`SkillEntrypoint`、requirements 和 policy metadata。
+- `core` 可以持有只读 `SkillRegistry`，只提供 list/find。
+- 入口优先兼容 `SKILL.md` metadata；`skill.toml` 只作为后续高级 manifest 格式预留。
+- registry 不能执行 workflow、shell、脚本、MCP 或工具。
+- 后续 skill activation 必须转成标准 trace event，并通过 tool/policy 边界。
+
 ### tools / policy / sandbox
 
 工具、审批和沙箱必须同阶段设计。
 
 推荐边界：
 
-- `tools` 提供 ToolDescriptor 和 ToolResult。
+- `protocol` 定义 `ToolDescriptor`、`ToolPermission`、`ToolSideEffect` 和 `ToolId`。
+- `core` 可以持有只读 `ToolRegistry`，只提供 list/find。
+- `core` 可以提供 metadata-only `McpToolAdapter`，把 MCP tool spec / arguments 转成 `ToolDescriptor` / `ToolCallRequest`；MCP annotations 只能作为不可信 hint，不得绕过 policy/sandbox。
+- `core` 可以提供 draft `PolicyGate`，只把 descriptor + request 转成 `allow` / `deny` / `ask_user` metadata。
+- `protocol` 定义 `WorkspaceScope`、`WorkspaceGuardrail` 和 `SandboxDecision` metadata，以及 `sandbox_decision_recorded` trace event。
+- `core` 可以提供 draft `WorkspaceGuardrailChecker`，只做词法路径归一和 workspace containment 判定，不读写文件、不执行工具、不提供 OS sandbox。
+- `protocol` 定义 `OsSandboxProfile` metadata 和 `os_sandbox_profile_selected` trace event，用于记录 future runtime 应选择的隔离 profile。
+- `core` 可以提供 `OsSandboxPlanner`，只根据 tool descriptor 选择 read-only / workspace-write / network-required / denied profile；不得启动 OS sandbox、执行 shell、打开网络或创建 checkpoint。
+- `protocol` 定义 `ToolDispatch`、`ToolResult` 和 dispatch/result trace events。
+- `core` 可以提供 `OrderedToolResultBuffer`，允许底层并发完成，但只按声明顺序释放 `tool_dispatch_completed` 和 `tool_result` events。
+- `protocol` 定义 `ToolRepairReport` 和 `tool_repair_reported` event，只记录 flatten/scavenge/truncation/storm 等 provider-neutral 摘要。
+- `core` 可以提供 `ToolRepairTelemetry` helper，生成修复摘要；不得保存 provider 原始 reasoning、raw text、hidden content 或 secret。
+- `tools` 后续提供具体 tool adapter 和真实执行边界。
 - `policy` 产生 Allow / Deny / AskUser。
 - `sandbox` 执行 OS/workspace path guardrail。
 - `core` 编排 tool request，但不直接实现具体工具细节。
-- `tui` 只展示审批和结果。
+- `client` 投影 approval state，并把 `/approve` / `/deny` 转成 UI-neutral intents。
+- `tui` 只展示审批和结果，并分发 approval intents；不直接批准或执行工具。
+- `parallel_safe` 默认 false，第三方/MCP tool 必须显式 opt in。
 
 禁止：
 
+- registry 直接执行 tool。
+- MCP adapter 连接 server、保存 server URL/command、执行 MCP tool，或把 MCP annotations 当成可信授权。
+- policy decision 被当作 tool result。
 - 先上线 shell tool，后补 policy。
 - 先上线 file write，再补 checkpoint。
 - YOLO/trusted workspace 绕过 trace。
@@ -382,6 +502,19 @@ LSP diagnostics 是强质量信号，但不属于 TUI。
 - 输入是 workspace root、changed files、tool/editor result。
 - 输出是结构化 diagnostics event。
 - diagnostics 必须能写入 trace，并可在 replay 中作为 fixture。
+- v0.4 foundation 在 `protocol` 定义 `DiagnosticReport` 和 `diagnostics_reported` event，在 `core` 提供 `DiagnosticsReporter` helper；不得启动 LSP server、compiler 或 test runner。
+
+### memory
+
+Memory proposal UI 可以先进入 client projection，但长期 memory runtime 必须后置。
+
+推荐边界：
+
+- `protocol` 定义 `MemoryProposal` metadata 和 `memory_write_proposed` / `memory_write_applied` / `memory_write_rejected` events。
+- `client` 投影 pending/applied/rejected proposals，并把 `/remember` / `/forget` 转成 UI-neutral intents。
+- `tui` 和 `gui` 只展示 proposal review state，不写入长期 memory store。
+- `gui-bridge` 可以接受 typed memory review intents，但不能执行 memory runtime。
+- 真实 long-term memory write 必须等待 scope schema、policy 和 trace 边界。
 
 ### snapshots
 
@@ -393,6 +526,8 @@ LSP diagnostics 是强质量信号，但不属于 TUI。
 - 支持 side-git 或等价 checkpoint。
 - 每次文件修改前后都能关联 task/turn。
 - restore/revert 必须写 trace。
+- v0.2 只定义 `WorkspaceCheckpoint` metadata、`snapshot_created` event 和只读 projection，不创建、不恢复、不回滚文件。
+- v0.3 foundation 可以在 `core` 提供 `WorkspaceCheckpointPlanner`，只为需要 checkpoint 的 sandbox profile 生成 metadata 和 storage URI；不得创建 side-git、读写文件、restore 或 revert。
 
 ### runtime_api
 
@@ -404,6 +539,7 @@ HTTP/SSE 和未来 ACP/editor integration 都不能拥有第二套 runtime。
 - event stream 使用 EventFrame。
 - `since_seq` 是增量读取基础。
 - 默认只绑定 localhost。
+- v0.4 foundation 可以在 `core` 提供 `RuntimeHttpApi`，把 `RuntimeReader` event page 形状化为 JSON 和 SSE frames；真正 HTTP server 仍必须是薄壳，不能拥有第二套 runtime。
 
 ### GUI client
 
@@ -413,6 +549,8 @@ GUI 和 TUI 必须共享同一套 client projection。
 
 - `client` 已从 TUI view-state reducer 中抽出 UI-neutral intent、status 和 message projection。
 - `tui` 只保留 terminal 输入和 Ratatui widgets。
+- `gui-bindings` 生成 frontend DTO，React 代码只通过 `src/types.ts` re-export 使用。
+- `gui-bridge` 只保留 typed command DTO、mock/replay projection 和 bounded event buffer。
 - `gui` 只保留 desktop/web shell 和 toolkit widgets。
 - live event bridge 由 core/runtime API 提供，TUI/GUI shell 负责订阅，`client` 只做事件到 view model 的纯函数投影。
 - GUI spike 只能读 mock/replay 或 read-only runtime 数据，不能新增第二套 provider/storage 路径。
@@ -426,6 +564,7 @@ GUI 和 TUI 必须共享同一套 client projection。
 - 后续支持 Cargo、GitHub Releases、Homebrew、npm wrapper、Docker。
 - npm wrapper 只下载二进制，runtime 不依赖 Node。
 - `doctor --json` 检查安装、配置、data dir、provider、trace、SQLite、sandbox 能力。
+- 具体渠道、asset、checksum、Cargo 发布顺序和镜像约束见 `docs/distribution-plan.md`。
 
 ## 6. 未来拆分门槛
 
@@ -495,7 +634,7 @@ AI 或人类开发者修改代码时必须遵守：
 - `client` 不依赖 `core`、`providers`、`storage` 或 `tui`。
 - `providers` 不依赖 `core`、`storage`、`tui`。
 - `tui` 不依赖 provider SDK。
-- future `gui` 不依赖 provider SDK、storage internals 或 TUI。
+- `gui-bindings`、`gui-bridge` 和 future `gui` 不依赖 provider SDK、storage internals 或 TUI。
 - `cli` 和 `tui` 共享 core runtime。
 - CLI、TUI、future GUI 共享同一套 client/runtime 语义。
 - storage 可以从 JSONL 重建 SQLite 索引。

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "tessera")]
+#[command(version = tessera_cli::VERSION_TEXT)]
 #[command(about = "AI-friendly local LLM workbench")]
 struct Cli {
     #[command(subcommand)]

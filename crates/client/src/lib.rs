@@ -2,12 +2,15 @@
 
 use serde::{Deserialize, Serialize};
 use tessera_protocol::{
-    ArtifactId, ArtifactKind, EventFrame, ItemId, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId,
-    Timestamp, TraceRecord, TurnId,
+    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, EventFrame, ItemId, MemoryProposal,
+    MemoryProposalId, MemoryProposalStatus, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId,
+    Timestamp, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
+    ToolSideEffect, TraceRecord, TurnId,
 };
 
 /// User intent shared by CLI/TUI/GUI surfaces before it reaches runtime code.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum ClientIntent {
     SubmitPrompt { profile_id: String, prompt: String },
@@ -16,10 +19,15 @@ pub enum ClientIntent {
     SaveThread,
     ExportThread,
     CancelTask { task_id: Option<TaskId> },
+    ApproveToolCall { approval_id: ApprovalId },
+    DenyToolCall { approval_id: ApprovalId },
+    AcceptMemoryProposal { proposal_id: MemoryProposalId },
+    RejectMemoryProposal { proposal_id: MemoryProposalId },
 }
 
 /// UI-neutral message role for client projections.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum ClientMessageRole {
     System,
@@ -30,6 +38,7 @@ pub enum ClientMessageRole {
 
 /// UI-neutral chat message projection.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct ClientMessage {
     pub role: ClientMessageRole,
     pub content: String,
@@ -39,6 +48,7 @@ pub struct ClientMessage {
 
 /// UI-neutral task projection shared by terminal and future GUI shells.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct ClientTask {
     pub task_id: TaskId,
     pub kind: Option<TaskKind>,
@@ -82,6 +92,7 @@ impl ClientTask {
 
 /// UI-neutral artifact handle projection shared by terminal and future GUI shells.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct ClientArtifact {
     pub artifact_id: ArtifactId,
     pub kind: Option<ArtifactKind>,
@@ -139,8 +150,138 @@ impl ClientArtifact {
     }
 }
 
+/// UI-neutral approval state shared by terminal and future GUI shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientApprovalStatus {
+    Pending,
+    Approved,
+    Denied,
+}
+
+impl From<ApprovalStatus> for ClientApprovalStatus {
+    fn from(status: ApprovalStatus) -> Self {
+        match status {
+            ApprovalStatus::Pending => Self::Pending,
+            ApprovalStatus::Approved => Self::Approved,
+            ApprovalStatus::Denied => Self::Denied,
+        }
+    }
+}
+
+/// UI-neutral approval projection shared by terminal and future GUI shells.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientApproval {
+    pub approval_id: ApprovalId,
+    pub call_id: ToolCallId,
+    pub tool_id: ToolId,
+    pub status: ClientApprovalStatus,
+    pub reason: Option<String>,
+    pub required_permissions: Vec<String>,
+    pub side_effects: Vec<String>,
+}
+
+impl ClientApproval {
+    fn pending_from_decision(decision: &ToolPolicyDecision, approval_id: ApprovalId) -> Self {
+        Self {
+            approval_id,
+            call_id: decision.call_id.clone(),
+            tool_id: decision.tool_id.clone(),
+            status: ClientApprovalStatus::Pending,
+            reason: Some(decision.reason.clone()),
+            required_permissions: decision
+                .required_permissions
+                .iter()
+                .map(tool_permission_label)
+                .map(str::to_string)
+                .collect(),
+            side_effects: decision
+                .side_effects
+                .iter()
+                .map(tool_side_effect_label)
+                .map(str::to_string)
+                .collect(),
+        }
+    }
+
+    fn from_approval(approval: &ToolApproval) -> Self {
+        Self {
+            approval_id: approval.approval_id.clone(),
+            call_id: approval.call_id.clone(),
+            tool_id: approval.tool_id.clone(),
+            status: approval.status.into(),
+            reason: approval.reason.clone(),
+            required_permissions: Vec::new(),
+            side_effects: Vec::new(),
+        }
+    }
+
+    fn update_from_approval(&mut self, approval: &ToolApproval) {
+        self.call_id = approval.call_id.clone();
+        self.tool_id = approval.tool_id.clone();
+        self.status = approval.status.into();
+        self.reason = approval.reason.clone();
+    }
+}
+
+/// UI-neutral memory proposal status shared by terminal and future GUI shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientMemoryProposalStatus {
+    Pending,
+    Applied,
+    Rejected,
+}
+
+impl From<MemoryProposalStatus> for ClientMemoryProposalStatus {
+    fn from(status: MemoryProposalStatus) -> Self {
+        match status {
+            MemoryProposalStatus::Pending => Self::Pending,
+            MemoryProposalStatus::Applied => Self::Applied,
+            MemoryProposalStatus::Rejected => Self::Rejected,
+        }
+    }
+}
+
+/// UI-neutral memory proposal projection shared by terminal and future GUI shells.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientMemoryProposal {
+    pub proposal_id: MemoryProposalId,
+    pub status: ClientMemoryProposalStatus,
+    pub title: String,
+    pub summary: String,
+    pub source_item_id: Option<ItemId>,
+    pub reason: Option<String>,
+}
+
+impl ClientMemoryProposal {
+    fn from_proposal(proposal: &MemoryProposal) -> Self {
+        Self {
+            proposal_id: proposal.proposal_id.clone(),
+            status: proposal.status.into(),
+            title: proposal.title.clone(),
+            summary: proposal.summary.clone(),
+            source_item_id: proposal.source_item_id.clone(),
+            reason: proposal.reason.clone(),
+        }
+    }
+
+    fn update_from_proposal(&mut self, proposal: &MemoryProposal) {
+        self.status = proposal.status.into();
+        self.title = proposal.title.clone();
+        self.summary = proposal.summary.clone();
+        self.source_item_id = proposal.source_item_id.clone();
+        self.reason = proposal.reason.clone();
+    }
+}
+
 /// Provider-neutral telemetry projection shared by terminal and future GUI shells.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct ClientTelemetrySummary {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -287,12 +428,15 @@ impl ClientTelemetrySummary {
 
 /// UI-neutral status projection shared by terminal and future GUI shells.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct ClientStatus {
     pub active_profile: String,
     pub available_profiles: Vec<String>,
     pub reasoning_visible: bool,
     pub task_summary: String,
     pub artifact_summary: String,
+    pub approval_summary: String,
+    pub memory_summary: String,
     pub usage_summary: String,
     pub cache_summary: String,
     pub cost_summary: String,
@@ -330,6 +474,8 @@ impl ClientStatus {
             reasoning_visible: false,
             task_summary: "task idle".to_string(),
             artifact_summary: "artifacts 0".to_string(),
+            approval_summary: "approvals 0 pending".to_string(),
+            memory_summary: "memory 0 pending".to_string(),
             usage_summary: "usage in 0 / out 0 / total 0".to_string(),
             cache_summary: "cache 0/0".to_string(),
             cost_summary: "CNY 0.0000".to_string(),
@@ -395,10 +541,27 @@ impl ClientStatus {
     fn update_artifact_summary(&mut self, artifacts: &[ClientArtifact]) {
         self.artifact_summary = format!("artifacts {}", artifacts.len());
     }
+
+    fn update_approval_summary(&mut self, approvals: &[ClientApproval]) {
+        let pending = approvals
+            .iter()
+            .filter(|approval| approval.status == ClientApprovalStatus::Pending)
+            .count();
+        self.approval_summary = format!("approvals {pending} pending");
+    }
+
+    fn update_memory_summary(&mut self, proposals: &[ClientMemoryProposal]) {
+        let pending = proposals
+            .iter()
+            .filter(|proposal| proposal.status == ClientMemoryProposalStatus::Pending)
+            .count();
+        self.memory_summary = format!("memory {pending} pending");
+    }
 }
 
 /// UI-neutral message projection built from runtime events or trace records.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct ClientProjection {
     pub messages: Vec<ClientMessage>,
     pub reasoning_visible: bool,
@@ -541,11 +704,14 @@ impl ClientProjection {
 
 /// Complete client-side snapshot for a shell render pass.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct ClientSnapshot {
     pub status: ClientStatus,
     pub projection: ClientProjection,
     pub tasks: Vec<ClientTask>,
     pub artifacts: Vec<ClientArtifact>,
+    pub approvals: Vec<ClientApproval>,
+    pub memory_proposals: Vec<ClientMemoryProposal>,
     pub draft_input: String,
 }
 
@@ -566,6 +732,8 @@ impl ClientSnapshot {
             projection: ClientProjection::new(active_profile),
             tasks: Vec::new(),
             artifacts: Vec::new(),
+            approvals: Vec::new(),
+            memory_proposals: Vec::new(),
             draft_input: String::new(),
         }
     }
@@ -584,6 +752,10 @@ impl ClientSnapshot {
             "/new" => Some(ClientIntent::NewThread),
             "/save" => Some(ClientIntent::SaveThread),
             "/export" => Some(ClientIntent::ExportThread),
+            _ if prompt.starts_with("/approve ") => approval_intent(&prompt, "/approve ", true),
+            _ if prompt.starts_with("/deny ") => approval_intent(&prompt, "/deny ", false),
+            _ if prompt.starts_with("/remember ") => memory_intent(&prompt, "/remember ", true),
+            _ if prompt.starts_with("/forget ") => memory_intent(&prompt, "/forget ", false),
             _ => Some(ClientIntent::SubmitPrompt {
                 profile_id: self.status.active_profile.clone(),
                 prompt,
@@ -661,6 +833,19 @@ impl ClientSnapshot {
                 artifact.created_at = Some(timestamp);
                 artifact.update_scope(thread_id, turn_id, task_id, item_id);
                 self.status.update_artifact_summary(&self.artifacts);
+            }
+            RunEvent::ToolPolicyDecisionRecorded { decision } => {
+                if let Some(approval_id) = &decision.approval_id {
+                    self.record_pending_approval(decision, approval_id.clone());
+                }
+            }
+            RunEvent::ToolCallApproved { approval } | RunEvent::ToolCallDenied { approval } => {
+                self.record_resolved_approval(approval);
+            }
+            RunEvent::MemoryWriteProposed { proposal }
+            | RunEvent::MemoryWriteApplied { proposal }
+            | RunEvent::MemoryWriteRejected { proposal } => {
+                self.record_memory_proposal(proposal);
             }
             RunEvent::ProviderCapabilityReported { capability, .. } => self
                 .status
@@ -789,6 +974,109 @@ impl ClientSnapshot {
                 );
                 self.status.update_artifact_summary(&self.artifacts);
             }
+            "tool_policy_decision_recorded" => {
+                let Some(decision) = record.payload.get("decision") else {
+                    return;
+                };
+                let (Some(approval_id), Some(call_id), Some(tool_id)) = (
+                    decision.get("approval_id").and_then(|value| value.as_str()),
+                    decision.get("call_id").and_then(|value| value.as_str()),
+                    decision.get("tool_id").and_then(|value| value.as_str()),
+                ) else {
+                    return;
+                };
+                let reason = decision
+                    .get("reason")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                let required_permissions = decision
+                    .get("required_permissions")
+                    .and_then(|value| value.as_array())
+                    .map(|values| string_values(values))
+                    .unwrap_or_default();
+                let side_effects = decision
+                    .get("side_effects")
+                    .and_then(|value| value.as_array())
+                    .map(|values| string_values(values))
+                    .unwrap_or_default();
+                self.record_pending_approval_parts(PendingApprovalParts {
+                    approval_id: ApprovalId::from(approval_id),
+                    call_id: ToolCallId::from(call_id),
+                    tool_id: ToolId::from(tool_id),
+                    reason,
+                    required_permissions,
+                    side_effects,
+                });
+            }
+            "tool_call_approved" | "tool_call_denied" => {
+                let Some(approval) = record.payload.get("approval") else {
+                    return;
+                };
+                let (Some(approval_id), Some(call_id), Some(tool_id)) = (
+                    approval.get("approval_id").and_then(|value| value.as_str()),
+                    approval.get("call_id").and_then(|value| value.as_str()),
+                    approval.get("tool_id").and_then(|value| value.as_str()),
+                ) else {
+                    return;
+                };
+                let status = approval
+                    .get("status")
+                    .and_then(|value| value.as_str())
+                    .and_then(client_approval_status_from_str)
+                    .unwrap_or(if record.event_kind == "tool_call_approved" {
+                        ClientApprovalStatus::Approved
+                    } else {
+                        ClientApprovalStatus::Denied
+                    });
+                let reason = approval
+                    .get("reason")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                self.record_resolved_approval_parts(ResolvedApprovalParts {
+                    approval_id: ApprovalId::from(approval_id),
+                    call_id: ToolCallId::from(call_id),
+                    tool_id: ToolId::from(tool_id),
+                    status,
+                    reason,
+                });
+            }
+            "memory_write_proposed" | "memory_write_applied" | "memory_write_rejected" => {
+                let Some(proposal) = record.payload.get("proposal") else {
+                    return;
+                };
+                let (Some(proposal_id), Some(title), Some(summary)) = (
+                    proposal.get("proposal_id").and_then(|value| value.as_str()),
+                    proposal.get("title").and_then(|value| value.as_str()),
+                    proposal.get("summary").and_then(|value| value.as_str()),
+                ) else {
+                    return;
+                };
+                let status = proposal
+                    .get("status")
+                    .and_then(|value| value.as_str())
+                    .and_then(client_memory_proposal_status_from_str)
+                    .unwrap_or(match record.event_kind.as_str() {
+                        "memory_write_applied" => ClientMemoryProposalStatus::Applied,
+                        "memory_write_rejected" => ClientMemoryProposalStatus::Rejected,
+                        _ => ClientMemoryProposalStatus::Pending,
+                    });
+                let source_item_id = proposal
+                    .get("source_item_id")
+                    .and_then(|value| value.as_str())
+                    .map(ItemId::from);
+                let reason = proposal
+                    .get("reason")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                self.record_memory_proposal_parts(MemoryProposalParts {
+                    proposal_id: MemoryProposalId::from(proposal_id),
+                    status,
+                    title: title.to_string(),
+                    summary: summary.to_string(),
+                    source_item_id,
+                    reason,
+                });
+            }
             "provider_capability_reported" => self.status.update_provider_capability(
                 record
                     .payload
@@ -842,10 +1130,14 @@ impl ClientSnapshot {
         self.projection = ClientProjection::new(self.status.active_profile.clone());
         self.tasks.clear();
         self.artifacts.clear();
+        self.approvals.clear();
+        self.memory_proposals.clear();
         self.draft_input.clear();
         self.status.reset_telemetry();
         self.status.update_task_summary(&self.tasks);
         self.status.update_artifact_summary(&self.artifacts);
+        self.status.update_approval_summary(&self.approvals);
+        self.status.update_memory_summary(&self.memory_proposals);
     }
 
     pub fn push_notice(&mut self, content: impl Into<String>) {
@@ -906,6 +1198,114 @@ impl ClientSnapshot {
         self.artifacts
             .last_mut()
             .expect("artifact was just inserted into non-empty registry")
+    }
+
+    fn record_pending_approval(&mut self, decision: &ToolPolicyDecision, approval_id: ApprovalId) {
+        let approval = ClientApproval::pending_from_decision(decision, approval_id.clone());
+        if let Some(existing) = self
+            .approvals
+            .iter_mut()
+            .find(|existing| existing.approval_id == approval_id)
+        {
+            *existing = approval;
+        } else {
+            self.approvals.push(approval);
+        }
+        self.status.update_approval_summary(&self.approvals);
+    }
+
+    fn record_pending_approval_parts(&mut self, parts: PendingApprovalParts) {
+        let approval = ClientApproval {
+            approval_id: parts.approval_id.clone(),
+            call_id: parts.call_id,
+            tool_id: parts.tool_id,
+            status: ClientApprovalStatus::Pending,
+            reason: parts.reason,
+            required_permissions: parts.required_permissions,
+            side_effects: parts.side_effects,
+        };
+        if let Some(existing) = self
+            .approvals
+            .iter_mut()
+            .find(|existing| existing.approval_id == parts.approval_id)
+        {
+            *existing = approval;
+        } else {
+            self.approvals.push(approval);
+        }
+        self.status.update_approval_summary(&self.approvals);
+    }
+
+    fn record_resolved_approval(&mut self, approval: &ToolApproval) {
+        if let Some(existing) = self
+            .approvals
+            .iter_mut()
+            .find(|existing| existing.approval_id == approval.approval_id)
+        {
+            existing.update_from_approval(approval);
+        } else {
+            self.approvals.push(ClientApproval::from_approval(approval));
+        }
+        self.status.update_approval_summary(&self.approvals);
+    }
+
+    fn record_resolved_approval_parts(&mut self, parts: ResolvedApprovalParts) {
+        if let Some(existing) = self
+            .approvals
+            .iter_mut()
+            .find(|existing| existing.approval_id == parts.approval_id)
+        {
+            existing.call_id = parts.call_id;
+            existing.tool_id = parts.tool_id;
+            existing.status = parts.status;
+            existing.reason = parts.reason;
+        } else {
+            self.approvals.push(ClientApproval {
+                approval_id: parts.approval_id,
+                call_id: parts.call_id,
+                tool_id: parts.tool_id,
+                status: parts.status,
+                reason: parts.reason,
+                required_permissions: Vec::new(),
+                side_effects: Vec::new(),
+            });
+        }
+        self.status.update_approval_summary(&self.approvals);
+    }
+
+    fn record_memory_proposal(&mut self, proposal: &MemoryProposal) {
+        if let Some(existing) = self
+            .memory_proposals
+            .iter_mut()
+            .find(|existing| existing.proposal_id == proposal.proposal_id)
+        {
+            existing.update_from_proposal(proposal);
+        } else {
+            self.memory_proposals
+                .push(ClientMemoryProposal::from_proposal(proposal));
+        }
+        self.status.update_memory_summary(&self.memory_proposals);
+    }
+
+    fn record_memory_proposal_parts(&mut self, parts: MemoryProposalParts) {
+        let proposal = ClientMemoryProposal {
+            proposal_id: parts.proposal_id.clone(),
+            status: parts.status,
+            title: parts.title,
+            summary: parts.summary,
+            source_item_id: parts.source_item_id,
+            reason: parts.reason,
+        };
+        if let Some(existing) = self
+            .memory_proposals
+            .iter_mut()
+            .find(|existing| existing.proposal_id == parts.proposal_id)
+        {
+            *existing = proposal;
+        } else {
+            self.memory_proposals.push(proposal);
+        }
+        self.status.update_memory_summary(&self.memory_proposals);
     }
 
     fn apply_artifact_refs_from_frame(&mut self, frame: &EventFrame) {
@@ -981,6 +1381,110 @@ fn trace_record_artifact_id(record: &TraceRecord) -> Option<ArtifactId> {
         .get("artifact_id")
         .and_then(|value| value.as_str())
         .map(ArtifactId::from)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PendingApprovalParts {
+    approval_id: ApprovalId,
+    call_id: ToolCallId,
+    tool_id: ToolId,
+    reason: Option<String>,
+    required_permissions: Vec<String>,
+    side_effects: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ResolvedApprovalParts {
+    approval_id: ApprovalId,
+    call_id: ToolCallId,
+    tool_id: ToolId,
+    status: ClientApprovalStatus,
+    reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MemoryProposalParts {
+    proposal_id: MemoryProposalId,
+    status: ClientMemoryProposalStatus,
+    title: String,
+    summary: String,
+    source_item_id: Option<ItemId>,
+    reason: Option<String>,
+}
+
+fn approval_intent(prompt: &str, prefix: &str, approve: bool) -> Option<ClientIntent> {
+    let approval_id = prompt.strip_prefix(prefix)?.trim();
+    if approval_id.is_empty() {
+        return None;
+    }
+
+    let approval_id = ApprovalId::from(approval_id);
+    if approve {
+        Some(ClientIntent::ApproveToolCall { approval_id })
+    } else {
+        Some(ClientIntent::DenyToolCall { approval_id })
+    }
+}
+
+fn memory_intent(prompt: &str, prefix: &str, accept: bool) -> Option<ClientIntent> {
+    let proposal_id = prompt.strip_prefix(prefix)?.trim();
+    if proposal_id.is_empty() {
+        return None;
+    }
+
+    let proposal_id = MemoryProposalId::from(proposal_id);
+    if accept {
+        Some(ClientIntent::AcceptMemoryProposal { proposal_id })
+    } else {
+        Some(ClientIntent::RejectMemoryProposal { proposal_id })
+    }
+}
+
+fn tool_permission_label(permission: &ToolPermission) -> &'static str {
+    match permission {
+        ToolPermission::FilesystemRead => "filesystem_read",
+        ToolPermission::FilesystemWrite => "filesystem_write",
+        ToolPermission::Network => "network",
+        ToolPermission::Shell => "shell",
+        ToolPermission::Git => "git",
+        ToolPermission::EnvRead => "env_read",
+    }
+}
+
+fn tool_side_effect_label(side_effect: &ToolSideEffect) -> &'static str {
+    match side_effect {
+        ToolSideEffect::ReadOnly => "read_only",
+        ToolSideEffect::WritesWorkspace => "writes_workspace",
+        ToolSideEffect::WritesOutsideWorkspace => "writes_outside_workspace",
+        ToolSideEffect::Network => "network",
+        ToolSideEffect::Shell => "shell",
+        ToolSideEffect::PersistentState => "persistent_state",
+    }
+}
+
+fn client_approval_status_from_str(value: &str) -> Option<ClientApprovalStatus> {
+    match value {
+        "pending" => Some(ClientApprovalStatus::Pending),
+        "approved" => Some(ClientApprovalStatus::Approved),
+        "denied" => Some(ClientApprovalStatus::Denied),
+        _ => None,
+    }
+}
+
+fn client_memory_proposal_status_from_str(value: &str) -> Option<ClientMemoryProposalStatus> {
+    match value {
+        "pending" => Some(ClientMemoryProposalStatus::Pending),
+        "applied" => Some(ClientMemoryProposalStatus::Applied),
+        "rejected" => Some(ClientMemoryProposalStatus::Rejected),
+        _ => None,
+    }
+}
+
+fn string_values(values: &[serde_json::Value]) -> Vec<String> {
+    values
+        .iter()
+        .filter_map(|value| value.as_str().map(str::to_string))
+        .collect()
 }
 
 fn latest_task_summary(tasks: &[ClientTask]) -> String {

@@ -1,0 +1,11 @@
+[[permission]]
+identifier = "gui-spike"
+description = "Allows the GUI spike to use typed mock/replay and read-only projection commands."
+commands.allow = [
+  "list_profiles",
+  "load_client_snapshot",
+  "submit_client_intent",
+  "cancel_task",
+  "load_trace_projection",
+  "export_thread",
+]

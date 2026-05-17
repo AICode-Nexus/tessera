@@ -2,12 +2,23 @@ use async_trait::async_trait;
 use futures::stream;
 use std::time::Duration;
 use tessera_core::{
-    ConversationEngine, ConversationRequest, CoreError, EventSinkAction, ModelRouteRequest,
-    ModelRouter, ReplayRunner, RunControls, RuntimeEventQuery, RuntimeReader,
+    ContextWorkbench, ConversationEngine, ConversationRequest, CoreError, DiagnosticsReporter,
+    EventSinkAction, McpToolAdapter, McpToolAnnotations, McpToolSpec, ModelRouteRequest,
+    ModelRouter, NoProgressDetector, NoProgressObservation, OrderedToolResultBuffer,
+    OsSandboxPlanner, PolicyGate, ReplayRunner, RunControls, RuntimeEventQuery, RuntimeHttpApi,
+    RuntimeHttpEventRequest, RuntimeReader, SkillRegistry, ToolRegistry, ToolRepairTelemetry,
+    WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
 };
 use tessera_protocol::{
-    ArtifactId, ArtifactKind, ErrorSource, EventFrame, ItemId, ModelProfileId, NormalizedError,
-    ProviderCapability, ProviderId, RouteStrategy, RunEvent, TaskId,
+    ArtifactId, ArtifactKind, ContextBudget, ContextId, ContextPlacement, ContextReference,
+    ContextSource, ContextSourceKind, Diagnostic, DiagnosticRange, DiagnosticSeverity, ErrorSource,
+    EventFrame, ItemId, ModelProfileId, NoProgressAction, NoProgressSignalKind, NormalizedError,
+    OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxShell, PolicyOutcome,
+    ProviderCapability, ProviderId, RouteStrategy, RunEvent, SandboxDecisionKind, SkillEntrypoint,
+    SkillEntrypointFormat, SkillId, SkillManifest, SkillPolicy, SkillRequirements, SkillSource,
+    SkillSourceKind, SnapshotId, SnapshotKind, TaskId, ToolCallId, ToolCallRequest, ToolDescriptor,
+    ToolDispatch, ToolDispatchId, ToolId, ToolPermission, ToolRepairKind, ToolResult, ToolResultId,
+    ToolResultStatus, ToolSideEffect, WorkspaceCheckpoint, WorkspaceScope,
 };
 use tessera_providers::{
     mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderRequest,
@@ -72,6 +83,38 @@ impl ChatProvider for FailingProvider {
     }
 }
 
+#[derive(Clone, Debug)]
+struct EmptyAssistantProvider;
+
+#[async_trait]
+impl ChatProvider for EmptyAssistantProvider {
+    async fn capability(&self) -> tessera_providers::Result<ProviderCapability> {
+        Ok(ProviderCapability {
+            provider_id: ProviderId::from_static("empty"),
+            supports_streaming: true,
+            supports_reasoning_delta: false,
+            supports_cache_telemetry: false,
+            supports_cost_estimate: false,
+            supports_tool_calling: false,
+            max_context_tokens: Some(1024),
+            extension: None,
+        })
+    }
+
+    async fn stream_chat(
+        &self,
+        request: ProviderRequest,
+    ) -> tessera_providers::Result<ProviderEventStream> {
+        let item_id = request.assistant_item_id;
+        Ok(Box::pin(stream::iter(vec![
+            Ok(RunEvent::AssistantMessageStarted {
+                item_id: item_id.clone(),
+            }),
+            Ok(RunEvent::AssistantMessageCompleted { item_id }),
+        ])))
+    }
+}
+
 fn mock_capability() -> ProviderCapability {
     ProviderCapability {
         provider_id: ProviderId::from_static("mock"),
@@ -106,6 +149,728 @@ fn model_router_draft_records_manual_reason_without_auto_routing() {
         Some("manual_profile_selected_auto_routing_disabled")
     );
     assert!(decision.fallback_reason.is_none());
+}
+
+#[test]
+fn no_progress_detector_prefers_stop_over_route_escalation_for_no_output() {
+    let item_id = ItemId::from_static("item_empty_assistant");
+    let mut detector = NoProgressDetector::default();
+
+    assert!(detector
+        .observe_event(&RunEvent::AssistantMessageStarted {
+            item_id: item_id.clone()
+        })
+        .is_none());
+    let signal = detector
+        .observe_event(&RunEvent::AssistantMessageCompleted { item_id })
+        .unwrap();
+
+    assert_eq!(signal.kind, NoProgressSignalKind::NoOutput);
+    assert_eq!(signal.action, NoProgressAction::Stop);
+    assert_eq!(signal.reason, "assistant_completed_without_output");
+    assert!(!signal.route_escalation_allowed);
+}
+
+#[test]
+fn no_progress_detector_reports_read_only_and_repair_thresholds_without_route_escalation() {
+    let mut detector = NoProgressDetector::default();
+
+    assert!(detector
+        .record_observation(NoProgressObservation::ReadOnlyStep)
+        .is_none());
+    assert!(detector
+        .record_observation(NoProgressObservation::ReadOnlyStep)
+        .is_none());
+    let read_only = detector
+        .record_observation(NoProgressObservation::ReadOnlyStep)
+        .unwrap();
+
+    assert_eq!(read_only.kind, NoProgressSignalKind::RepeatedReadOnly);
+    assert_eq!(read_only.consecutive_count, 3);
+    assert_eq!(read_only.threshold, 3);
+    assert_eq!(read_only.action, NoProgressAction::AskUser);
+    assert!(!read_only.route_escalation_allowed);
+
+    assert!(detector
+        .record_observation(NoProgressObservation::AssistantOutput)
+        .is_none());
+    assert!(detector
+        .record_observation(NoProgressObservation::RepairStep)
+        .is_none());
+    assert!(detector
+        .record_observation(NoProgressObservation::RepairStep)
+        .is_none());
+    let repair = detector
+        .record_observation(NoProgressObservation::RepairStep)
+        .unwrap();
+
+    assert_eq!(repair.kind, NoProgressSignalKind::RepeatedRepair);
+    assert_eq!(repair.consecutive_count, 3);
+    assert_eq!(repair.threshold, 3);
+    assert_eq!(repair.action, NoProgressAction::Summarize);
+    assert!(!repair.route_escalation_allowed);
+}
+
+#[test]
+fn skill_registry_lists_and_finds_manifests_without_runtime_activation() {
+    let manifest = SkillManifest {
+        id: SkillId::from_static("skill_code_review"),
+        name: "code-review".to_string(),
+        version: Some("0.1.0".to_string()),
+        description: "Review code changes and produce prioritized findings.".to_string(),
+        source: SkillSource {
+            kind: SkillSourceKind::BuiltIn,
+            uri: Some("builtin://code-review/SKILL.md".to_string()),
+        },
+        entrypoint: SkillEntrypoint {
+            format: SkillEntrypointFormat::SkillMd,
+            path: "SKILL.md".to_string(),
+        },
+        requirements: SkillRequirements {
+            tools: vec!["git.diff".to_string()],
+            context: vec!["workspace".to_string()],
+        },
+        policy: SkillPolicy {
+            default_permission: "ask".to_string(),
+            network: "deny".to_string(),
+            write_files: "deny".to_string(),
+        },
+        metadata: None,
+    };
+    let registry = SkillRegistry::from_manifests([manifest.clone()]);
+
+    assert_eq!(registry.list_skills(), vec![manifest.clone()]);
+    assert_eq!(registry.find_skill(&manifest.id), Some(&manifest));
+}
+
+#[test]
+fn tool_registry_lists_and_finds_descriptors_without_runtime_execution() {
+    let descriptor = ToolDescriptor {
+        id: ToolId::from_static("tool_workspace_read"),
+        display_name: "Read workspace file".to_string(),
+        description: "Read a file from the active workspace.".to_string(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": { "type": "string" }
+            }
+        }),
+        output_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "content": { "type": "string" }
+            }
+        }),
+        required_permissions: vec![ToolPermission::FilesystemRead],
+        side_effects: vec![ToolSideEffect::ReadOnly],
+        parallel_safe: false,
+        metadata: None,
+    };
+    let registry = ToolRegistry::from_descriptors([descriptor.clone()]);
+
+    assert_eq!(registry.list_tools(), vec![descriptor.clone()]);
+    assert_eq!(registry.find_tool(&descriptor.id), Some(&descriptor));
+    assert!(!registry.list_tools()[0].parallel_safe);
+    assert_eq!(
+        registry.list_tools()[0].side_effects,
+        vec![ToolSideEffect::ReadOnly]
+    );
+}
+
+#[test]
+fn mcp_tool_adapter_maps_metadata_to_tessera_descriptor_and_call_without_runtime() {
+    let adapter = McpToolAdapter;
+    let read_spec = McpToolSpec {
+        server_id: "filesystem".to_string(),
+        name: "Read File".to_string(),
+        description: Some("Read a workspace file through MCP metadata.".to_string()),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string" }
+            }
+        }),
+        output_schema: None,
+        annotations: McpToolAnnotations {
+            title: Some("Read file".to_string()),
+            read_only_hint: Some(true),
+            destructive_hint: Some(false),
+            idempotent_hint: Some(true),
+            open_world_hint: Some(false),
+        },
+    };
+    let network_spec = McpToolSpec {
+        server_id: "search".to_string(),
+        name: "web.search".to_string(),
+        description: Some("Search the web through MCP metadata.".to_string()),
+        input_schema: serde_json::json!({ "type": "object" }),
+        output_schema: None,
+        annotations: McpToolAnnotations {
+            title: None,
+            read_only_hint: Some(true),
+            destructive_hint: Some(false),
+            idempotent_hint: Some(true),
+            open_world_hint: Some(true),
+        },
+    };
+
+    let read_descriptor = adapter.descriptor_from_spec(&read_spec);
+    let network_descriptor = adapter.descriptor_from_spec(&network_spec);
+    let request = adapter
+        .request_from_arguments(&read_descriptor, serde_json::json!({ "path": "README.md" }));
+
+    assert_eq!(read_descriptor.id.as_str(), "tool_mcp_filesystem_read_file");
+    assert_eq!(read_descriptor.display_name, "Read file");
+    assert_eq!(
+        read_descriptor.required_permissions,
+        Vec::<ToolPermission>::new()
+    );
+    assert_eq!(read_descriptor.side_effects, vec![ToolSideEffect::ReadOnly]);
+    assert!(!read_descriptor.parallel_safe);
+    assert_eq!(
+        read_descriptor.output_schema,
+        serde_json::json!({ "type": "object" })
+    );
+    assert_eq!(
+        read_descriptor.metadata.as_ref().unwrap()["mcp_server_id"],
+        "filesystem"
+    );
+    assert_eq!(
+        read_descriptor.metadata.as_ref().unwrap()["mcp_tool_name"],
+        "Read File"
+    );
+    assert!(read_descriptor
+        .metadata
+        .as_ref()
+        .unwrap()
+        .get("command")
+        .is_none());
+    assert!(read_descriptor
+        .metadata
+        .as_ref()
+        .unwrap()
+        .get("server_url")
+        .is_none());
+
+    assert_eq!(
+        network_descriptor.required_permissions,
+        vec![ToolPermission::Network]
+    );
+    assert_eq!(
+        network_descriptor.side_effects,
+        vec![ToolSideEffect::Network]
+    );
+    assert_eq!(network_descriptor.id.as_str(), "tool_mcp_search_web_search");
+
+    assert_eq!(request.tool_id, read_descriptor.id);
+    assert_eq!(request.input["path"], "README.md");
+    assert_eq!(
+        request.metadata.as_ref().unwrap()["mcp_tool_name"],
+        "Read File"
+    );
+    assert!(request
+        .metadata
+        .as_ref()
+        .unwrap()
+        .get("executable")
+        .is_none());
+}
+
+#[test]
+fn policy_gate_allows_read_only_asks_for_workspace_write_and_denies_shell() {
+    let gate = PolicyGate;
+    let read_descriptor = tool_descriptor(
+        "tool_workspace_read",
+        vec![ToolPermission::FilesystemRead],
+        vec![ToolSideEffect::ReadOnly],
+    );
+    let write_descriptor = tool_descriptor(
+        "tool_workspace_write",
+        vec![ToolPermission::FilesystemWrite],
+        vec![ToolSideEffect::WritesWorkspace],
+    );
+    let shell_descriptor = tool_descriptor(
+        "tool_shell",
+        vec![ToolPermission::Shell],
+        vec![ToolSideEffect::Shell],
+    );
+
+    let read = gate.evaluate(
+        &read_descriptor,
+        &tool_request("call_read", &read_descriptor.id),
+    );
+    let write = gate.evaluate(
+        &write_descriptor,
+        &tool_request("call_write", &write_descriptor.id),
+    );
+    let shell = gate.evaluate(
+        &shell_descriptor,
+        &tool_request("call_shell", &shell_descriptor.id),
+    );
+
+    assert_eq!(read.outcome, PolicyOutcome::Allow);
+    assert!(read.approval_id.is_none());
+    assert_eq!(read.reason, "read_only_tool_allowed");
+
+    assert_eq!(write.outcome, PolicyOutcome::AskUser);
+    assert!(write.approval_id.is_some());
+    assert_eq!(write.reason, "side_effect_requires_user_approval");
+
+    assert_eq!(shell.outcome, PolicyOutcome::Deny);
+    assert!(shell.approval_id.is_none());
+    assert_eq!(shell.reason, "dangerous_tool_denied_until_sandbox_exists");
+}
+
+#[test]
+fn workspace_guardrail_checker_allows_workspace_read_asks_write_and_denies_outside_or_shell() {
+    let checker = WorkspaceGuardrailChecker::new(WorkspaceScope {
+        workspace_root: "/workspace/project".to_string(),
+        allowed_roots: vec![],
+        denied_roots: vec![],
+    });
+    let read_descriptor = tool_descriptor(
+        "tool_workspace_read",
+        vec![ToolPermission::FilesystemRead],
+        vec![ToolSideEffect::ReadOnly],
+    );
+    let write_descriptor = tool_descriptor(
+        "tool_workspace_write",
+        vec![ToolPermission::FilesystemWrite],
+        vec![ToolSideEffect::WritesWorkspace],
+    );
+    let shell_descriptor = tool_descriptor(
+        "tool_shell",
+        vec![ToolPermission::Shell],
+        vec![ToolSideEffect::Shell],
+    );
+
+    let read = checker.evaluate_tool_path(
+        &read_descriptor,
+        &tool_request("call_read", &read_descriptor.id),
+        "src/lib.rs",
+    );
+    let write = checker.evaluate_tool_path(
+        &write_descriptor,
+        &tool_request("call_write", &write_descriptor.id),
+        "README.md",
+    );
+    let outside = checker.evaluate_tool_path(
+        &read_descriptor,
+        &tool_request("call_outside", &read_descriptor.id),
+        "../secrets.env",
+    );
+    let shell = checker.evaluate_tool_path(
+        &shell_descriptor,
+        &tool_request("call_shell", &shell_descriptor.id),
+        "scripts/build.sh",
+    );
+
+    assert_eq!(read.kind, SandboxDecisionKind::Allow);
+    assert_eq!(read.reason, "workspace_read_allowed");
+    assert!(read.guardrail.within_workspace);
+    assert_eq!(
+        read.guardrail.resolved_path.as_deref(),
+        Some("/workspace/project/src/lib.rs")
+    );
+
+    assert_eq!(write.kind, SandboxDecisionKind::AskUser);
+    assert_eq!(write.reason, "workspace_write_requires_approval");
+    assert!(write.guardrail.within_workspace);
+
+    assert_eq!(outside.kind, SandboxDecisionKind::Deny);
+    assert_eq!(outside.reason, "path_outside_workspace");
+    assert!(!outside.guardrail.within_workspace);
+    assert_eq!(
+        outside.guardrail.resolved_path.as_deref(),
+        Some("/workspace/secrets.env")
+    );
+
+    assert_eq!(shell.kind, SandboxDecisionKind::Deny);
+    assert_eq!(shell.reason, "dangerous_tool_denied_until_sandbox_exists");
+}
+
+#[test]
+fn os_sandbox_planner_selects_profiles_without_runtime_execution() {
+    let planner = OsSandboxPlanner::new("/workspace/project");
+    let read_descriptor = tool_descriptor(
+        "tool_workspace_read",
+        vec![ToolPermission::FilesystemRead],
+        vec![ToolSideEffect::ReadOnly],
+    );
+    let write_descriptor = tool_descriptor(
+        "tool_workspace_write",
+        vec![ToolPermission::FilesystemWrite],
+        vec![ToolSideEffect::WritesWorkspace],
+    );
+    let network_descriptor = tool_descriptor(
+        "tool_network",
+        vec![ToolPermission::Network],
+        vec![ToolSideEffect::Network],
+    );
+    let shell_descriptor = tool_descriptor(
+        "tool_shell",
+        vec![ToolPermission::Shell],
+        vec![ToolSideEffect::Shell],
+    );
+
+    let read = planner.plan_tool(&read_descriptor);
+    let write = planner.plan_tool(&write_descriptor);
+    let network = planner.plan_tool(&network_descriptor);
+    let shell = planner.plan_tool(&shell_descriptor);
+
+    assert_eq!(read.mode, OsSandboxMode::ReadOnly);
+    assert_eq!(read.filesystem, OsSandboxFilesystem::ReadOnly);
+    assert_eq!(read.network, OsSandboxNetwork::Disabled);
+    assert_eq!(read.shell, OsSandboxShell::Denied);
+    assert!(!read.requires_checkpoint);
+
+    assert_eq!(write.mode, OsSandboxMode::WorkspaceWrite);
+    assert_eq!(write.filesystem, OsSandboxFilesystem::WorkspaceWrite);
+    assert_eq!(write.network, OsSandboxNetwork::Disabled);
+    assert_eq!(write.shell, OsSandboxShell::Denied);
+    assert!(write.requires_checkpoint);
+
+    assert_eq!(network.mode, OsSandboxMode::NetworkRequired);
+    assert_eq!(network.network, OsSandboxNetwork::Requested);
+    assert_eq!(network.filesystem, OsSandboxFilesystem::ReadOnly);
+
+    assert_eq!(shell.mode, OsSandboxMode::Denied);
+    assert_eq!(shell.shell, OsSandboxShell::Denied);
+    assert_eq!(shell.reason, "dangerous_tool_requires_real_os_sandbox");
+}
+
+#[test]
+fn workspace_checkpoint_planner_builds_checkpoint_metadata_without_file_operations() {
+    let sandbox_planner = OsSandboxPlanner::new("/workspace/project");
+    let checkpoint_planner =
+        WorkspaceCheckpointPlanner::new(SnapshotKind::SideGit, "tessera://snapshots/");
+    let read_descriptor = tool_descriptor(
+        "tool_workspace_read",
+        vec![ToolPermission::FilesystemRead],
+        vec![ToolSideEffect::ReadOnly],
+    );
+    let write_descriptor = tool_descriptor(
+        "tool_workspace_write",
+        vec![ToolPermission::FilesystemWrite],
+        vec![ToolSideEffect::WritesWorkspace],
+    );
+
+    let read_profile = sandbox_planner.plan_tool(&read_descriptor);
+    let write_profile = sandbox_planner.plan_tool(&write_descriptor);
+    let parent_snapshot_id = SnapshotId::from_static("snapshot_parent");
+
+    let checkpoint = checkpoint_planner
+        .plan_required_checkpoint(
+            &write_profile,
+            Some(parent_snapshot_id.clone()),
+            "before workspace write",
+        )
+        .unwrap();
+
+    assert_eq!(checkpoint.kind, SnapshotKind::SideGit);
+    assert!(checkpoint
+        .storage_uri
+        .starts_with("tessera://snapshots/snapshot_"));
+    assert_eq!(
+        checkpoint.workspace_root.as_deref(),
+        Some("/workspace/project")
+    );
+    assert_eq!(checkpoint.parent_snapshot_id, Some(parent_snapshot_id));
+    assert_eq!(
+        checkpoint.summary.as_deref(),
+        Some("before workspace write")
+    );
+    assert!(checkpoint.metadata.is_none());
+    assert!(checkpoint
+        .storage_uri
+        .chars()
+        .all(|character| !character.is_whitespace()));
+    assert!(checkpoint_planner
+        .plan_required_checkpoint(&read_profile, None, "before read")
+        .is_none());
+}
+
+#[test]
+fn diagnostics_reporter_builds_event_without_running_lsp_process() {
+    let reporter = DiagnosticsReporter;
+    let diagnostic = Diagnostic {
+        severity: DiagnosticSeverity::Error,
+        code: Some("E0308".to_string()),
+        message: "mismatched types".to_string(),
+        uri: Some("file:///workspace/project/src/lib.rs".to_string()),
+        range: Some(DiagnosticRange {
+            start_line: 4,
+            start_character: 12,
+            end_line: 4,
+            end_character: 18,
+        }),
+        metadata: None,
+    };
+
+    let report = reporter.report("rustc", [diagnostic.clone()]);
+    let event = reporter.report_event(report.clone());
+
+    assert!(report.report_id.as_str().starts_with("diagnostics_"));
+    assert_eq!(report.source, "rustc");
+    assert_eq!(report.diagnostics, vec![diagnostic]);
+    assert!(report.metadata.is_none());
+    assert!(matches!(
+        event,
+        RunEvent::DiagnosticsReported { report: event_report }
+            if event_report.report_id == report.report_id
+    ));
+}
+
+#[test]
+fn ordered_tool_result_buffer_releases_results_in_declared_order_after_parallel_completion() {
+    let tool_id = ToolId::from_static("tool_workspace_read");
+    let dispatch_zero = tool_dispatch(0, "call_zero", &tool_id);
+    let dispatch_one = tool_dispatch(1, "call_one", &tool_id);
+    let mut buffer =
+        OrderedToolResultBuffer::from_dispatches([dispatch_zero.clone(), dispatch_one.clone()]);
+
+    let start_events = buffer.start_events();
+    assert_eq!(start_events.len(), 2);
+    assert!(matches!(
+        &start_events[0],
+        RunEvent::ToolDispatchStarted { dispatch } if dispatch.call_id == dispatch_zero.call_id
+    ));
+    assert!(matches!(
+        &start_events[1],
+        RunEvent::ToolDispatchStarted { dispatch } if dispatch.call_id == dispatch_one.call_id
+    ));
+
+    let held = buffer.record_completion(tool_result(1, "call_one", &tool_id, "second"));
+    assert!(held.is_empty());
+
+    let released = buffer.record_completion(tool_result(0, "call_zero", &tool_id, "first"));
+    assert_eq!(released.len(), 4);
+    assert!(matches!(
+        &released[0],
+        RunEvent::ToolDispatchCompleted { result } if result.declared_index == 0
+    ));
+    assert!(matches!(
+        &released[1],
+        RunEvent::ToolResultRecorded { result } if result.declared_index == 0
+    ));
+    assert!(matches!(
+        &released[2],
+        RunEvent::ToolDispatchCompleted { result } if result.declared_index == 1
+    ));
+    assert!(matches!(
+        &released[3],
+        RunEvent::ToolResultRecorded { result } if result.declared_index == 1
+    ));
+
+    let model_visible_outputs: Vec<&str> = released
+        .iter()
+        .filter_map(|event| match event {
+            RunEvent::ToolResultRecorded { result } => result.output["text"].as_str(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(model_visible_outputs, vec!["first", "second"]);
+}
+
+#[test]
+fn tool_repair_telemetry_records_summaries_without_provider_raw_text() {
+    let telemetry = ToolRepairTelemetry;
+    let tool_id = ToolId::from_static("tool_workspace_read");
+    let call_id = ToolCallId::from_static("tool_call_scavenged");
+
+    let scavenged = telemetry.scavenged_json(
+        Some(call_id.clone()),
+        Some(tool_id.clone()),
+        2,
+        1,
+        "scavenged_tool_call_json_from_provider_text",
+    );
+    let storm = telemetry.call_storm_detected(42, 16, "tool_call_storm_threshold_exceeded");
+
+    assert_eq!(scavenged.call_id, Some(call_id));
+    assert_eq!(scavenged.tool_id, Some(tool_id));
+    assert_eq!(scavenged.kind, ToolRepairKind::ScavengedJson);
+    assert_eq!(scavenged.original_call_count, Some(2));
+    assert_eq!(scavenged.repaired_call_count, Some(1));
+    assert!(scavenged.metadata.is_none());
+
+    assert_eq!(storm.kind, ToolRepairKind::CallStormDetected);
+    assert_eq!(storm.original_call_count, Some(42));
+    assert_eq!(storm.repaired_call_count, Some(16));
+    assert_eq!(storm.reason, "tool_call_storm_threshold_exceeded");
+}
+
+fn tool_descriptor(
+    id: &'static str,
+    required_permissions: Vec<ToolPermission>,
+    side_effects: Vec<ToolSideEffect>,
+) -> ToolDescriptor {
+    ToolDescriptor {
+        id: ToolId::from_static(id),
+        display_name: id.to_string(),
+        description: "test descriptor".to_string(),
+        input_schema: serde_json::json!({ "type": "object" }),
+        output_schema: serde_json::json!({ "type": "object" }),
+        required_permissions,
+        side_effects,
+        parallel_safe: false,
+        metadata: None,
+    }
+}
+
+fn tool_request(id: &'static str, tool_id: &ToolId) -> ToolCallRequest {
+    ToolCallRequest {
+        call_id: ToolCallId::from_static(id),
+        tool_id: tool_id.clone(),
+        input: serde_json::json!({}),
+        metadata: None,
+    }
+}
+
+fn tool_dispatch(index: u32, call_id: &'static str, tool_id: &ToolId) -> ToolDispatch {
+    ToolDispatch {
+        dispatch_id: ToolDispatchId::from_static(match index {
+            0 => "tool_dispatch_zero",
+            1 => "tool_dispatch_one",
+            _ => "tool_dispatch_extra",
+        }),
+        call_id: ToolCallId::from_static(call_id),
+        tool_id: tool_id.clone(),
+        declared_index: index,
+        parallel_safe: true,
+        metadata: None,
+    }
+}
+
+fn tool_result(
+    index: u32,
+    call_id: &'static str,
+    tool_id: &ToolId,
+    text: &'static str,
+) -> ToolResult {
+    ToolResult {
+        result_id: ToolResultId::from_static(match index {
+            0 => "tool_result_zero",
+            1 => "tool_result_one",
+            _ => "tool_result_extra",
+        }),
+        call_id: ToolCallId::from_static(call_id),
+        tool_id: tool_id.clone(),
+        declared_index: index,
+        status: ToolResultStatus::Succeeded,
+        output: serde_json::json!({ "text": text }),
+        error: None,
+        artifact_refs: vec![],
+        metadata: None,
+    }
+}
+
+#[test]
+fn runtime_reader_lists_snapshot_checkpoints_from_trace_without_restoring() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = TraceStore::open(temp.path()).unwrap();
+    let snapshot_id = SnapshotId::from_static("snapshot_runtime");
+    let task_id = TaskId::from_static("task_snapshot_runtime");
+
+    store
+        .append(
+            &EventFrame::new(
+                "trace_snapshot_runtime",
+                1,
+                RunEvent::SnapshotCreated {
+                    checkpoint: WorkspaceCheckpoint {
+                        id: snapshot_id.clone(),
+                        kind: SnapshotKind::SideGit,
+                        storage_uri: "tessera://snapshots/snapshot_runtime".to_string(),
+                        workspace_root: Some("/workspace/project".to_string()),
+                        parent_snapshot_id: None,
+                        summary: Some("before patch".to_string()),
+                        metadata: None,
+                    },
+                },
+            )
+            .with_task_id(task_id.clone()),
+        )
+        .unwrap();
+
+    let reader = RuntimeReader::new(store);
+    let snapshots = reader.list_snapshots("trace_snapshot_runtime").unwrap();
+
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].snapshot_id, snapshot_id);
+    assert_eq!(snapshots[0].kind, Some(SnapshotKind::SideGit));
+    assert_eq!(snapshots[0].task_id, Some(task_id));
+    assert_eq!(
+        snapshots[0].storage_uri.as_deref(),
+        Some("tessera://snapshots/snapshot_runtime")
+    );
+    assert_eq!(snapshots[0].summary.as_deref(), Some("before patch"));
+}
+
+#[test]
+fn context_workbench_tracks_references_and_token_budget_without_loading_sources() {
+    let mut workbench = ContextWorkbench::new(ContextBudget {
+        max_tokens: 200,
+        reserved_output_tokens: 40,
+    });
+    let scratch_id = ContextId::from_static("context_scratch");
+
+    workbench.add_reference(ContextReference {
+        id: ContextId::from_static("context_architecture"),
+        source: ContextSource {
+            kind: ContextSourceKind::File,
+            uri: Some("docs/technical-architecture.md".to_string()),
+            label: Some("architecture".to_string()),
+        },
+        placement: ContextPlacement::StablePrefix,
+        estimated_tokens: 100,
+        pinned: true,
+        summary: Some("architecture contract".to_string()),
+        metadata: None,
+    });
+    workbench.add_reference(ContextReference {
+        id: ContextId::from_static("context_transcript"),
+        source: ContextSource {
+            kind: ContextSourceKind::Trace,
+            uri: Some("trace://trace_mock".to_string()),
+            label: Some("transcript".to_string()),
+        },
+        placement: ContextPlacement::AppendOnlyTranscript,
+        estimated_tokens: 50,
+        pinned: false,
+        summary: None,
+        metadata: None,
+    });
+    workbench.add_reference(ContextReference {
+        id: scratch_id.clone(),
+        source: ContextSource {
+            kind: ContextSourceKind::Inline,
+            uri: None,
+            label: Some("scratch".to_string()),
+        },
+        placement: ContextPlacement::VolatileScratch,
+        estimated_tokens: 25,
+        pinned: false,
+        summary: None,
+        metadata: None,
+    });
+
+    let summary = workbench.summary();
+    assert_eq!(summary.available_tokens, 160);
+    assert_eq!(summary.used_tokens, 175);
+    assert_eq!(summary.stable_prefix_tokens, 100);
+    assert_eq!(summary.append_only_transcript_tokens, 50);
+    assert_eq!(summary.volatile_scratch_tokens, 25);
+    assert!(summary.over_budget);
+
+    let removed = workbench.remove_reference(&scratch_id).unwrap();
+    assert_eq!(removed.id, scratch_id);
+    let summary = workbench.summary();
+    assert_eq!(workbench.list_references().len(), 2);
+    assert_eq!(summary.used_tokens, 150);
+    assert_eq!(summary.remaining_tokens, 10);
+    assert!(!summary.over_budget);
 }
 
 #[tokio::test]
@@ -269,6 +1034,41 @@ async fn conversation_engine_records_timeout_when_provider_stalls() {
 }
 
 #[tokio::test]
+async fn conversation_engine_records_no_progress_and_stops_when_provider_finishes_without_output() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(EmptyAssistantProvider, store);
+    let request = ConversationRequest {
+        trace_id: "trace_no_progress".to_string(),
+        provider_id: ProviderId::from_static("empty"),
+        profile_id: ModelProfileId::from_static("empty-default"),
+        model: "empty-chat".to_string(),
+        prompt: "hello empty".to_string(),
+    };
+
+    let outcome = engine.run_chat(request).await.unwrap();
+
+    assert_eq!(outcome.assistant_text, "");
+    let events = outcome.store.list_events(&outcome.trace_id).unwrap();
+    assert!(events.contains(&"no_progress_loop_detected".to_string()));
+    assert!(events.contains(&"task_cancelled".to_string()));
+    assert!(!events.contains(&"task_completed".to_string()));
+    assert_eq!(events.last().map(String::as_str), Some("done"));
+
+    let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let no_progress = records
+        .iter()
+        .find(|record| record.event_kind == "no_progress_loop_detected")
+        .unwrap();
+    assert_eq!(no_progress.payload["signal"]["kind"], "no_output");
+    assert_eq!(no_progress.payload["signal"]["action"], "stop");
+    assert_eq!(
+        no_progress.payload["signal"]["route_escalation_allowed"],
+        false
+    );
+}
+
+#[tokio::test]
 async fn replay_runner_reconstructs_mock_assistant_text_from_trace() {
     let temp = tempfile::tempdir().unwrap();
     let store = TraceStore::open(temp.path()).unwrap();
@@ -341,6 +1141,38 @@ async fn runtime_reader_pages_trace_events_without_mutating_runtime_state() {
         reopened.list_events(&outcome.trace_id).unwrap(),
         original_events
     );
+}
+
+#[tokio::test]
+async fn runtime_http_api_pages_events_and_encodes_sse_without_owning_runtime() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(MockProvider::default(), store);
+
+    let outcome = engine
+        .run_chat(ConversationRequest::mock("hello runtime http api"))
+        .await
+        .unwrap();
+    let api = RuntimeHttpApi::new(RuntimeReader::new(outcome.store));
+    let request = RuntimeHttpEventRequest::new(&outcome.trace_id).limit(2);
+
+    let page = api.list_events(request.clone()).unwrap();
+    let page_json = api.list_events_json(request.clone()).unwrap();
+    let frames = api.sse_event_frames(request).unwrap();
+
+    assert_eq!(page.trace_id, outcome.trace_id);
+    assert_eq!(page.records.len(), 2);
+    assert_eq!(page_json["trace_id"], outcome.trace_id);
+    assert_eq!(page_json["records"].as_array().unwrap().len(), 2);
+    assert_eq!(frames.len(), 2);
+
+    let first_encoded = frames[0].encode();
+    assert!(first_encoded.starts_with("id: "));
+    assert!(first_encoded.contains("\nevent: "));
+    assert!(first_encoded.contains("\ndata: {"));
+    assert!(first_encoded.ends_with("\n\n"));
+    assert!(!first_encoded.contains("command"));
+    assert!(!first_encoded.contains("authorization"));
 }
 
 #[tokio::test]

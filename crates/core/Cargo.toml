@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 futures.workspace = true
+serde_json.workspace = true
 tessera-protocol = { path = "../protocol" }
 tessera-providers = { path = "../providers" }
 tessera-storage = { path = "../storage" }
@@ -14,5 +15,6 @@ tokio.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

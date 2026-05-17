@@ -24,6 +24,13 @@ pub struct DoctorReport {
 
 pub type Result<T> = anyhow::Result<T>;
 
+pub const VERSION_TEXT: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (git ",
+    env!("TESSERA_GIT_SHA"),
+    ")"
+);
+
 static TRACE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 pub fn run_doctor(data_dir: impl AsRef<Path>) -> Result<DoctorReport> {

@@ -1,0 +1,23 @@
+[workspace]
+
+[package]
+name = "tessera-gui-tauri"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/AICode-Nexus/tessera"
+
+[lib]
+name = "tessera_gui_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.1", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.11.1", features = [] }
+tessera-client = { path = "../../../crates/client" }
+tessera-gui-bridge = { path = "../../../crates/gui-bridge" }
+tessera-protocol = { path = "../../../crates/protocol" }

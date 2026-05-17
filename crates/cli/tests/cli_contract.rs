@@ -6,6 +6,26 @@ use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::EventSinkAction;
 use tessera_protocol::RunEvent;
 
+#[test]
+fn version_output_reports_crate_version_and_git_sha() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .arg("--version")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let git_sha = option_env!("TESSERA_GIT_SHA").unwrap_or("unknown");
+
+    assert_ne!(git_sha, "unknown");
+    assert_eq!(git_sha.len(), 40);
+    assert!(git_sha
+        .chars()
+        .all(|character| character.is_ascii_hexdigit()));
+    assert!(stdout.contains(env!("CARGO_PKG_VERSION")));
+    assert!(stdout.contains(git_sha));
+}
+
 #[tokio::test]
 async fn doctor_json_reports_trace_and_sqlite_health() {
     let temp = tempfile::tempdir().unwrap();

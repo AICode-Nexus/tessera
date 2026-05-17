@@ -4,7 +4,7 @@ Tessera is a model-agnostic, agent-ready terminal workbench built on typed event
 
 ## Current Status
 
-This repository now has the v0.1 Rust workspace scaffold and a mock-driven runtime slice. The current implementation is intentionally narrow: protocol types, shared client projection, trace storage, provider adapters, core conversation loop, `doctor --json`, mock `chat`, and a minimal Ratatui terminal chat loop with profile switching and live core event delivery.
+This repository now has the v0.1 Rust workspace scaffold and a mock-driven runtime slice. The current implementation is intentionally narrow: protocol types, shared client projection, trace storage, provider adapters, core conversation loop, `doctor --json`, mock `chat`, a minimal Ratatui terminal chat loop with profile switching and live core event delivery, early v0.2 GUI work over mock/replay projection and generated TypeScript DTOs, plus v0.3/v0.4 foundation metadata/projection for tool policy, approvals, memory proposal review, diagnostics events, MCP tool metadata adaptation, ordered tool results, repair telemetry, workspace guardrail decisions, OS sandbox profile planning, checkpoint metadata planning, and read-only runtime API JSON/SSE shaping without tool execution.
 
 ## Design Goals
 
@@ -25,6 +25,7 @@ This repository now has the v0.1 Rust workspace scaffold and a mock-driven runti
 - [Reasonix Lessons](docs/reasonix-lessons.md)
 - [GUI-Ready Architecture](docs/gui-ready-architecture.md)
 - [ADR-001: GUI Architecture and Toolkit Direction](docs/adr/ADR-001-gui-architecture-and-toolkit.md)
+- [Distribution Plan](docs/distribution-plan.md)
 - [v0.1 Plan](docs/v0.1-plan.md)
 - [v0.1 Release Checklist](docs/v0.1-release-checklist.md)
 - [Global Plan](docs/global-plan.md)
@@ -37,7 +38,7 @@ This repository now has the v0.1 Rust workspace scaffold and a mock-driven runti
 
 The current implementation contract is still architecture-led:
 
-- Keep the first implementation limited to `protocol`, `client`, `core`, `providers`, `storage`, `config`, `cli`, and `tui`.
+- Keep the headless runtime limited to `protocol`, `client`, `core`, `providers`, `storage`, `config`, `cli`, and `tui`, with GUI work entering through `gui-bridge`, `gui-bindings`, and `apps/gui-tauri` shell code only.
 - Keep future tools, agents, memory, skills, learning, and swarm support as protocol-ready extensions, not v0.1 runtime features.
 - Keep CLI, TUI, and future GUI on top of the same headless runtime.
 - Keep client UI state in UI-neutral reducers and view models before implementing the Tauri-first GUI path.
@@ -78,6 +79,23 @@ default_model = "mock-chat"
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --prompt "hello"
 ```
 
+Run the GUI shell spike:
+
+```bash
+cd apps/gui-tauri
+npm install
+npm test
+npm run build
+PATH="$HOME/.cargo/bin:$PATH" cargo check --manifest-path src-tauri/Cargo.toml
+```
+
+Regenerate and verify GUI DTO bindings:
+
+```bash
+PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-gui-bindings -- apps/gui-tauri/src/generated/bindings.ts
+PATH="$HOME/.cargo/bin:$PATH" cargo test -p tessera-gui-bindings --test bindings_contract
+```
+
 ## Non-Goals For This Phase
 
 - No live provider smoke tests by default; they must be explicitly enabled with environment variables and reachable services.
@@ -85,4 +103,4 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 - No tool execution.
 - No agent runtime.
 
-The next milestone after `v0.1.0` is the v0.2 planning slice around read-only runtime APIs, context workbench, task registry, and the GUI shell spike.
+The next milestone after the v0.2 planning slice is to turn selected v0.3+ plans into implementation, starting with release automation or tool descriptor work.
