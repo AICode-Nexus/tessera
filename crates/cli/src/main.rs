@@ -19,6 +19,10 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
+    },
     Doctor {
         #[arg(long)]
         json: bool,
@@ -102,6 +106,18 @@ enum Commands {
     },
 }
 
+#[derive(Subcommand)]
+enum ConfigCommands {
+    Validate {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+    },
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -110,6 +126,27 @@ async fn main() -> anyhow::Result<()> {
             let path = tessera_cli::write_config_template(config, force)?;
             println!("wrote {}", path.display());
         }
+        Commands::Config { command } => match command {
+            ConfigCommands::Validate {
+                json,
+                config,
+                data_dir,
+            } => {
+                let config = tessera_cli::resolve_config(config)?;
+                let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
+                let report = tessera_cli::validate_config(&config, data_dir);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    for line in tessera_cli::format_config_validation_lines(&report) {
+                        println!("{line}");
+                    }
+                }
+                if report.has_errors() {
+                    anyhow::bail!("config validation failed");
+                }
+            }
+        },
         Commands::Doctor {
             json,
             config,

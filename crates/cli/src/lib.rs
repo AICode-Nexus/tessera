@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -72,6 +73,38 @@ pub struct CliProviderProfile {
     pub default_model: String,
     pub base_url: Option<String>,
     pub api_key_env: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliConfigValidationReport {
+    pub status: String,
+    pub data_dir: String,
+    pub profiles: Vec<CliConfigProfileValidation>,
+    pub issues: Vec<CliConfigValidationIssue>,
+}
+
+impl CliConfigValidationReport {
+    pub fn has_errors(&self) -> bool {
+        self.issues.iter().any(|issue| issue.severity == "error")
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliConfigProfileValidation {
+    pub id: String,
+    pub kind: String,
+    pub default_model: String,
+    pub base_url: Option<String>,
+    pub api_key_env: Option<String>,
+    pub api_key_env_status: Option<String>,
+    pub status: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliConfigValidationIssue {
+    pub severity: String,
+    pub message: String,
+    pub profile_id: Option<String>,
 }
 
 impl From<ConversationOutcome> for CliChatOutput {
@@ -459,6 +492,139 @@ pub fn format_profile_lines(profiles: &[CliProviderProfile]) -> Vec<String> {
             )
         })
         .collect()
+}
+
+pub fn validate_config(
+    config: &TesseraConfig,
+    data_dir: impl AsRef<Path>,
+) -> CliConfigValidationReport {
+    let mut issues = Vec::new();
+    let mut seen_profile_ids = HashSet::new();
+    let mut profiles = Vec::new();
+
+    if config.providers.is_empty() {
+        issues.push(config_validation_error(
+            None,
+            "at least one provider profile is required",
+        ));
+    }
+
+    for profile in &config.providers {
+        let mut status = "ok".to_string();
+        if !seen_profile_ids.insert(profile.id.clone()) {
+            status = "error".to_string();
+            issues.push(config_validation_error(
+                Some(&profile.id),
+                format!("duplicate provider id `{}`", profile.id),
+            ));
+        }
+
+        match profile.kind.as_str() {
+            "mock" | "ollama" => {}
+            "openai-compatible" | "openai_compatible" => {
+                if profile.base_url.is_none() {
+                    status = "error".to_string();
+                    issues.push(config_validation_error(
+                        Some(&profile.id),
+                        format!(
+                            "provider `{}` kind openai-compatible requires base_url",
+                            profile.id
+                        ),
+                    ));
+                }
+            }
+            other => {
+                status = "error".to_string();
+                issues.push(config_validation_error(
+                    Some(&profile.id),
+                    format!(
+                        "unsupported provider kind `{other}` for profile `{}`",
+                        profile.id
+                    ),
+                ));
+            }
+        }
+
+        let api_key_env_status = profile.api_key_env.as_ref().map(|env_name| {
+            if std::env::var_os(env_name).is_some() {
+                "set".to_string()
+            } else {
+                status = "error".to_string();
+                issues.push(config_validation_error(
+                    Some(&profile.id),
+                    format!(
+                        "provider `{}` api_key_env `{env_name}` is not set",
+                        profile.id
+                    ),
+                ));
+                "missing".to_string()
+            }
+        });
+
+        profiles.push(CliConfigProfileValidation {
+            id: profile.id.clone(),
+            kind: profile.kind.clone(),
+            default_model: profile.default_model.clone(),
+            base_url: profile.base_url.clone(),
+            api_key_env: profile.api_key_env.clone(),
+            api_key_env_status,
+            status,
+        });
+    }
+
+    let status = if issues.iter().any(|issue| issue.severity == "error") {
+        "error"
+    } else {
+        "ok"
+    };
+
+    CliConfigValidationReport {
+        status: status.to_string(),
+        data_dir: data_dir.as_ref().to_string_lossy().to_string(),
+        profiles,
+        issues,
+    }
+}
+
+pub fn format_config_validation_lines(report: &CliConfigValidationReport) -> Vec<String> {
+    let mut lines = vec![
+        format!("status: {}", report.status),
+        format!("data_dir: {}", report.data_dir),
+    ];
+
+    for profile in &report.profiles {
+        let mut details = vec![
+            profile.kind.clone(),
+            format!("model {}", profile.default_model),
+        ];
+        if let Some(api_key_env) = &profile.api_key_env {
+            let api_key_env_status = profile.api_key_env_status.as_deref().unwrap_or("unknown");
+            details.push(format!("api_key_env {api_key_env} {api_key_env_status}"));
+        }
+        lines.push(format!(
+            "profile {}: {} ({})",
+            profile.id,
+            profile.status,
+            details.join(", ")
+        ));
+    }
+
+    for issue in &report.issues {
+        lines.push(format!("{}: {}", issue.severity, issue.message));
+    }
+
+    lines
+}
+
+fn config_validation_error(
+    profile_id: Option<&str>,
+    message: impl Into<String>,
+) -> CliConfigValidationIssue {
+    CliConfigValidationIssue {
+        severity: "error".to_string(),
+        message: message.into(),
+        profile_id: profile_id.map(str::to_string),
+    }
 }
 
 fn load_transcript_snapshot(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<ClientSnapshot> {

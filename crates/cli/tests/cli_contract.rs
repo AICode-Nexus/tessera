@@ -73,6 +73,20 @@ fn profiles_help_lists_json_and_config_options() {
 }
 
 #[test]
+fn config_validate_help_lists_json_config_and_data_options() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["config", "validate", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--json"));
+    assert!(stdout.contains("--config"));
+    assert!(stdout.contains("--data-dir"));
+}
+
+#[test]
 fn transcript_help_lists_trace_id_and_json_option() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
         .args(["transcript", "--help"])
@@ -1018,6 +1032,180 @@ api_key_env = "TESSERA_TEST_PROFILE_SECRET"
     assert!(!String::from_utf8(json_output.stdout)
         .unwrap()
         .contains("super-secret-profile-key"));
+}
+
+#[test]
+fn config_validate_reports_ok_profiles_without_secret_values() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+
+[[providers]]
+id = "remote"
+kind = "openai-compatible"
+default_model = "test-model"
+base_url = "https://example.invalid/v1"
+api_key_env = "TESSERA_TEST_VALIDATE_API_KEY"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let text_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["config", "validate", "--config"])
+        .arg(&config_path)
+        .env("TESSERA_TEST_VALIDATE_API_KEY", "super-secret-validate-key")
+        .output()
+        .unwrap();
+
+    assert!(text_output.status.success());
+    let text = String::from_utf8(text_output.stdout).unwrap();
+    assert!(text.contains("status: ok"));
+    assert!(text.contains(&format!("data_dir: {}", data_dir.display())));
+    assert!(text.contains("profile offline: ok (mock, model mock-chat)"));
+    assert!(text.contains(
+        "profile remote: ok (openai-compatible, model test-model, api_key_env TESSERA_TEST_VALIDATE_API_KEY set)"
+    ));
+    assert!(!text.contains("super-secret-validate-key"));
+
+    let json_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["config", "validate", "--config"])
+        .arg(&config_path)
+        .arg("--json")
+        .env("TESSERA_TEST_VALIDATE_API_KEY", "super-secret-validate-key")
+        .output()
+        .unwrap();
+
+    assert!(json_output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    assert_eq!(report["status"], "ok");
+    assert_eq!(report["issues"], serde_json::json!([]));
+    assert_eq!(report["profiles"][1]["id"], "remote");
+    assert_eq!(
+        report["profiles"][1]["api_key_env"],
+        "TESSERA_TEST_VALIDATE_API_KEY"
+    );
+    assert_eq!(report["profiles"][1]["api_key_env_status"], "set");
+    assert!(!String::from_utf8(json_output.stdout)
+        .unwrap()
+        .contains("super-secret-validate-key"));
+}
+
+#[test]
+fn config_validate_fails_for_missing_secret_env_without_touching_storage() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    let missing_env = format!("TESSERA_TEST_MISSING_VALIDATE_{}", std::process::id());
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "remote"
+kind = "openai-compatible"
+default_model = "test-model"
+base_url = "https://example.invalid/v1"
+api_key_env = "{}"
+"#,
+            data_dir.display(),
+            missing_env
+        ),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["config", "validate", "--config"])
+        .arg(&config_path)
+        .arg("--json")
+        .env_remove(&missing_env)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "error");
+    assert_eq!(report["profiles"][0]["api_key_env_status"], "missing");
+    assert!(report["issues"][0]["message"]
+        .as_str()
+        .unwrap()
+        .contains(&missing_env));
+    assert!(!data_dir.exists());
+}
+
+#[test]
+fn config_validate_fails_when_no_provider_profiles_are_configured() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(&config_path, "providers = []\n").unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["config", "validate", "--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("status: error"));
+    assert!(text.contains("at least one provider profile is required"));
+}
+
+#[test]
+fn config_validate_reports_provider_shape_errors() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+[[providers]]
+id = "dup"
+kind = "mock"
+default_model = "mock-chat"
+
+[[providers]]
+id = "dup"
+kind = "ollama"
+default_model = "llama3"
+
+[[providers]]
+id = "remote"
+kind = "openai-compatible"
+default_model = "test-model"
+
+[[providers]]
+id = "unknown"
+kind = "mystery"
+default_model = "test-model"
+"#,
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["config", "validate", "--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("status: error"));
+    assert!(text.contains("duplicate provider id `dup`"));
+    assert!(text.contains("provider `remote` kind openai-compatible requires base_url"));
+    assert!(text.contains("unsupported provider kind `mystery`"));
 }
 
 #[tokio::test]

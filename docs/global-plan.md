@@ -83,6 +83,7 @@
 - [x] `tessera chat --stdin`：支持从 stdin 管道读取单轮 prompt，便于脚本组合。
 - [x] `tessera chat --file <path>`：支持从 UTF-8 文件读取单轮 prompt，便于脚本、文档和批处理请求组合。
 - [x] `tessera chat --json`：支持单轮 chat 输出稳定 JSON，包含 `trace_id` 和 `assistant_text`，便于脚本接后续 `sessions` / `transcript`。
+- [x] `tessera config validate`：顶层配置自检命令，可输出文本或 `--json`，检查 provider shape、重复 profile id、data_dir resolution 和 secret env 是否存在，不打开 storage、不输出真实 secret。
 - [x] `tessera profiles`：顶层 provider profile inspection 命令，可输出文本或 `--json`，只展示 secret env var 名称，不读取真实 secret。
 - [x] `tessera sessions`：顶层 session discovery 命令，可输出人类可读列表或 `--json`，复用 read-only `RuntimeReader`。
 - [x] `tessera transcript <trace_id>`：顶层 transcript inspect 命令，可输出 markdown 或 `--json`，复用 trace projection，不重新请求 provider。
@@ -164,6 +165,7 @@
 28. [x] CLI replay command：`tessera replay <trace_id> [--json]` 已接入 core `ReplayRunner`，可离线重建 assistant text 和 event kind summary。
 29. [x] CLI events command：`tessera events <trace_id> [--json] [--since <seq>] [--limit <n>]` 已接入 `RuntimeReader::list_events`，可分页检查 trace event records。
 30. [x] CLI profiles command：`tessera profiles [--json]` 已接入 config resolution，可只读列出 provider id/kind/default_model/base_url/api_key_env 名称。
+31. [x] CLI config validate command：`tessera config validate [--json]` 已接入 config/data-dir resolution，可在 chat/tui 前只读检查 provider config 和 secret env presence。
 
 ## 4. v0.2 Checklist
 
