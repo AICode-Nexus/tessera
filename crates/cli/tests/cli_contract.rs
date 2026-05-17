@@ -85,6 +85,21 @@ fn replay_help_lists_trace_id_and_json_option() {
     assert!(stdout.contains("--json"));
 }
 
+#[test]
+fn events_help_lists_pagination_and_json_options() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["events", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("<TRACE_ID>"));
+    assert!(stdout.contains("--json"));
+    assert!(stdout.contains("--since <SINCE>"));
+    assert!(stdout.contains("--limit <LIMIT>"));
+}
+
 #[tokio::test]
 async fn doctor_json_reports_trace_and_sqlite_health() {
     let temp = tempfile::tempdir().unwrap();
@@ -866,6 +881,68 @@ default_model = "mock-chat"
         .unwrap()
         .iter()
         .any(|kind| kind == "assistant_delta"));
+}
+
+#[tokio::test]
+async fn events_command_pages_trace_events_from_configured_data_dir() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    let config = resolve_config(Some(config_path.clone())).unwrap();
+    let trace_id = run_chat_with_config(&data_dir, &config, "offline", "hello events cli")
+        .await
+        .unwrap()
+        .trace_id;
+
+    let text_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["events"])
+        .arg(&trace_id)
+        .args(["--config"])
+        .arg(&config_path)
+        .args(["--limit", "2"])
+        .output()
+        .unwrap();
+
+    assert!(text_output.status.success());
+    let text = String::from_utf8(text_output.stdout).unwrap();
+    assert!(text.contains(&trace_id));
+    assert!(text.contains("1 |"));
+    assert!(text.contains("next_since_seq: 2"));
+
+    let json_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["events"])
+        .arg(&trace_id)
+        .args(["--config"])
+        .arg(&config_path)
+        .args(["--since", "1", "--limit", "2", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(json_output.status.success());
+    let page: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    assert_eq!(page["trace_id"], trace_id);
+    assert_eq!(page["records"].as_array().unwrap().len(), 2);
+    assert!(page["records"][0]["seq"].as_u64().unwrap() > 1);
+    assert_eq!(page["next_since_seq"], page["records"][1]["seq"]);
+    assert!(!page["records"][0]["event_kind"]
+        .as_str()
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]

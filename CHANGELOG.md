@@ -47,6 +47,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added `tessera chat --json` for script-friendly one-shot chat output containing `trace_id` and `assistant_text`.
 - Added `tessera chat --continue` to start the interactive CLI from the most recent trace-backed session.
 - Added `tessera replay <trace_id>` with text and JSON output for provider-free trace replay summaries.
+- Added `tessera events <trace_id>` with text/JSON output and `--since` / `--limit` pagination for read-only trace event inspection.
 
 ## [v0.1.0] - 2026-05-15
 

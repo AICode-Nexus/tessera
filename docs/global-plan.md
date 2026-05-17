@@ -86,6 +86,7 @@
 - [x] `tessera sessions`：顶层 session discovery 命令，可输出人类可读列表或 `--json`，复用 read-only `RuntimeReader`。
 - [x] `tessera transcript <trace_id>`：顶层 transcript inspect 命令，可输出 markdown 或 `--json`，复用 trace projection，不重新请求 provider。
 - [x] `tessera replay <trace_id>`：顶层 replay summary 命令，可输出文本或 `--json`，复用 core `ReplayRunner`，不重新请求 provider。
+- [x] `tessera events <trace_id>`：顶层 trace event inspect 命令，可输出文本或 `--json`，支持 `--since` / `--limit` 分页，复用 read-only `RuntimeReader`。
 - [x] `tessera chat --provider mock` 交互式 CLI REPL：无 `--prompt` 时进入 Claude/Codex 风格命令行聊天壳，支持 `/help`、`/new`、`/profiles`、`/profile <id>`、`/sessions`、`/resume <trace_id>`、`/status`、`/export`、`/quit`，并复用 `tessera-client` projection 与 core live event stream。
 - [x] `tessera chat --resume <trace_id>`：启动交互式 CLI 时直接投影旧 trace，不需要先进入 REPL 再手动输入 `/resume`。
 - [x] `tessera chat --continue`：启动交互式 CLI 时自动投影最近更新的 trace session，下一轮 prompt 继续带 restored history。
@@ -160,6 +161,7 @@
 26. [x] CLI JSON chat output：`tessera chat --json` 已接入 one-shot chat path，输出稳定 `trace_id` / `assistant_text` JSON，并拒绝无 prompt source 的交互模式。
 27. [x] CLI continue latest session：`tessera chat --continue` 已复用 read-only session list 找到最近 trace，并进入与 `--resume` 相同的交互恢复路径。
 28. [x] CLI replay command：`tessera replay <trace_id> [--json]` 已接入 core `ReplayRunner`，可离线重建 assistant text 和 event kind summary。
+29. [x] CLI events command：`tessera events <trace_id> [--json] [--since <seq>] [--limit <n>]` 已接入 `RuntimeReader::list_events`，可分页检查 trace event records。
 
 ## 4. v0.2 Checklist
 

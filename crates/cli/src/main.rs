@@ -53,6 +53,19 @@ enum Commands {
         #[arg(long)]
         data_dir: Option<PathBuf>,
     },
+    Events {
+        trace_id: String,
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        since: Option<u64>,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+    },
     Chat {
         #[arg(long, default_value = "mock")]
         provider: String,
@@ -150,6 +163,25 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&replay)?);
             } else {
                 print!("{}", tessera_cli::format_replay_summary(&replay));
+            }
+        }
+        Commands::Events {
+            trace_id,
+            json,
+            since,
+            limit,
+            config,
+            data_dir,
+        } => {
+            let config = tessera_cli::resolve_config(config)?;
+            let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
+            let page = tessera_cli::list_events(data_dir, &trace_id, since, limit)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&page)?);
+            } else {
+                for line in tessera_cli::format_event_lines(&page) {
+                    println!("{line}");
+                }
             }
         }
         Commands::Chat {

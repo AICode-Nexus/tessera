@@ -10,7 +10,7 @@ use tessera_core::{
     ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction, ReplayRunner,
     ReplaySummary, RuntimeEventQuery, RuntimeReader, RuntimeSessionSummary,
 };
-use tessera_protocol::{EventFrame, ModelProfileId, ProviderId, RunEvent};
+use tessera_protocol::{EventFrame, ModelProfileId, ProviderId, RunEvent, TraceRecord};
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
     ChatProvider, ProviderMessage,
@@ -58,6 +58,13 @@ pub struct CliReplaySummary {
     pub assistant_text: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CliEventPage {
+    pub trace_id: String,
+    pub records: Vec<TraceRecord>,
+    pub next_since_seq: Option<u64>,
+}
+
 impl From<ConversationOutcome> for CliChatOutput {
     fn from(outcome: ConversationOutcome) -> Self {
         Self {
@@ -74,6 +81,16 @@ impl From<ReplaySummary> for CliReplaySummary {
             trace_id: summary.trace_id,
             assistant_text: summary.assistant_text,
             event_kinds: summary.event_kinds,
+        }
+    }
+}
+
+impl From<tessera_core::RuntimeEventPage> for CliEventPage {
+    fn from(page: tessera_core::RuntimeEventPage) -> Self {
+        Self {
+            trace_id: page.trace_id,
+            records: page.records,
+            next_since_seq: page.next_since_seq,
         }
     }
 }
@@ -359,6 +376,42 @@ pub fn format_replay_summary(summary: &CliReplaySummary) -> String {
         "trace: {}\nevents: {}\nassistant:\n{}\n",
         summary.trace_id, summary.event_count, summary.assistant_text
     )
+}
+
+pub fn list_events(
+    data_dir: impl AsRef<Path>,
+    trace_id: &str,
+    since_seq: Option<u64>,
+    limit: Option<usize>,
+) -> Result<CliEventPage> {
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    let mut query = RuntimeEventQuery::new(trace_id);
+    if let Some(since_seq) = since_seq {
+        query = query.since_seq(since_seq);
+    }
+    if let Some(limit) = limit {
+        query = query.limit(limit);
+    }
+    Ok(CliEventPage::from(reader.list_events(query)?))
+}
+
+pub fn format_event_lines(page: &CliEventPage) -> Vec<String> {
+    let mut lines = vec![format!("trace: {}", page.trace_id)];
+    lines.extend(page.records.iter().map(|record| {
+        format!(
+            "{} | {} | {}",
+            record.seq,
+            record.timestamp.as_str(),
+            record.event_kind
+        )
+    }));
+    lines.push(format!(
+        "next_since_seq: {}",
+        page.next_since_seq
+            .map(|seq| seq.to_string())
+            .unwrap_or_else(|| "none".to_string())
+    ));
+    lines
 }
 
 fn load_transcript_snapshot(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<ClientSnapshot> {
