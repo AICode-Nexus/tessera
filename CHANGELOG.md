@@ -41,6 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added provider-neutral chat history plumbing so CLI `/resume` follow-up prompts continue with restored user/assistant transcript while tracing only the new user turn.
 - Added `tessera chat --resume <trace_id>` to start the interactive CLI directly from a trace-backed session.
 - Added `tessera sessions` with text and JSON output for top-level trace-backed session discovery.
+- Added `tessera transcript <trace_id>` with markdown and JSON output for REPL-free transcript inspection.
 
 ## [v0.1.0] - 2026-05-15
 

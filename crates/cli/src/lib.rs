@@ -4,7 +4,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tessera_client::{ClientMessageRole, ClientSnapshot};
+use tessera_client::{ClientMessage, ClientMessageRole, ClientSnapshot};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
     ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction,
@@ -36,6 +36,12 @@ pub struct CliSessionSummary {
     pub last_event_kind: Option<String>,
     pub user_preview: String,
     pub assistant_preview: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliTranscript {
+    pub trace_id: String,
+    pub messages: Vec<ClientMessage>,
 }
 
 impl From<RuntimeSessionSummary> for CliSessionSummary {
@@ -285,6 +291,32 @@ pub fn format_session_lines(sessions: &[CliSessionSummary]) -> Vec<String> {
             )
         })
         .collect()
+}
+
+pub fn load_transcript(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<CliTranscript> {
+    let snapshot = load_transcript_snapshot(data_dir, trace_id)?;
+    Ok(CliTranscript {
+        trace_id: trace_id.to_string(),
+        messages: snapshot.projection.messages,
+    })
+}
+
+pub fn export_transcript_markdown(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<String> {
+    Ok(load_transcript_snapshot(data_dir, trace_id)?.export_markdown())
+}
+
+fn load_transcript_snapshot(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<ClientSnapshot> {
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    let page = reader.list_events(RuntimeEventQuery::new(trace_id))?;
+    if page.records.is_empty() {
+        return Err(anyhow::anyhow!("trace not found or empty: {trace_id}"));
+    }
+
+    let mut snapshot = ClientSnapshot::new("transcript");
+    for record in &page.records {
+        snapshot.apply_trace_record(record);
+    }
+    Ok(snapshot)
 }
 
 pub fn provider_history_from_snapshot(snapshot: &ClientSnapshot) -> Vec<ProviderMessage> {

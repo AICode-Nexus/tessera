@@ -53,6 +53,19 @@ fn sessions_help_lists_json_and_data_options() {
     assert!(stdout.contains("--data-dir"));
 }
 
+#[test]
+fn transcript_help_lists_trace_id_and_json_option() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["transcript", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("<TRACE_ID>"));
+    assert!(stdout.contains("--json"));
+}
+
 #[tokio::test]
 async fn doctor_json_reports_trace_and_sqlite_health() {
     let temp = tempfile::tempdir().unwrap();
@@ -587,6 +600,69 @@ default_model = "mock-chat"
     let sessions: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
     assert_eq!(sessions[0]["trace_id"], trace_id);
     assert_eq!(sessions[0]["user_preview"], "hello sessions");
+}
+
+#[tokio::test]
+async fn transcript_command_exports_markdown_and_json_from_configured_data_dir() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    let config = resolve_config(Some(config_path.clone())).unwrap();
+    let trace_id = run_chat_with_config(&data_dir, &config, "offline", "hello transcript")
+        .await
+        .unwrap()
+        .trace_id;
+
+    let markdown_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["transcript"])
+        .arg(&trace_id)
+        .args(["--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+
+    assert!(markdown_output.status.success());
+    let markdown = String::from_utf8(markdown_output.stdout).unwrap();
+    assert!(markdown.contains("# Tessera Export"));
+    assert!(markdown.contains("## User"));
+    assert!(markdown.contains("hello transcript"));
+    assert!(markdown.contains("## Assistant"));
+    assert!(markdown.contains("mock response to: hello transcript"));
+
+    let json_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["transcript"])
+        .arg(&trace_id)
+        .args(["--config"])
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert!(json_output.status.success());
+    let transcript: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    assert_eq!(transcript["trace_id"], trace_id);
+    assert_eq!(transcript["messages"][0]["role"], "user");
+    assert_eq!(transcript["messages"][0]["content"], "hello transcript");
+    assert_eq!(transcript["messages"][1]["role"], "assistant");
+    assert_eq!(
+        transcript["messages"][1]["content"],
+        "mock response to: hello transcript"
+    );
 }
 
 #[tokio::test]
