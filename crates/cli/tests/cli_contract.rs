@@ -62,6 +62,7 @@ fn chat_list_commands_prints_repl_commands_without_runtime_config() {
     assert!(stdout.contains("commands:"));
     assert!(stdout.contains("/help"));
     assert!(stdout.contains("/clear"));
+    assert!(stdout.contains("/paste"));
     assert!(stdout.contains("/profiles"));
     assert!(stdout.contains("/history"));
     assert!(stdout.contains("/resume <trace_id|#>"));
@@ -390,6 +391,7 @@ fn repl_parser_recognizes_local_slash_commands() {
     assert_eq!(parse_repl_command("/commands"), Some(CliReplCommand::Help));
     assert_eq!(parse_repl_command("/new"), Some(CliReplCommand::NewThread));
     assert_eq!(parse_repl_command("/clear"), Some(CliReplCommand::Clear));
+    assert_eq!(parse_repl_command("/paste"), Some(CliReplCommand::Paste));
     assert_eq!(
         parse_repl_command("/profiles"),
         Some(CliReplCommand::Profiles)
@@ -663,6 +665,49 @@ async fn repl_prompt_streams_live_events_into_client_snapshot() {
     .unwrap();
 
     assert!(follow_up_text.contains("history messages: 3"));
+}
+
+#[tokio::test]
+async fn repl_paste_mode_submits_multiline_prompt_and_can_cancel() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let mut output = Vec::new();
+
+    let snapshot = run_chat_repl_with_io_and_resume(
+        temp.path().to_path_buf(),
+        config,
+        "offline".to_string(),
+        None,
+        "/paste\nfirst pasted line\nsecond pasted line\n/send\n/paste\nignored pasted line\n/cancel\n/history\n/quit\n".as_bytes(),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(stdout.contains("paste mode; end with /send or /cancel"));
+    assert!(stdout.contains("paste cancelled"));
+    assert!(stdout.contains("assistant> mock response to: first pasted line"));
+    assert!(stdout.contains("1. user: first pasted line second pasted line"));
+    assert!(snapshot
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content == "first pasted line\nsecond pasted line"));
+    assert!(!snapshot
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content.contains("ignored pasted line")));
 }
 
 #[test]

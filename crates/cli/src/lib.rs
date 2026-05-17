@@ -198,6 +198,7 @@ pub enum CliReplCommand {
     Help,
     NewThread,
     Clear,
+    Paste,
     Profiles,
     SwitchProfile(String),
     Sessions,
@@ -259,6 +260,9 @@ impl CliReplSession {
                     "current thread cleared",
                 ]))
             }
+            CliReplCommand::Paste => Ok(CliReplCommandOutcome::continue_with([
+                "/paste is only available in the interactive REPL".to_string(),
+            ])),
             CliReplCommand::Profiles => {
                 let lines: Vec<String> = config
                     .providers
@@ -402,6 +406,7 @@ pub fn parse_repl_command(input: &str) -> Option<CliReplCommand> {
         "/help" | "/commands" | "/?" => CliReplCommand::Help,
         "/new" => CliReplCommand::NewThread,
         "/clear" => CliReplCommand::Clear,
+        "/paste" => CliReplCommand::Paste,
         "/profiles" => CliReplCommand::Profiles,
         "/profile" if !argument.is_empty() => CliReplCommand::SwitchProfile(argument.to_string()),
         "/sessions" => CliReplCommand::Sessions,
@@ -900,6 +905,54 @@ where
         }
 
         if let Some(command) = parse_repl_command(user_input) {
+            if matches!(command, CliReplCommand::Paste) {
+                writeln!(output, "paste mode; end with /send or /cancel")?;
+                let mut pasted = String::new();
+                let mut should_quit = false;
+                loop {
+                    write!(output, "paste> ")?;
+                    output.flush()?;
+
+                    line.clear();
+                    if input.read_line(&mut line)? == 0 {
+                        should_quit = true;
+                        break;
+                    }
+                    let pasted_line = line.trim_end_matches(['\r', '\n']);
+                    match pasted_line {
+                        "/send" => {
+                            if pasted.trim().is_empty() {
+                                writeln!(output, "paste is empty; nothing sent")?;
+                            } else {
+                                run_repl_prompt_and_write(
+                                    &data_dir,
+                                    &config,
+                                    &mut session,
+                                    pasted,
+                                    &mut output,
+                                )
+                                .await?;
+                            }
+                            break;
+                        }
+                        "/cancel" => {
+                            writeln!(output, "paste cancelled")?;
+                            break;
+                        }
+                        _ => {
+                            if !pasted.is_empty() {
+                                pasted.push('\n');
+                            }
+                            pasted.push_str(pasted_line);
+                        }
+                    }
+                }
+                if should_quit {
+                    break;
+                }
+                continue;
+            }
+
             match session.handle_command_with_data_dir(&data_dir, &config, command) {
                 Ok(outcome) => {
                     for line in outcome.lines {
@@ -916,36 +969,51 @@ where
             continue;
         }
 
-        write!(output, "assistant> ")?;
-        output.flush()?;
-        let mut write_error = None;
-        let result = run_repl_prompt_with_writer(
+        run_repl_prompt_and_write(
             &data_dir,
             &config,
             &mut session,
             user_input.to_string(),
-            |delta| {
-                if write_error.is_some() {
-                    return;
-                }
-                if let Err(error) = write!(output, "{delta}") {
-                    write_error = Some(error);
-                    return;
-                }
-                if let Err(error) = output.flush() {
-                    write_error = Some(error);
-                }
-            },
+            &mut output,
         )
-        .await;
-        if let Some(error) = write_error {
-            return Err(error.into());
-        }
-        result?;
-        writeln!(output)?;
+        .await?;
     }
 
     Ok(session.snapshot)
+}
+
+async fn run_repl_prompt_and_write<W>(
+    data_dir: &Path,
+    config: &TesseraConfig,
+    session: &mut CliReplSession,
+    prompt: String,
+    output: &mut W,
+) -> Result<()>
+where
+    W: Write,
+{
+    write!(output, "assistant> ")?;
+    output.flush()?;
+    let mut write_error = None;
+    let result = run_repl_prompt_with_writer(data_dir, config, session, prompt, |delta| {
+        if write_error.is_some() {
+            return;
+        }
+        if let Err(error) = write!(output, "{delta}") {
+            write_error = Some(error);
+            return;
+        }
+        if let Err(error) = output.flush() {
+            write_error = Some(error);
+        }
+    })
+    .await;
+    if let Some(error) = write_error {
+        return Err(error.into());
+    }
+    result?;
+    writeln!(output)?;
+    Ok(())
 }
 
 pub fn repl_startup_lines(
@@ -981,6 +1049,7 @@ pub fn chat_command_lines() -> Vec<&'static str> {
         "  /help, /commands   show this help",
         "  /new               start a fresh visible thread",
         "  /clear             clear the current visible thread",
+        "  /paste             enter multiline prompt mode",
         "  /profiles          list configured provider profiles",
         "  /profile <id>      switch active provider profile",
         "  /sessions          list trace-backed sessions",
