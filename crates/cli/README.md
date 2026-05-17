@@ -2,7 +2,9 @@
 
 Headless command entrypoint for Tessera.
 
-v0.1 exposes `tessera doctor --json` and `tessera chat --provider mock --prompt ...` on top of `tessera-core`.
+v0.1 exposes `tessera doctor --json`, one-shot `tessera chat --provider mock --prompt ...`, and interactive `tessera chat --provider mock` on top of `tessera-core`.
+
+Interactive `chat` mode supports `/help`, `/new`, `/profiles`, `/profile <id>`, `/status`, `/export`, and `/quit` while keeping provider execution behind core and client projection in `tessera-client`.
 
 `tessera --version` reports both the crate version and the build git SHA so release assets, package wrappers, and `doctor --json` checks can be tied back to a source revision.
 

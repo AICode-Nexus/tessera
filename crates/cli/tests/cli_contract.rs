@@ -1,6 +1,7 @@
 use tessera_cli::{
-    build_tui_state_with_config, resolve_config, resolve_data_dir_with_config, run_chat_mock,
-    run_chat_with_config, run_chat_with_config_and_events, run_doctor, DoctorReport,
+    build_tui_state_with_config, parse_repl_command, resolve_config, resolve_data_dir_with_config,
+    run_chat_mock, run_chat_with_config, run_chat_with_config_and_events, run_doctor,
+    run_repl_prompt_with_writer, CliReplCommand, CliReplSession, DoctorReport,
 };
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::EventSinkAction;
@@ -214,6 +215,147 @@ fn tui_state_rejects_unknown_initial_profile() {
         .to_string();
 
     assert!(error.contains("provider profile not found"));
+}
+
+#[test]
+fn repl_parser_recognizes_local_slash_commands() {
+    assert_eq!(parse_repl_command("hello repl"), None);
+    assert_eq!(parse_repl_command("/help"), Some(CliReplCommand::Help));
+    assert_eq!(parse_repl_command("/new"), Some(CliReplCommand::NewThread));
+    assert_eq!(
+        parse_repl_command("/profiles"),
+        Some(CliReplCommand::Profiles)
+    );
+    assert_eq!(parse_repl_command("/status"), Some(CliReplCommand::Status));
+    assert_eq!(parse_repl_command("/export"), Some(CliReplCommand::Export));
+    assert_eq!(parse_repl_command("/quit"), Some(CliReplCommand::Quit));
+    assert_eq!(parse_repl_command("/exit"), Some(CliReplCommand::Quit));
+    assert_eq!(
+        parse_repl_command("/profile offline"),
+        Some(CliReplCommand::SwitchProfile("offline".to_string()))
+    );
+    assert_eq!(
+        parse_repl_command("/does-not-exist"),
+        Some(CliReplCommand::Unknown("/does-not-exist".to_string()))
+    );
+}
+
+#[test]
+fn repl_session_switches_profiles_and_rejects_unknown_profiles() {
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![
+            ProviderProfile {
+                id: "offline".to_string(),
+                kind: "mock".to_string(),
+                default_model: "mock-chat".to_string(),
+                base_url: None,
+                api_key_env: None,
+            },
+            ProviderProfile {
+                id: "local".to_string(),
+                kind: "ollama".to_string(),
+                default_model: "llama3".to_string(),
+                base_url: None,
+                api_key_env: None,
+            },
+        ],
+    };
+    let mut session = CliReplSession::new(&config, "offline").unwrap();
+
+    let outcome = session
+        .handle_command(&config, CliReplCommand::SwitchProfile("local".to_string()))
+        .unwrap();
+
+    assert!(!outcome.should_quit);
+    assert_eq!(session.snapshot().status.active_profile, "local");
+    assert!(outcome
+        .lines
+        .join("\n")
+        .contains("profile switched to local"));
+
+    let error = session
+        .handle_command(
+            &config,
+            CliReplCommand::SwitchProfile("missing".to_string()),
+        )
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("provider profile not found"));
+    assert_eq!(session.snapshot().status.active_profile, "local");
+}
+
+#[test]
+fn repl_session_handles_local_commands_without_runtime_work() {
+    let config = TesseraConfig::default_with_mock();
+    let mut session = CliReplSession::new(&config, "mock").unwrap();
+    session.snapshot_mut().push_notice("temporary note");
+
+    let status = session
+        .handle_command(&config, CliReplCommand::Status)
+        .unwrap();
+    assert!(status.lines.join("\n").contains("profile mock"));
+
+    let export = session
+        .handle_command(&config, CliReplCommand::Export)
+        .unwrap();
+    assert!(export.lines.join("\n").contains("temporary note"));
+
+    let new_thread = session
+        .handle_command(&config, CliReplCommand::NewThread)
+        .unwrap();
+    assert!(new_thread.lines.join("\n").contains("new thread"));
+    assert!(session.snapshot().projection.messages.is_empty());
+
+    let unknown = session
+        .handle_command(&config, CliReplCommand::Unknown("/danger".to_string()))
+        .unwrap();
+    assert!(unknown.lines.join("\n").contains("unknown command"));
+
+    let quit = session
+        .handle_command(&config, CliReplCommand::Quit)
+        .unwrap();
+    assert!(quit.should_quit);
+}
+
+#[tokio::test]
+async fn repl_prompt_streams_live_events_into_client_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let mut session = CliReplSession::new(&config, "offline").unwrap();
+    let mut streamed_text = String::new();
+
+    let outcome =
+        run_repl_prompt_with_writer(temp.path(), &config, &mut session, "hello repl", |delta| {
+            streamed_text.push_str(delta)
+        })
+        .await
+        .unwrap();
+
+    assert!(streamed_text.contains("mock response"));
+    assert_eq!(outcome.assistant_text, streamed_text);
+    assert!(session
+        .snapshot()
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content == "hello repl"));
+    assert!(session
+        .snapshot()
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content.contains("mock response")));
 }
 
 #[tokio::test]

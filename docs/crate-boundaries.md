@@ -15,6 +15,7 @@ v0.1 允许的核心依赖方向：
 ```text
 cli  -> core -> providers
 cli  -> core -> storage
+cli  -> client   # interactive CLI projection only
 cli  -> config
 cli  -> tui      # only for local binary command dispatch
 
@@ -230,12 +231,14 @@ v0.1 secret 只解析环境变量引用，不做完整 keychain。
 
 - `tessera chat`。
 - `tessera doctor --json`。
+- 交互式 CLI REPL 的 stdio loop、slash command 解析和 client projection 展示。
 - 后续 replay command。
 - 面向脚本和自动化的稳定入口。
 
 允许依赖：
 
 - core。
+- client。
 - config。
 - protocol。
 - clap。
@@ -246,6 +249,7 @@ v0.1 secret 只解析环境变量引用，不做完整 keychain。
 - 直接调用 provider adapter internals。
 - 直接写 storage internals。
 - 绕过 core 构造运行状态。
+- 通过 CLI REPL 执行 shell、文件修改、tool runtime 或长期 memory runtime。
 
 ### tui
 

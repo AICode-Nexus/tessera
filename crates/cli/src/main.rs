@@ -24,7 +24,7 @@ enum Commands {
         #[arg(long, default_value = "mock")]
         provider: String,
         #[arg(long)]
-        prompt: String,
+        prompt: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long)]
@@ -66,9 +66,13 @@ async fn main() -> anyhow::Result<()> {
         } => {
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
-            let outcome =
-                tessera_cli::run_chat_with_config(data_dir, &config, &provider, prompt).await?;
-            println!("{}", outcome.assistant_text);
+            if let Some(prompt) = prompt {
+                let outcome =
+                    tessera_cli::run_chat_with_config(data_dir, &config, &provider, prompt).await?;
+                println!("{}", outcome.assistant_text);
+            } else {
+                tessera_cli::run_chat_repl_with_config(data_dir, config, provider).await?;
+            }
         }
         Commands::Tui {
             provider,

@@ -1,11 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
+use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tessera_client::ClientSnapshot;
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction};
-use tessera_protocol::{EventFrame, ModelProfileId, ProviderId};
+use tessera_protocol::{EventFrame, ModelProfileId, ProviderId, RunEvent};
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
     ChatProvider,
@@ -32,6 +34,275 @@ pub const VERSION_TEXT: &str = concat!(
 );
 
 static TRACE_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CliReplCommand {
+    Help,
+    NewThread,
+    Profiles,
+    SwitchProfile(String),
+    Status,
+    Export,
+    Quit,
+    Unknown(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CliReplCommandOutcome {
+    pub should_quit: bool,
+    pub lines: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CliReplSession {
+    snapshot: ClientSnapshot,
+}
+
+impl CliReplSession {
+    pub fn new(config: &TesseraConfig, provider_id: &str) -> Result<Self> {
+        ensure_provider_profile(config, provider_id)?;
+        let profile_ids = config
+            .providers
+            .iter()
+            .map(|profile| profile.id.clone())
+            .collect::<Vec<_>>();
+        Ok(Self {
+            snapshot: ClientSnapshot::with_profiles(provider_id, profile_ids),
+        })
+    }
+
+    pub fn snapshot(&self) -> &ClientSnapshot {
+        &self.snapshot
+    }
+
+    pub fn snapshot_mut(&mut self) -> &mut ClientSnapshot {
+        &mut self.snapshot
+    }
+
+    pub fn handle_command(
+        &mut self,
+        config: &TesseraConfig,
+        command: CliReplCommand,
+    ) -> Result<CliReplCommandOutcome> {
+        match command {
+            CliReplCommand::Help => Ok(CliReplCommandOutcome::continue_with(help_lines())),
+            CliReplCommand::NewThread => {
+                self.snapshot.start_new_thread();
+                Ok(CliReplCommandOutcome::continue_with(["new thread started"]))
+            }
+            CliReplCommand::Profiles => {
+                let lines: Vec<String> = config
+                    .providers
+                    .iter()
+                    .map(|profile| {
+                        let marker = if profile.id == self.snapshot.status.active_profile {
+                            "*"
+                        } else {
+                            " "
+                        };
+                        format!("{marker} {} ({})", profile.id, profile.kind)
+                    })
+                    .collect();
+                Ok(CliReplCommandOutcome::continue_with(lines))
+            }
+            CliReplCommand::SwitchProfile(profile_id) => {
+                ensure_provider_profile(config, &profile_id)?;
+                self.snapshot.status.active_profile = profile_id.clone();
+                Ok(CliReplCommandOutcome::continue_with([format!(
+                    "profile switched to {profile_id}"
+                )]))
+            }
+            CliReplCommand::Status => {
+                Ok(CliReplCommandOutcome::continue_with([self.status_line()]))
+            }
+            CliReplCommand::Export => Ok(CliReplCommandOutcome::continue_with(
+                self.snapshot.export_markdown().lines().map(str::to_string),
+            )),
+            CliReplCommand::Quit => Ok(CliReplCommandOutcome {
+                should_quit: true,
+                lines: vec!["bye".to_string()],
+            }),
+            CliReplCommand::Unknown(command) => {
+                Ok(CliReplCommandOutcome::continue_with([format!(
+                    "unknown command `{command}`; type /help for commands"
+                )]))
+            }
+        }
+    }
+
+    fn status_line(&self) -> String {
+        format!(
+            "profile {} | {} | {} | {} | {} | {}",
+            self.snapshot.status.active_profile,
+            self.snapshot.status.task_summary,
+            self.snapshot.status.usage_summary,
+            self.snapshot.status.cache_summary,
+            self.snapshot.status.cost_summary,
+            self.snapshot.status.context_summary
+        )
+    }
+}
+
+impl CliReplCommandOutcome {
+    fn continue_with<I, S>(lines: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            should_quit: false,
+            lines: lines.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+pub fn parse_repl_command(input: &str) -> Option<CliReplCommand> {
+    let trimmed = input.trim();
+    if !trimmed.starts_with('/') {
+        return None;
+    }
+
+    let command = trimmed.split_whitespace().next().unwrap_or(trimmed);
+    let argument = trimmed[command.len()..].trim();
+    Some(match command {
+        "/help" | "/?" => CliReplCommand::Help,
+        "/new" => CliReplCommand::NewThread,
+        "/profiles" => CliReplCommand::Profiles,
+        "/profile" if !argument.is_empty() => CliReplCommand::SwitchProfile(argument.to_string()),
+        "/status" => CliReplCommand::Status,
+        "/export" => CliReplCommand::Export,
+        "/quit" | "/exit" => CliReplCommand::Quit,
+        _ => CliReplCommand::Unknown(trimmed.to_string()),
+    })
+}
+
+pub async fn run_repl_prompt_with_writer<F>(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+    session: &mut CliReplSession,
+    prompt: impl Into<String>,
+    mut write_delta: F,
+) -> Result<ConversationOutcome>
+where
+    F: FnMut(&str),
+{
+    let provider_id = session.snapshot.status.active_profile.clone();
+    let snapshot = &mut session.snapshot;
+    run_chat_with_config_and_events(data_dir, config, &provider_id, prompt, |frame| {
+        snapshot.apply_event(frame);
+        if let RunEvent::AssistantDelta { text, .. } = &frame.event {
+            write_delta(text);
+        }
+        EventSinkAction::Continue
+    })
+    .await
+}
+
+pub async fn run_chat_repl_with_config(
+    data_dir: PathBuf,
+    config: TesseraConfig,
+    provider_id: String,
+) -> Result<()> {
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    run_chat_repl_with_io(data_dir, config, provider_id, stdin.lock(), stdout.lock()).await?;
+    Ok(())
+}
+
+pub async fn run_chat_repl_with_io<R, W>(
+    data_dir: PathBuf,
+    config: TesseraConfig,
+    provider_id: String,
+    mut input: R,
+    mut output: W,
+) -> Result<ClientSnapshot>
+where
+    R: BufRead,
+    W: Write,
+{
+    let mut session = CliReplSession::new(&config, &provider_id)?;
+    writeln!(output, "Tessera CLI interactive chat")?;
+    writeln!(output, "type /help for commands, /quit to exit")?;
+
+    let mut line = String::new();
+    loop {
+        write!(
+            output,
+            "\ntessera({})> ",
+            session.snapshot.status.active_profile
+        )?;
+        output.flush()?;
+
+        line.clear();
+        if input.read_line(&mut line)? == 0 {
+            break;
+        }
+        let user_input = line.trim();
+        if user_input.is_empty() {
+            continue;
+        }
+
+        if let Some(command) = parse_repl_command(user_input) {
+            match session.handle_command(&config, command) {
+                Ok(outcome) => {
+                    for line in outcome.lines {
+                        writeln!(output, "{line}")?;
+                    }
+                    if outcome.should_quit {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    writeln!(output, "error: {error}")?;
+                }
+            }
+            continue;
+        }
+
+        write!(output, "assistant> ")?;
+        output.flush()?;
+        let mut write_error = None;
+        let result = run_repl_prompt_with_writer(
+            &data_dir,
+            &config,
+            &mut session,
+            user_input.to_string(),
+            |delta| {
+                if write_error.is_some() {
+                    return;
+                }
+                if let Err(error) = write!(output, "{delta}") {
+                    write_error = Some(error);
+                    return;
+                }
+                if let Err(error) = output.flush() {
+                    write_error = Some(error);
+                }
+            },
+        )
+        .await;
+        if let Some(error) = write_error {
+            return Err(error.into());
+        }
+        result?;
+        writeln!(output)?;
+    }
+
+    Ok(session.snapshot)
+}
+
+fn help_lines() -> Vec<&'static str> {
+    vec![
+        "commands:",
+        "  /help              show this help",
+        "  /new               start a fresh visible thread",
+        "  /profiles          list configured provider profiles",
+        "  /profile <id>      switch active provider profile",
+        "  /status            show compact runtime status",
+        "  /export            print markdown transcript",
+        "  /quit, /exit       leave the REPL",
+    ]
+}
 
 pub fn run_doctor(data_dir: impl AsRef<Path>) -> Result<DoctorReport> {
     run_doctor_with_config(data_dir, &TesseraConfig::default_with_mock())
@@ -69,6 +340,18 @@ pub fn run_doctor_with_config(
             .map(|profile| profile.id.clone())
             .collect(),
     })
+}
+
+fn ensure_provider_profile(config: &TesseraConfig, provider_id: &str) -> Result<()> {
+    if config
+        .providers
+        .iter()
+        .any(|profile| profile.id == provider_id)
+    {
+        return Ok(());
+    }
+
+    Err(anyhow::anyhow!("provider profile not found: {provider_id}"))
 }
 
 pub async fn run_chat_mock(

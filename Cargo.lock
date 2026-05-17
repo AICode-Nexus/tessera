@@ -1601,6 +1601,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tessera-client",
  "tessera-config",
  "tessera-core",
  "tessera-protocol",
