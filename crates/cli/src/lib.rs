@@ -356,10 +356,12 @@ impl CliReplSession {
     fn resume_session(
         &mut self,
         data_dir: impl AsRef<Path>,
-        trace_id: &str,
+        selector: &str,
     ) -> Result<CliReplCommandOutcome> {
+        let data_dir = data_dir.as_ref();
+        let trace_id = resolve_session_selector(data_dir, selector)?;
         let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
-        let page = reader.list_events(RuntimeEventQuery::new(trace_id))?;
+        let page = reader.list_events(RuntimeEventQuery::new(trace_id.as_str()))?;
         if page.records.is_empty() {
             return Err(anyhow::anyhow!("trace not found or empty: {trace_id}"));
         }
@@ -437,7 +439,8 @@ pub fn format_session_lines(sessions: &[CliSessionSummary]) -> Vec<String> {
 
     sessions
         .iter()
-        .map(|session| {
+        .enumerate()
+        .map(|(index, session)| {
             let updated_at = session.updated_at.as_deref().unwrap_or("unknown");
             let preview = if !session.user_preview.is_empty() {
                 session.user_preview.as_str()
@@ -445,11 +448,38 @@ pub fn format_session_lines(sessions: &[CliSessionSummary]) -> Vec<String> {
                 session.assistant_preview.as_str()
             };
             format!(
-                "{} | {} events | updated {} | {}",
-                session.trace_id, session.event_count, updated_at, preview
+                "{}. {} | {} events | updated {} | {}",
+                index + 1,
+                session.trace_id,
+                session.event_count,
+                updated_at,
+                preview
             )
         })
         .collect()
+}
+
+fn resolve_session_selector(data_dir: &Path, selector: &str) -> Result<String> {
+    let Ok(index) = selector.parse::<usize>() else {
+        return Ok(selector.to_string());
+    };
+    if index == 0 {
+        return Err(anyhow::anyhow!(
+            "session index out of range: 0 (available sessions: {})",
+            list_sessions(data_dir)?.len()
+        ));
+    }
+
+    let sessions = list_sessions(data_dir)?;
+    sessions
+        .get(index - 1)
+        .map(|session| session.trace_id.clone())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "session index out of range: {index} (available sessions: {})",
+                sessions.len()
+            )
+        })
 }
 
 pub fn format_history_lines(messages: &[ClientMessage]) -> Vec<String> {
@@ -954,7 +984,7 @@ pub fn chat_command_lines() -> Vec<&'static str> {
         "  /profiles          list configured provider profiles",
         "  /profile <id>      switch active provider profile",
         "  /sessions          list trace-backed sessions",
-        "  /resume <trace_id> project a trace into this session",
+        "  /resume <trace_id|#> project a trace into this session",
         "  /doctor            show runtime health for this session",
         "  /history           list current visible messages",
         "  /status            show compact runtime status",

@@ -86,13 +86,14 @@
 - [x] `tessera chat --list-commands`：无需解析 config / data_dir 即可打印交互式 slash command 清单，便于用户在启动 REPL 前发现能力。
 - [x] CLI REPL startup context + `/doctor`：交互式 `tessera chat` 启动时显示 active profile、data dir、configured profiles，并可在 REPL 内用 `/doctor` 查看同一 data dir 的 runtime health。
 - [x] CLI REPL local ergonomics：`/commands` 作为 `/help` 别名，`/history` 只读列出当前 visible client projection，`/clear` 清理当前可见 thread 而不删除磁盘 trace。
+- [x] CLI numbered session resume：`sessions` / `/sessions` 文本输出带 1-based 编号，`/resume <number>` 和 `chat --resume <number>` 可按当前 session 排序恢复 trace。
 - [x] `tessera config validate`：顶层配置自检命令，可输出文本或 `--json`，检查 provider shape、重复 profile id、data_dir resolution 和 secret env 是否存在，不打开 storage、不输出真实 secret。
 - [x] `tessera profiles`：顶层 provider profile inspection 命令，可输出文本或 `--json`，只展示 secret env var 名称，不读取真实 secret。
-- [x] `tessera sessions`：顶层 session discovery 命令，可输出人类可读列表或 `--json`，复用 read-only `RuntimeReader`。
+- [x] `tessera sessions`：顶层 session discovery 命令，可输出带编号的人类可读列表或 `--json`，复用 read-only `RuntimeReader`。
 - [x] `tessera transcript <trace_id>`：顶层 transcript inspect 命令，可输出 markdown 或 `--json`，复用 trace projection，不重新请求 provider。
 - [x] `tessera replay <trace_id>`：顶层 replay summary 命令，可输出文本或 `--json`，复用 core `ReplayRunner`，不重新请求 provider。
 - [x] `tessera events <trace_id>`：顶层 trace event inspect 命令，可输出文本或 `--json`，支持 `--since` / `--limit` 分页，复用 read-only `RuntimeReader`。
-- [x] `tessera chat --provider mock` 交互式 CLI REPL：无 `--prompt` 时进入 Claude/Codex 风格命令行聊天壳，启动时显示 active profile / data dir / configured profiles，支持 `/help`、`/commands`、`/new`、`/clear`、`/profiles`、`/profile <id>`、`/sessions`、`/resume <trace_id>`、`/doctor`、`/history`、`/status`、`/export`、`/quit`，并复用 `tessera-client` projection 与 core live event stream。
+- [x] `tessera chat --provider mock` 交互式 CLI REPL：无 `--prompt` 时进入 Claude/Codex 风格命令行聊天壳，启动时显示 active profile / data dir / configured profiles，支持 `/help`、`/commands`、`/new`、`/clear`、`/profiles`、`/profile <id>`、`/sessions`、`/resume <trace_id|#>`、`/doctor`、`/history`、`/status`、`/export`、`/quit`，并复用 `tessera-client` projection 与 core live event stream。
 - [x] `tessera chat --resume <trace_id>`：启动交互式 CLI 时直接投影旧 trace，不需要先进入 REPL 再手动输入 `/resume`。
 - [x] `tessera chat --continue`：启动交互式 CLI 时自动投影最近更新的 trace session，下一轮 prompt 继续带 restored history。
 - [x] `tessera init` 安全配置模板：生成 mock / Ollama / OpenAI-compatible 示例，只写 secret env var 名称，不写 provider secret。
@@ -173,6 +174,7 @@
 33. [x] CLI chat command discovery：`tessera chat --list-commands` 复用 REPL `/help` formatter，并在 config/data-dir resolution 前直接返回。
 34. [x] CLI REPL startup context and doctor command：交互式 `tessera chat` 启动时显示 active profile、data_dir、available_profiles，并支持 `/doctor` 复用顶层 doctor runtime health reporter。
 35. [x] CLI REPL local ergonomics：`/commands`、`/history`、`/clear` 已接入本地 REPL command path；只读取或重置 `ClientSnapshot`，不调用 provider、不修改 trace。
+36. [x] CLI numbered session resume：`format_session_lines` 已输出 1-based 编号，`/resume <number>` / `chat --resume <number>` 会按当前 read-only session list 映射到 trace_id 后再投影恢复。
 
 ## 4. v0.2 Checklist
 

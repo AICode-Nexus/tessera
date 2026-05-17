@@ -1,9 +1,9 @@
 use std::io::Write;
 
 use tessera_cli::{
-    build_tui_state_with_config, parse_repl_command, resolve_config, resolve_data_dir_with_config,
-    run_chat_mock, run_chat_repl_with_io_and_resume, run_chat_with_config,
-    run_chat_with_config_and_events, run_doctor, run_repl_prompt_with_writer,
+    build_tui_state_with_config, list_sessions, parse_repl_command, resolve_config,
+    resolve_data_dir_with_config, run_chat_mock, run_chat_repl_with_io_and_resume,
+    run_chat_with_config, run_chat_with_config_and_events, run_doctor, run_repl_prompt_with_writer,
     write_config_template, CliReplCommand, CliReplSession, DoctorReport,
 };
 use tessera_config::{ProviderProfile, TesseraConfig};
@@ -64,7 +64,7 @@ fn chat_list_commands_prints_repl_commands_without_runtime_config() {
     assert!(stdout.contains("/clear"));
     assert!(stdout.contains("/profiles"));
     assert!(stdout.contains("/history"));
-    assert!(stdout.contains("/resume <trace_id>"));
+    assert!(stdout.contains("/resume <trace_id|#>"));
     assert!(stdout.contains("/doctor"));
     assert!(stdout.contains("/quit"));
     assert!(!stdout.contains("Tessera CLI interactive chat"));
@@ -714,6 +714,7 @@ async fn repl_sessions_and_resume_use_trace_projection_without_provider_call() {
         .handle_command_with_data_dir(temp.path(), &config, CliReplCommand::Sessions)
         .unwrap();
     assert!(sessions.lines.join("\n").contains(&trace_id));
+    assert!(sessions.lines[0].starts_with("1. "));
 
     let resumed = session
         .handle_command_with_data_dir(
@@ -752,6 +753,74 @@ async fn repl_sessions_and_resume_use_trace_projection_without_provider_call() {
     .unwrap();
 
     assert!(follow_up_text.contains("history messages: 3"));
+}
+
+#[tokio::test]
+async fn repl_resume_accepts_numbered_session_index() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let older_trace_id = run_chat_with_config(temp.path(), &config, "offline", "older indexed")
+        .await
+        .unwrap()
+        .trace_id;
+    let latest_trace_id = run_chat_with_config(temp.path(), &config, "offline", "latest indexed")
+        .await
+        .unwrap()
+        .trace_id;
+    let sessions = list_sessions(temp.path()).unwrap();
+    let first_trace_id = sessions[0].trace_id.clone();
+    let first_prompt = if first_trace_id == older_trace_id {
+        "older indexed"
+    } else {
+        assert_eq!(first_trace_id, latest_trace_id);
+        "latest indexed"
+    };
+    let mut session = CliReplSession::new(&config, "offline").unwrap();
+
+    let listed = session
+        .handle_command_with_data_dir(temp.path(), &config, CliReplCommand::Sessions)
+        .unwrap();
+    assert!(listed.lines[0].starts_with("1. "));
+    assert!(listed.lines[0].contains(&first_trace_id));
+
+    let resumed = session
+        .handle_command_with_data_dir(
+            temp.path(),
+            &config,
+            CliReplCommand::ResumeSession("1".to_string()),
+        )
+        .unwrap();
+
+    assert!(resumed
+        .lines
+        .join("\n")
+        .contains(&format!("resumed trace {first_trace_id}")));
+    assert!(session
+        .snapshot()
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content == first_prompt));
+
+    let error = session
+        .handle_command_with_data_dir(
+            temp.path(),
+            &config,
+            CliReplCommand::ResumeSession("3".to_string()),
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("session index out of range: 3"));
+    assert!(error.contains("available sessions: 2"));
 }
 
 #[tokio::test]
@@ -954,6 +1023,7 @@ default_model = "mock-chat"
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains(&trace_id));
+    assert!(stdout.contains("1. "));
     assert!(stdout.contains("hello sessions"));
 
     let json_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
