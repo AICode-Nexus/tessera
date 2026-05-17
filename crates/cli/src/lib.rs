@@ -303,7 +303,35 @@ pub async fn run_chat_repl_with_config(
 ) -> Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
-    run_chat_repl_with_io(data_dir, config, provider_id, stdin.lock(), stdout.lock()).await?;
+    run_chat_repl_with_io_and_resume(
+        data_dir,
+        config,
+        provider_id,
+        None,
+        stdin.lock(),
+        stdout.lock(),
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn run_chat_repl_with_config_and_resume(
+    data_dir: PathBuf,
+    config: TesseraConfig,
+    provider_id: String,
+    resume_trace_id: Option<String>,
+) -> Result<()> {
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    run_chat_repl_with_io_and_resume(
+        data_dir,
+        config,
+        provider_id,
+        resume_trace_id,
+        stdin.lock(),
+        stdout.lock(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -311,6 +339,21 @@ pub async fn run_chat_repl_with_io<R, W>(
     data_dir: PathBuf,
     config: TesseraConfig,
     provider_id: String,
+    input: R,
+    output: W,
+) -> Result<ClientSnapshot>
+where
+    R: BufRead,
+    W: Write,
+{
+    run_chat_repl_with_io_and_resume(data_dir, config, provider_id, None, input, output).await
+}
+
+pub async fn run_chat_repl_with_io_and_resume<R, W>(
+    data_dir: PathBuf,
+    config: TesseraConfig,
+    provider_id: String,
+    resume_trace_id: Option<String>,
     mut input: R,
     mut output: W,
 ) -> Result<ClientSnapshot>
@@ -321,6 +364,16 @@ where
     let mut session = CliReplSession::new(&config, &provider_id)?;
     writeln!(output, "Tessera CLI interactive chat")?;
     writeln!(output, "type /help for commands, /quit to exit")?;
+    if let Some(trace_id) = resume_trace_id {
+        let outcome = session.handle_command_with_data_dir(
+            &data_dir,
+            &config,
+            CliReplCommand::ResumeSession(trace_id),
+        )?;
+        for line in outcome.lines {
+            writeln!(output, "{line}")?;
+        }
+    }
 
     let mut line = String::new();
     loop {

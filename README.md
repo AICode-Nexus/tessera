@@ -80,9 +80,10 @@ default_model = "mock-chat"
 ```bash
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --prompt "hello"
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline
+PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --resume <trace_id>
 ```
 
-In interactive `chat` mode, use `/help`, `/new`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id>`, `/status`, `/export`, and `/quit`. After `/resume`, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
+In interactive `chat` mode, use `/help`, `/new`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id>`, `/status`, `/export`, and `/quit`. You can also start directly from a prior trace with `chat --resume <trace_id>`. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
 
 Run the GUI shell spike:
 

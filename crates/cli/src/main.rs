@@ -32,6 +32,8 @@ enum Commands {
         #[arg(long)]
         prompt: Option<String>,
         #[arg(long)]
+        resume: Option<String>,
+        #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long)]
         data_dir: Option<PathBuf>,
@@ -71,17 +73,24 @@ async fn main() -> anyhow::Result<()> {
         Commands::Chat {
             provider,
             prompt,
+            resume,
             config,
             data_dir,
         } => {
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
             if let Some(prompt) = prompt {
+                if resume.is_some() {
+                    anyhow::bail!("--resume is only supported in interactive chat mode");
+                }
                 let outcome =
                     tessera_cli::run_chat_with_config(data_dir, &config, &provider, prompt).await?;
                 println!("{}", outcome.assistant_text);
             } else {
-                tessera_cli::run_chat_repl_with_config(data_dir, config, provider).await?;
+                tessera_cli::run_chat_repl_with_config_and_resume(
+                    data_dir, config, provider, resume,
+                )
+                .await?;
             }
         }
         Commands::Tui {

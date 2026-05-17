@@ -39,6 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added an interactive `tessera chat` CLI REPL with `/help`, `/new`, `/profiles`, `/profile <id>`, `/status`, `/export`, and `/quit`, reusing the shared client projection and core event stream without tool or shell execution.
 - Added `tessera init` for a secret-safe local config template plus interactive `/sessions` and `/resume <trace_id>` commands backed by read-only runtime trace summaries and client projection replay.
 - Added provider-neutral chat history plumbing so CLI `/resume` follow-up prompts continue with restored user/assistant transcript while tracing only the new user turn.
+- Added `tessera chat --resume <trace_id>` to start the interactive CLI directly from a trace-backed session.
 
 ## [v0.1.0] - 2026-05-15
 

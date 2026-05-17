@@ -1,8 +1,8 @@
 use tessera_cli::{
     build_tui_state_with_config, parse_repl_command, resolve_config, resolve_data_dir_with_config,
-    run_chat_mock, run_chat_with_config, run_chat_with_config_and_events, run_doctor,
-    run_repl_prompt_with_writer, write_config_template, CliReplCommand, CliReplSession,
-    DoctorReport,
+    run_chat_mock, run_chat_repl_with_io_and_resume, run_chat_with_config,
+    run_chat_with_config_and_events, run_doctor, run_repl_prompt_with_writer,
+    write_config_template, CliReplCommand, CliReplSession, DoctorReport,
 };
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::EventSinkAction;
@@ -26,6 +26,18 @@ fn version_output_reports_crate_version_and_git_sha() {
         .all(|character| character.is_ascii_hexdigit()));
     assert!(stdout.contains(env!("CARGO_PKG_VERSION")));
     assert!(stdout.contains(git_sha));
+}
+
+#[test]
+fn chat_help_lists_resume_option() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--resume <RESUME>"));
 }
 
 #[tokio::test]
@@ -467,6 +479,51 @@ async fn repl_sessions_and_resume_use_trace_projection_without_provider_call() {
     .unwrap();
 
     assert!(follow_up_text.contains("history messages: 3"));
+}
+
+#[tokio::test]
+async fn repl_can_start_from_resume_trace_id_and_continue_with_history() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let trace_id = run_chat_with_config(temp.path(), &config, "offline", "hello startup resume")
+        .await
+        .unwrap()
+        .trace_id;
+    let mut output = Vec::new();
+
+    let snapshot = run_chat_repl_with_io_and_resume(
+        temp.path().to_path_buf(),
+        config,
+        "offline".to_string(),
+        Some(trace_id.clone()),
+        "continue from startup\n/quit\n".as_bytes(),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(stdout.contains(&format!("resumed trace {trace_id}")));
+    assert!(stdout.contains("history messages: 3"));
+    assert!(snapshot
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content == "hello startup resume"));
+    assert!(snapshot
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content == "continue from startup"));
 }
 
 #[tokio::test]
