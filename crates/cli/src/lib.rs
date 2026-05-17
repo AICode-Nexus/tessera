@@ -8,7 +8,7 @@ use tessera_client::{ClientMessageRole, ClientSnapshot};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
     ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction,
-    RuntimeEventQuery, RuntimeReader,
+    RuntimeEventQuery, RuntimeReader, RuntimeSessionSummary,
 };
 use tessera_protocol::{EventFrame, ModelProfileId, ProviderId, RunEvent};
 use tessera_providers::{
@@ -25,6 +25,33 @@ pub struct DoctorReport {
     pub trace_writable: bool,
     pub sqlite_index_healthy: bool,
     pub provider_profiles: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliSessionSummary {
+    pub trace_id: String,
+    pub event_count: usize,
+    pub updated_at: Option<String>,
+    pub last_seq: u64,
+    pub last_event_kind: Option<String>,
+    pub user_preview: String,
+    pub assistant_preview: String,
+}
+
+impl From<RuntimeSessionSummary> for CliSessionSummary {
+    fn from(session: RuntimeSessionSummary) -> Self {
+        Self {
+            trace_id: session.trace_id,
+            event_count: session.event_count,
+            updated_at: session
+                .updated_at
+                .map(|timestamp| timestamp.as_str().to_string()),
+            last_seq: session.last_seq,
+            last_event_kind: session.last_event_kind,
+            user_preview: session.user_preview,
+            assistant_preview: session.assistant_preview,
+        }
+    }
 }
 
 pub type Result<T> = anyhow::Result<T>;
@@ -167,30 +194,9 @@ impl CliReplSession {
     }
 
     fn list_sessions(&self, data_dir: impl AsRef<Path>) -> Result<CliReplCommandOutcome> {
-        let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
-        let sessions = reader.list_sessions()?;
-        if sessions.is_empty() {
-            return Ok(CliReplCommandOutcome::continue_with(["no sessions found"]));
-        }
-
-        Ok(CliReplCommandOutcome::continue_with(
-            sessions.into_iter().map(|session| {
-                let updated_at = session
-                    .updated_at
-                    .as_ref()
-                    .map(|timestamp| timestamp.as_str())
-                    .unwrap_or("unknown");
-                let preview = if !session.user_preview.is_empty() {
-                    session.user_preview
-                } else {
-                    session.assistant_preview
-                };
-                format!(
-                    "{} | {} events | updated {} | {}",
-                    session.trace_id, session.event_count, updated_at, preview
-                )
-            }),
-        ))
+        Ok(CliReplCommandOutcome::continue_with(format_session_lines(
+            &list_sessions(data_dir)?,
+        )))
     }
 
     fn resume_session(
@@ -248,6 +254,37 @@ pub fn parse_repl_command(input: &str) -> Option<CliReplCommand> {
         "/quit" | "/exit" => CliReplCommand::Quit,
         _ => CliReplCommand::Unknown(trimmed.to_string()),
     })
+}
+
+pub fn list_sessions(data_dir: impl AsRef<Path>) -> Result<Vec<CliSessionSummary>> {
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    Ok(reader
+        .list_sessions()?
+        .into_iter()
+        .map(CliSessionSummary::from)
+        .collect())
+}
+
+pub fn format_session_lines(sessions: &[CliSessionSummary]) -> Vec<String> {
+    if sessions.is_empty() {
+        return vec!["no sessions found".to_string()];
+    }
+
+    sessions
+        .iter()
+        .map(|session| {
+            let updated_at = session.updated_at.as_deref().unwrap_or("unknown");
+            let preview = if !session.user_preview.is_empty() {
+                session.user_preview.as_str()
+            } else {
+                session.assistant_preview.as_str()
+            };
+            format!(
+                "{} | {} events | updated {} | {}",
+                session.trace_id, session.event_count, updated_at, preview
+            )
+        })
+        .collect()
 }
 
 pub fn provider_history_from_snapshot(snapshot: &ClientSnapshot) -> Vec<ProviderMessage> {

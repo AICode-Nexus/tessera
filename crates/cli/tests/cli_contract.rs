@@ -40,6 +40,19 @@ fn chat_help_lists_resume_option() {
     assert!(stdout.contains("--resume <RESUME>"));
 }
 
+#[test]
+fn sessions_help_lists_json_and_data_options() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["sessions", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--json"));
+    assert!(stdout.contains("--data-dir"));
+}
+
 #[tokio::test]
 async fn doctor_json_reports_trace_and_sqlite_health() {
     let temp = tempfile::tempdir().unwrap();
@@ -524,6 +537,56 @@ async fn repl_can_start_from_resume_trace_id_and_continue_with_history() {
         .messages
         .iter()
         .any(|message| message.content == "continue from startup"));
+}
+
+#[tokio::test]
+async fn sessions_command_lists_trace_backed_sessions_from_configured_data_dir() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    let config = resolve_config(Some(config_path.clone())).unwrap();
+    let trace_id = run_chat_with_config(&data_dir, &config, "offline", "hello sessions")
+        .await
+        .unwrap()
+        .trace_id;
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["sessions", "--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(&trace_id));
+    assert!(stdout.contains("hello sessions"));
+
+    let json_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["sessions", "--config"])
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert!(json_output.status.success());
+    let sessions: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    assert_eq!(sessions[0]["trace_id"], trace_id);
+    assert_eq!(sessions[0]["user_preview"], "hello sessions");
 }
 
 #[tokio::test]

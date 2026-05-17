@@ -26,6 +26,14 @@ enum Commands {
         #[arg(long)]
         data_dir: Option<PathBuf>,
     },
+    Sessions {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+    },
     Chat {
         #[arg(long, default_value = "mock")]
         provider: String,
@@ -68,6 +76,22 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 println!("status: {}", report.status);
+            }
+        }
+        Commands::Sessions {
+            json,
+            config,
+            data_dir,
+        } => {
+            let config = tessera_cli::resolve_config(config)?;
+            let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
+            let sessions = tessera_cli::list_sessions(data_dir)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&sessions)?);
+            } else {
+                for line in tessera_cli::format_session_lines(&sessions) {
+                    println!("{line}");
+                }
             }
         }
         Commands::Chat {
