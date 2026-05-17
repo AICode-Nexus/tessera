@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::io::Read;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -48,6 +49,8 @@ enum Commands {
         provider: String,
         #[arg(long)]
         prompt: Option<String>,
+        #[arg(long)]
+        stdin: bool,
         #[arg(long)]
         resume: Option<String>,
         #[arg(long)]
@@ -122,12 +125,24 @@ async fn main() -> anyhow::Result<()> {
         Commands::Chat {
             provider,
             prompt,
+            stdin,
             resume,
             config,
             data_dir,
         } => {
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
+            let prompt = if stdin {
+                if prompt.is_some() {
+                    anyhow::bail!("--stdin cannot be combined with --prompt");
+                }
+                let mut input = String::new();
+                std::io::stdin().read_to_string(&mut input)?;
+                Some(input.trim_end_matches(['\r', '\n']).to_string())
+            } else {
+                prompt
+            };
+
             if let Some(prompt) = prompt {
                 if resume.is_some() {
                     anyhow::bail!("--resume is only supported in interactive chat mode");

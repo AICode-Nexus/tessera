@@ -42,6 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added `tessera chat --resume <trace_id>` to start the interactive CLI directly from a trace-backed session.
 - Added `tessera sessions` with text and JSON output for top-level trace-backed session discovery.
 - Added `tessera transcript <trace_id>` with markdown and JSON output for REPL-free transcript inspection.
+- Added `tessera chat --stdin` for pipe-friendly one-shot prompts.
 
 ## [v0.1.0] - 2026-05-15
 

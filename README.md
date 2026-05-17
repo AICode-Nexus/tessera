@@ -62,6 +62,7 @@ Run the current mock path:
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- doctor --json
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- init --config ./tessera.toml
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --provider mock --prompt "hello"
+printf 'hello from stdin\n' | PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --provider mock --stdin
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- sessions
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- transcript <trace_id>
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --provider mock
@@ -81,6 +82,7 @@ default_model = "mock-chat"
 
 ```bash
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --prompt "hello"
+cat prompt.md | PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --stdin
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- sessions --config ./tessera.toml
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- sessions --config ./tessera.toml --json
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- transcript <trace_id> --config ./tessera.toml
@@ -89,7 +91,7 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --resume <trace_id>
 ```
 
-Use `tessera sessions` to list trace-backed sessions and `tessera transcript <trace_id>` to inspect one without entering the REPL. In interactive `chat` mode, use `/help`, `/new`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id>`, `/status`, `/export`, and `/quit`. You can also start directly from a prior trace with `chat --resume <trace_id>`. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
+Use `chat --stdin` to pipe a prompt into one-shot chat. Use `tessera sessions` to list trace-backed sessions and `tessera transcript <trace_id>` to inspect one without entering the REPL. In interactive `chat` mode, use `/help`, `/new`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id>`, `/status`, `/export`, and `/quit`. You can also start directly from a prior trace with `chat --resume <trace_id>`. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
 
 Run the GUI shell spike:
 

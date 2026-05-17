@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use tessera_cli::{
     build_tui_state_with_config, parse_repl_command, resolve_config, resolve_data_dir_with_config,
     run_chat_mock, run_chat_repl_with_io_and_resume, run_chat_with_config,
@@ -38,6 +40,7 @@ fn chat_help_lists_resume_option() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("--resume <RESUME>"));
+    assert!(stdout.contains("--stdin"));
 }
 
 #[test]
@@ -663,6 +666,49 @@ default_model = "mock-chat"
         transcript["messages"][1]["content"],
         "mock response to: hello transcript"
     );
+}
+
+#[tokio::test]
+async fn chat_command_path_reads_prompt_from_stdin() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--config"])
+        .arg(&config_path)
+        .args(["--provider", "offline", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"hello from stdin\n")
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("mock response to: hello from stdin"));
 }
 
 #[tokio::test]
