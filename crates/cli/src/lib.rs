@@ -44,6 +44,21 @@ pub struct CliTranscript {
     pub messages: Vec<ClientMessage>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliChatOutput {
+    pub trace_id: String,
+    pub assistant_text: String,
+}
+
+impl From<ConversationOutcome> for CliChatOutput {
+    fn from(outcome: ConversationOutcome) -> Self {
+        Self {
+            trace_id: outcome.trace_id,
+            assistant_text: outcome.assistant_text,
+        }
+    }
+}
+
 impl From<RuntimeSessionSummary> for CliSessionSummary {
     fn from(session: RuntimeSessionSummary) -> Self {
         Self {

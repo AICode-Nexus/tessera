@@ -54,6 +54,8 @@ enum Commands {
         #[arg(long)]
         file: Option<PathBuf>,
         #[arg(long)]
+        json: bool,
+        #[arg(long)]
         resume: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
@@ -129,6 +131,7 @@ async fn main() -> anyhow::Result<()> {
             prompt,
             stdin,
             file,
+            json,
             resume,
             config,
             data_dir,
@@ -158,8 +161,16 @@ async fn main() -> anyhow::Result<()> {
                 }
                 let outcome =
                     tessera_cli::run_chat_with_config(data_dir, &config, &provider, prompt).await?;
-                println!("{}", outcome.assistant_text);
+                if json {
+                    let output = tessera_cli::CliChatOutput::from(outcome);
+                    println!("{}", serde_json::to_string_pretty(&output)?);
+                } else {
+                    println!("{}", outcome.assistant_text);
+                }
             } else {
+                if json {
+                    anyhow::bail!("--json is only supported with --prompt, --stdin, or --file");
+                }
                 tessera_cli::run_chat_repl_with_config_and_resume(
                     data_dir, config, provider, resume,
                 )

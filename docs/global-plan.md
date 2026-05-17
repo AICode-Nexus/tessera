@@ -82,6 +82,7 @@
 - [x] `tessera chat --provider mock --prompt ...`。
 - [x] `tessera chat --stdin`：支持从 stdin 管道读取单轮 prompt，便于脚本组合。
 - [x] `tessera chat --file <path>`：支持从 UTF-8 文件读取单轮 prompt，便于脚本、文档和批处理请求组合。
+- [x] `tessera chat --json`：支持单轮 chat 输出稳定 JSON，包含 `trace_id` 和 `assistant_text`，便于脚本接后续 `sessions` / `transcript`。
 - [x] `tessera sessions`：顶层 session discovery 命令，可输出人类可读列表或 `--json`，复用 read-only `RuntimeReader`。
 - [x] `tessera transcript <trace_id>`：顶层 transcript inspect 命令，可输出 markdown 或 `--json`，复用 trace projection，不重新请求 provider。
 - [x] `tessera chat --provider mock` 交互式 CLI REPL：无 `--prompt` 时进入 Claude/Codex 风格命令行聊天壳，支持 `/help`、`/new`、`/profiles`、`/profile <id>`、`/sessions`、`/resume <trace_id>`、`/status`、`/export`、`/quit`，并复用 `tessera-client` projection 与 core live event stream。
@@ -154,6 +155,7 @@
 23. [x] CLI top-level transcript：`tessera transcript <trace_id> [--json]` 已接入 trace projection，便于在 REPL 外查看会话内容后再 resume。
 24. [x] CLI stdin prompt：`tessera chat --stdin` 已接入 one-shot chat path，可从管道读取 prompt 并继续通过 core/provider/storage 完整链路执行。
 25. [x] CLI file prompt：`tessera chat --file <path>` 已接入 one-shot chat path，可从 UTF-8 文件读取 prompt 并继续通过 core/provider/storage 完整链路执行。
+26. [x] CLI JSON chat output：`tessera chat --json` 已接入 one-shot chat path，输出稳定 `trace_id` / `assistant_text` JSON，并拒绝无 prompt source 的交互模式。
 
 ## 4. v0.2 Checklist
 

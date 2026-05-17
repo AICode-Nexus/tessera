@@ -42,6 +42,7 @@ fn chat_help_lists_resume_option() {
     assert!(stdout.contains("--resume <RESUME>"));
     assert!(stdout.contains("--stdin"));
     assert!(stdout.contains("--file <FILE>"));
+    assert!(stdout.contains("--json"));
 }
 
 #[test]
@@ -746,6 +747,77 @@ default_model = "mock-chat"
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("mock response to: hello from file"));
+}
+
+#[tokio::test]
+async fn chat_command_path_emits_json_for_one_shot_prompt() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--config"])
+        .arg(&config_path)
+        .args(["--provider", "offline", "--prompt", "hello json", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(json["trace_id"]
+        .as_str()
+        .unwrap()
+        .starts_with("trace_offline_"));
+    assert_eq!(json["assistant_text"], "mock response to: hello json");
+}
+
+#[test]
+fn chat_command_path_rejects_json_without_one_shot_prompt() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--config"])
+        .arg(&config_path)
+        .args(["--provider", "offline", "--json"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("--json is only supported with --prompt, --stdin, or --file"));
 }
 
 #[test]
