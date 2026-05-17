@@ -90,6 +90,8 @@ enum Commands {
         #[arg(long = "continue")]
         continue_last: bool,
         #[arg(long)]
+        list_commands: bool,
+        #[arg(long)]
         resume: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
@@ -247,10 +249,18 @@ async fn main() -> anyhow::Result<()> {
             file,
             json,
             continue_last,
+            list_commands,
             resume,
             config,
             data_dir,
         } => {
+            if list_commands {
+                for line in tessera_cli::chat_command_lines() {
+                    println!("{line}");
+                }
+                return Ok(());
+            }
+
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
             let prompt_source_count =

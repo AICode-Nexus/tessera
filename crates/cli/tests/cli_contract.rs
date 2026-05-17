@@ -44,6 +44,27 @@ fn chat_help_lists_resume_option() {
     assert!(stdout.contains("--file <FILE>"));
     assert!(stdout.contains("--json"));
     assert!(stdout.contains("--continue"));
+    assert!(stdout.contains("--list-commands"));
+}
+
+#[test]
+fn chat_list_commands_prints_repl_commands_without_runtime_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing_config = temp.path().join("missing.toml");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--list-commands", "--config"])
+        .arg(&missing_config)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("commands:"));
+    assert!(stdout.contains("/help"));
+    assert!(stdout.contains("/profiles"));
+    assert!(stdout.contains("/resume <trace_id>"));
+    assert!(stdout.contains("/quit"));
+    assert!(!stdout.contains("Tessera CLI interactive chat"));
 }
 
 #[test]

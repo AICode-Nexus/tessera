@@ -245,7 +245,7 @@ impl CliReplSession {
         command: CliReplCommand,
     ) -> Result<CliReplCommandOutcome> {
         match command {
-            CliReplCommand::Help => Ok(CliReplCommandOutcome::continue_with(help_lines())),
+            CliReplCommand::Help => Ok(CliReplCommandOutcome::continue_with(chat_command_lines())),
             CliReplCommand::NewThread => {
                 self.snapshot.start_new_thread();
                 Ok(CliReplCommandOutcome::continue_with(["new thread started"]))
@@ -850,7 +850,7 @@ where
     Ok(session.snapshot)
 }
 
-fn help_lines() -> Vec<&'static str> {
+pub fn chat_command_lines() -> Vec<&'static str> {
     vec![
         "commands:",
         "  /help              show this help",
