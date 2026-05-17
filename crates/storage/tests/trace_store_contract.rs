@@ -121,3 +121,36 @@ fn trace_store_rebuilds_sqlite_index_from_jsonl_trace() {
         vec!["task_created", "task_completed"]
     );
 }
+
+#[test]
+fn trace_store_lists_trace_ids_from_jsonl_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = TraceStore::open(temp.path()).unwrap();
+
+    store
+        .append(&EventFrame::new(
+            "trace_beta",
+            1,
+            RunEvent::AssistantDelta {
+                item_id: ItemId::from_static("item_beta"),
+                text: "beta".to_string(),
+            },
+        ))
+        .unwrap();
+    store
+        .append(&EventFrame::new(
+            "trace_alpha",
+            1,
+            RunEvent::AssistantDelta {
+                item_id: ItemId::from_static("item_alpha"),
+                text: "alpha".to_string(),
+            },
+        ))
+        .unwrap();
+    std::fs::write(temp.path().join("traces/not-a-trace.txt"), "ignore me").unwrap();
+
+    assert_eq!(
+        store.list_trace_ids().unwrap(),
+        vec!["trace_alpha".to_string(), "trace_beta".to_string()]
+    );
+}

@@ -231,7 +231,9 @@ v0.1 secret 只解析环境变量引用，不做完整 keychain。
 
 - `tessera chat`。
 - `tessera doctor --json`。
+- `tessera init` 安全配置模板写入。
 - 交互式 CLI REPL 的 stdio loop、slash command 解析和 client projection 展示。
+- 通过 core read-only runtime reader 展示 `/sessions` 和 `/resume`。
 - 后续 replay command。
 - 面向脚本和自动化的稳定入口。
 

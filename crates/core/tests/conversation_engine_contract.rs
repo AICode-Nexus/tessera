@@ -1197,6 +1197,42 @@ async fn runtime_reader_exposes_indexed_thread_and_task_ids_through_core() {
 }
 
 #[tokio::test]
+async fn runtime_reader_lists_session_summaries_from_trace_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(MockProvider::default(), store);
+    let mut first_request = ConversationRequest::mock("hello first session");
+    first_request.trace_id = "trace_session_first".to_string();
+
+    let first = engine.run_chat(first_request).await.unwrap();
+    let engine = ConversationEngine::new(MockProvider::default(), first.store);
+    let mut second_request = ConversationRequest::mock("hello second session");
+    second_request.trace_id = "trace_session_second".to_string();
+
+    let second = engine.run_chat(second_request).await.unwrap();
+    let reader = RuntimeReader::new(second.store);
+    let sessions = reader.list_sessions().unwrap();
+
+    let first_summary = sessions
+        .iter()
+        .find(|session| session.trace_id == "trace_session_first")
+        .unwrap();
+    let second_summary = sessions
+        .iter()
+        .find(|session| session.trace_id == "trace_session_second")
+        .unwrap();
+
+    assert_eq!(sessions.len(), 2);
+    assert!(first_summary.event_count > 0);
+    assert!(first_summary.last_seq >= first_summary.event_count as u64);
+    assert_eq!(first_summary.last_event_kind.as_deref(), Some("done"));
+    assert!(first_summary.user_preview.contains("hello first session"));
+    assert!(second_summary
+        .assistant_preview
+        .contains("mock response to: hello second session"));
+}
+
+#[tokio::test]
 async fn runtime_reader_lists_task_registry_from_trace() {
     let temp = tempfile::tempdir().unwrap();
     let store = TraceStore::open(temp.path()).unwrap();

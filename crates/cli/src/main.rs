@@ -12,6 +12,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    Init {
+        #[arg(long, default_value = "tessera.toml")]
+        config: PathBuf,
+        #[arg(long)]
+        force: bool,
+    },
     Doctor {
         #[arg(long)]
         json: bool,
@@ -44,6 +50,10 @@ enum Commands {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Commands::Init { config, force } => {
+            let path = tessera_cli::write_config_template(config, force)?;
+            println!("wrote {}", path.display());
+        }
         Commands::Doctor {
             json,
             config,

@@ -1,7 +1,8 @@
 use tessera_cli::{
     build_tui_state_with_config, parse_repl_command, resolve_config, resolve_data_dir_with_config,
     run_chat_mock, run_chat_with_config, run_chat_with_config_and_events, run_doctor,
-    run_repl_prompt_with_writer, CliReplCommand, CliReplSession, DoctorReport,
+    run_repl_prompt_with_writer, write_config_template, CliReplCommand, CliReplSession,
+    DoctorReport,
 };
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::EventSinkAction;
@@ -238,6 +239,14 @@ fn repl_parser_recognizes_local_slash_commands() {
         parse_repl_command("/does-not-exist"),
         Some(CliReplCommand::Unknown("/does-not-exist".to_string()))
     );
+    assert_eq!(
+        parse_repl_command("/sessions"),
+        Some(CliReplCommand::Sessions)
+    );
+    assert_eq!(
+        parse_repl_command("/resume trace_123"),
+        Some(CliReplCommand::ResumeSession("trace_123".to_string()))
+    );
 }
 
 #[test]
@@ -350,6 +359,82 @@ async fn repl_prompt_streams_live_events_into_client_snapshot() {
         .messages
         .iter()
         .any(|message| message.content == "hello repl"));
+    assert!(session
+        .snapshot()
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content.contains("mock response")));
+}
+
+#[test]
+fn init_config_template_writes_secret_safe_profiles_and_respects_force() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_path = temp.path().join("tessera.toml");
+
+    write_config_template(&config_path, false).unwrap();
+    let template = std::fs::read_to_string(&config_path).unwrap();
+
+    assert!(template.contains("[[providers]]"));
+    assert!(template.contains("id = \"mock\""));
+    assert!(template.contains("id = \"ollama\""));
+    assert!(template.contains("id = \"openai-compatible\""));
+    assert!(template.contains("api_key_env = \"TESSERA_OPENAI_COMPATIBLE_API_KEY\""));
+    assert!(!template.contains("sk-"));
+    assert!(!template.contains("Bearer "));
+
+    let error = write_config_template(&config_path, false)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("already exists"));
+
+    write_config_template(&config_path, true).unwrap();
+}
+
+#[tokio::test]
+async fn repl_sessions_and_resume_use_trace_projection_without_provider_call() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let trace_id = {
+        let output = run_chat_with_config(temp.path(), &config, "offline", "hello resumable")
+            .await
+            .unwrap();
+        output.trace_id
+    };
+    let mut session = CliReplSession::new(&config, "offline").unwrap();
+
+    let sessions = session
+        .handle_command_with_data_dir(temp.path(), &config, CliReplCommand::Sessions)
+        .unwrap();
+    assert!(sessions.lines.join("\n").contains(&trace_id));
+
+    let resumed = session
+        .handle_command_with_data_dir(
+            temp.path(),
+            &config,
+            CliReplCommand::ResumeSession(trace_id.clone()),
+        )
+        .unwrap();
+
+    assert!(resumed
+        .lines
+        .join("\n")
+        .contains(&format!("resumed trace {trace_id}")));
+    assert!(session
+        .snapshot()
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content == "hello resumable"));
     assert!(session
         .snapshot()
         .projection

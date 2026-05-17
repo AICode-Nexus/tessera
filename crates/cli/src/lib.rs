@@ -6,7 +6,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tessera_client::ClientSnapshot;
 use tessera_config::{ProviderProfile, TesseraConfig};
-use tessera_core::{ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction};
+use tessera_core::{
+    ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction,
+    RuntimeEventQuery, RuntimeReader,
+};
 use tessera_protocol::{EventFrame, ModelProfileId, ProviderId, RunEvent};
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
@@ -41,6 +44,8 @@ pub enum CliReplCommand {
     NewThread,
     Profiles,
     SwitchProfile(String),
+    Sessions,
+    ResumeSession(String),
     Status,
     Export,
     Quit,
@@ -112,6 +117,12 @@ impl CliReplSession {
                     "profile switched to {profile_id}"
                 )]))
             }
+            CliReplCommand::Sessions => Ok(CliReplCommandOutcome::continue_with([
+                "/sessions requires an active data directory".to_string(),
+            ])),
+            CliReplCommand::ResumeSession(_) => Ok(CliReplCommandOutcome::continue_with([
+                "/resume requires an active data directory".to_string(),
+            ])),
             CliReplCommand::Status => {
                 Ok(CliReplCommandOutcome::continue_with([self.status_line()]))
             }
@@ -130,6 +141,19 @@ impl CliReplSession {
         }
     }
 
+    pub fn handle_command_with_data_dir(
+        &mut self,
+        data_dir: impl AsRef<Path>,
+        config: &TesseraConfig,
+        command: CliReplCommand,
+    ) -> Result<CliReplCommandOutcome> {
+        match command {
+            CliReplCommand::Sessions => self.list_sessions(data_dir),
+            CliReplCommand::ResumeSession(trace_id) => self.resume_session(data_dir, &trace_id),
+            other => self.handle_command(config, other),
+        }
+    }
+
     fn status_line(&self) -> String {
         format!(
             "profile {} | {} | {} | {} | {} | {}",
@@ -140,6 +164,54 @@ impl CliReplSession {
             self.snapshot.status.cost_summary,
             self.snapshot.status.context_summary
         )
+    }
+
+    fn list_sessions(&self, data_dir: impl AsRef<Path>) -> Result<CliReplCommandOutcome> {
+        let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+        let sessions = reader.list_sessions()?;
+        if sessions.is_empty() {
+            return Ok(CliReplCommandOutcome::continue_with(["no sessions found"]));
+        }
+
+        Ok(CliReplCommandOutcome::continue_with(
+            sessions.into_iter().map(|session| {
+                let updated_at = session
+                    .updated_at
+                    .as_ref()
+                    .map(|timestamp| timestamp.as_str())
+                    .unwrap_or("unknown");
+                let preview = if !session.user_preview.is_empty() {
+                    session.user_preview
+                } else {
+                    session.assistant_preview
+                };
+                format!(
+                    "{} | {} events | updated {} | {}",
+                    session.trace_id, session.event_count, updated_at, preview
+                )
+            }),
+        ))
+    }
+
+    fn resume_session(
+        &mut self,
+        data_dir: impl AsRef<Path>,
+        trace_id: &str,
+    ) -> Result<CliReplCommandOutcome> {
+        let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+        let page = reader.list_events(RuntimeEventQuery::new(trace_id))?;
+        if page.records.is_empty() {
+            return Err(anyhow::anyhow!("trace not found or empty: {trace_id}"));
+        }
+
+        self.snapshot.start_new_thread();
+        for record in &page.records {
+            self.snapshot.apply_trace_record(record);
+        }
+        let message_count = self.snapshot.projection.messages.len();
+        Ok(CliReplCommandOutcome::continue_with([format!(
+            "resumed trace {trace_id} ({message_count} messages)"
+        )]))
     }
 }
 
@@ -169,6 +241,8 @@ pub fn parse_repl_command(input: &str) -> Option<CliReplCommand> {
         "/new" => CliReplCommand::NewThread,
         "/profiles" => CliReplCommand::Profiles,
         "/profile" if !argument.is_empty() => CliReplCommand::SwitchProfile(argument.to_string()),
+        "/sessions" => CliReplCommand::Sessions,
+        "/resume" if !argument.is_empty() => CliReplCommand::ResumeSession(argument.to_string()),
         "/status" => CliReplCommand::Status,
         "/export" => CliReplCommand::Export,
         "/quit" | "/exit" => CliReplCommand::Quit,
@@ -243,7 +317,7 @@ where
         }
 
         if let Some(command) = parse_repl_command(user_input) {
-            match session.handle_command(&config, command) {
+            match session.handle_command_with_data_dir(&data_dir, &config, command) {
                 Ok(outcome) => {
                     for line in outcome.lines {
                         writeln!(output, "{line}")?;
@@ -298,10 +372,56 @@ fn help_lines() -> Vec<&'static str> {
         "  /new               start a fresh visible thread",
         "  /profiles          list configured provider profiles",
         "  /profile <id>      switch active provider profile",
+        "  /sessions          list trace-backed sessions",
+        "  /resume <trace_id> project a trace into this session",
         "  /status            show compact runtime status",
         "  /export            print markdown transcript",
         "  /quit, /exit       leave the REPL",
     ]
+}
+
+pub fn default_config_template() -> &'static str {
+    r#"# Tessera local configuration
+# This template stores provider secret *environment variable names* only.
+# Do not paste API keys or bearer tokens into this file.
+
+data_dir = "./.tessera"
+
+[[providers]]
+id = "mock"
+kind = "mock"
+default_model = "mock-chat"
+
+[[providers]]
+id = "ollama"
+kind = "ollama"
+default_model = "llama3"
+base_url = "http://localhost:11434"
+
+[[providers]]
+id = "openai-compatible"
+kind = "openai-compatible"
+default_model = "deepseek-chat"
+base_url = "https://api.example.com/v1"
+api_key_env = "TESSERA_OPENAI_COMPATIBLE_API_KEY"
+"#
+}
+
+pub fn write_config_template(path: impl AsRef<Path>, force: bool) -> Result<PathBuf> {
+    let path = path.as_ref();
+    if path.exists() && !force {
+        return Err(anyhow::anyhow!(
+            "config file already exists: {} (pass --force to overwrite)",
+            path.display()
+        ));
+    }
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    fs::write(path, default_config_template())?;
+    Ok(path.to_path_buf())
 }
 
 pub fn run_doctor(data_dir: impl AsRef<Path>) -> Result<DoctorReport> {

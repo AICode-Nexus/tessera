@@ -114,6 +114,23 @@ impl TraceStore {
         Ok(records)
     }
 
+    pub fn list_trace_ids(&self) -> Result<Vec<String>> {
+        let traces_dir = self.data_dir.join("traces");
+        let mut trace_ids = Vec::new();
+        for entry in fs::read_dir(traces_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+                continue;
+            }
+            if let Some(trace_id) = path.file_stem().and_then(|value| value.to_str()) {
+                trace_ids.push(trace_id.to_string());
+            }
+        }
+        trace_ids.sort();
+        Ok(trace_ids)
+    }
+
     pub fn list_indexed_objects(&self, trace_id: &str) -> Result<IndexedRunObjects> {
         Ok(IndexedRunObjects {
             threads: self.query_distinct_ids(

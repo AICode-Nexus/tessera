@@ -81,6 +81,8 @@
 - [x] `tessera doctor --json`。
 - [x] `tessera chat --provider mock --prompt ...`。
 - [x] `tessera chat --provider mock` 交互式 CLI REPL：无 `--prompt` 时进入 Claude/Codex 风格命令行聊天壳，支持 `/help`、`/new`、`/profiles`、`/profile <id>`、`/status`、`/export`、`/quit`，并复用 `tessera-client` projection 与 core live event stream。
+- [x] `tessera init` 安全配置模板：生成 mock / Ollama / OpenAI-compatible 示例，只写 secret env var 名称，不写 provider secret。
+- [x] CLI session list / resume：REPL 支持 `/sessions` 和 `/resume <trace_id>`，通过 `RuntimeReader` 只读 trace summary 和 trace record projection，不重新请求 provider。
 - [x] doctor 输出 data dir、trace writable、SQLite index health、provider profile。
 - [x] config-driven provider profile routing。
 - [x] CLI 使用 OpenAI-compatible provider 完成真实流式对话：OneAPI-compatible endpoint + `deepseek-v4-pro` 已完成 live smoke，trace 已检查无 secret-like 内容。
@@ -139,6 +141,7 @@
 16. [x] `v0.1.0-alpha.1` pre-tag gate：release notes section、本地门禁、mock smoke、clean tree、CI 均已确认，下一步可打 alpha tag。
 17. [x] `v0.1.0` final gate：OpenAI-compatible live smoke 已完成，并检查真实 provider 成功路径 trace 无 secret-like 内容；下一步可打 final tag。
 18. [x] 纯 CLI REPL 初版：`tessera chat` 缺省进入交互壳，保留 `--prompt` 单轮模式；命令解析和 session projection 有 contract tests。
+19. [x] CLI runtime v2：`tessera init`、`/sessions`、`/resume <trace_id>` 已完成；history/resume 基于 read-only runtime reader，不绕过 core。
 
 ## 4. v0.2 Checklist
 

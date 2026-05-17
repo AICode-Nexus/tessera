@@ -1377,6 +1377,18 @@ impl RuntimeSnapshotSummary {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeSessionSummary {
+    pub trace_id: String,
+    pub event_count: usize,
+    pub first_timestamp: Option<Timestamp>,
+    pub updated_at: Option<Timestamp>,
+    pub last_seq: u64,
+    pub last_event_kind: Option<String>,
+    pub user_preview: String,
+    pub assistant_preview: String,
+}
+
 pub struct RuntimeReader {
     store: TraceStore,
 }
@@ -1409,6 +1421,34 @@ impl RuntimeReader {
             records,
             next_since_seq,
         })
+    }
+
+    pub fn list_sessions(&self) -> Result<Vec<RuntimeSessionSummary>> {
+        let mut sessions = Vec::new();
+        for trace_id in self.store.list_trace_ids()? {
+            let records = self.store.read_trace_records(&trace_id)?;
+            if records.is_empty() {
+                continue;
+            }
+            sessions.push(summarize_session(trace_id, &records));
+        }
+
+        sessions.sort_by(|left, right| {
+            let left_updated = left
+                .updated_at
+                .as_ref()
+                .map(|timestamp| timestamp.as_str())
+                .unwrap_or("");
+            let right_updated = right
+                .updated_at
+                .as_ref()
+                .map(|timestamp| timestamp.as_str())
+                .unwrap_or("");
+            right_updated
+                .cmp(left_updated)
+                .then_with(|| left.trace_id.cmp(&right.trace_id))
+        });
+        Ok(sessions)
     }
 
     pub fn list_objects(&self, trace_id: &str) -> Result<RuntimeObjectIndex> {
@@ -1448,6 +1488,52 @@ impl RuntimeReader {
         }
         Ok(snapshots)
     }
+}
+
+fn summarize_session(trace_id: String, records: &[TraceRecord]) -> RuntimeSessionSummary {
+    let mut user_preview = String::new();
+    let mut assistant_preview = String::new();
+
+    for record in records {
+        match record.event_kind.as_str() {
+            "user_message_recorded" => {
+                append_preview_text(&mut user_preview, &record.payload);
+            }
+            "assistant_delta" => {
+                append_preview_text(&mut assistant_preview, &record.payload);
+            }
+            _ => {}
+        }
+    }
+
+    RuntimeSessionSummary {
+        trace_id,
+        event_count: records.len(),
+        first_timestamp: records.first().map(|record| record.timestamp.clone()),
+        updated_at: records.last().map(|record| record.timestamp.clone()),
+        last_seq: records.last().map(|record| record.seq).unwrap_or_default(),
+        last_event_kind: records.last().map(|record| record.event_kind.clone()),
+        user_preview: truncate_preview(&user_preview, 120),
+        assistant_preview: truncate_preview(&assistant_preview, 120),
+    }
+}
+
+fn append_preview_text(preview: &mut String, payload: &serde_json::Value) {
+    let Some(text) = payload.get("text").and_then(|value| value.as_str()) else {
+        return;
+    };
+    if !preview.is_empty() {
+        preview.push(' ');
+    }
+    preview.push_str(text.trim());
+}
+
+fn truncate_preview(input: &str, max_chars: usize) -> String {
+    let mut output = input.chars().take(max_chars).collect::<String>();
+    if input.chars().count() > max_chars {
+        output.push_str("...");
+    }
+    output
 }
 
 impl RuntimeHttpApi {
