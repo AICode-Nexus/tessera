@@ -56,6 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added REPL `/clear`, `/history`, and `/commands` local ergonomics without provider or storage execution.
 - Added numbered session lists plus `/resume <number>` and `chat --resume <number>` support for trace-backed session recovery.
 - Added REPL `/paste` multiline prompt mode with `/send` and `/cancel`.
+- Added a REPL `/cancel` command that reports when no cancellable run is active, reserving the command for future async run cancellation.
 
 ## [v0.1.0] - 2026-05-15
 

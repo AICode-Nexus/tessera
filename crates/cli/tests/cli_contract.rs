@@ -61,6 +61,7 @@ fn chat_list_commands_prints_repl_commands_without_runtime_config() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("commands:"));
     assert!(stdout.contains("/help"));
+    assert!(stdout.contains("/cancel"));
     assert!(stdout.contains("/clear"));
     assert!(stdout.contains("/paste"));
     assert!(stdout.contains("/profiles"));
@@ -391,6 +392,7 @@ fn repl_parser_recognizes_local_slash_commands() {
     assert_eq!(parse_repl_command("/commands"), Some(CliReplCommand::Help));
     assert_eq!(parse_repl_command("/new"), Some(CliReplCommand::NewThread));
     assert_eq!(parse_repl_command("/clear"), Some(CliReplCommand::Clear));
+    assert_eq!(parse_repl_command("/cancel"), Some(CliReplCommand::Cancel));
     assert_eq!(parse_repl_command("/paste"), Some(CliReplCommand::Paste));
     assert_eq!(
         parse_repl_command("/profiles"),
@@ -495,6 +497,11 @@ fn repl_session_handles_local_commands_without_runtime_work() {
         .handle_command(&config, CliReplCommand::Unknown("/danger".to_string()))
         .unwrap();
     assert!(unknown.lines.join("\n").contains("unknown command"));
+
+    let cancel = session
+        .handle_command(&config, CliReplCommand::Cancel)
+        .unwrap();
+    assert!(cancel.lines.join("\n").contains("no active run to cancel"));
 
     let quit = session
         .handle_command(&config, CliReplCommand::Quit)

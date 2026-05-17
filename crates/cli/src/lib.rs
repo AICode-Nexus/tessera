@@ -198,6 +198,7 @@ pub enum CliReplCommand {
     Help,
     NewThread,
     Clear,
+    Cancel,
     Paste,
     Profiles,
     SwitchProfile(String),
@@ -260,6 +261,9 @@ impl CliReplSession {
                     "current thread cleared",
                 ]))
             }
+            CliReplCommand::Cancel => Ok(CliReplCommandOutcome::continue_with([
+                "no active run to cancel",
+            ])),
             CliReplCommand::Paste => Ok(CliReplCommandOutcome::continue_with([
                 "/paste is only available in the interactive REPL".to_string(),
             ])),
@@ -406,6 +410,7 @@ pub fn parse_repl_command(input: &str) -> Option<CliReplCommand> {
         "/help" | "/commands" | "/?" => CliReplCommand::Help,
         "/new" => CliReplCommand::NewThread,
         "/clear" => CliReplCommand::Clear,
+        "/cancel" => CliReplCommand::Cancel,
         "/paste" => CliReplCommand::Paste,
         "/profiles" => CliReplCommand::Profiles,
         "/profile" if !argument.is_empty() => CliReplCommand::SwitchProfile(argument.to_string()),
@@ -1049,6 +1054,7 @@ pub fn chat_command_lines() -> Vec<&'static str> {
         "  /help, /commands   show this help",
         "  /new               start a fresh visible thread",
         "  /clear             clear the current visible thread",
+        "  /cancel            cancel active paste/run when available",
         "  /paste             enter multiline prompt mode",
         "  /profiles          list configured provider profiles",
         "  /profile <id>      switch active provider profile",
