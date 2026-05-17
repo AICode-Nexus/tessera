@@ -101,6 +101,6 @@ Run:
 `PATH="$HOME/.cargo/bin:$PATH" cargo test --workspace`
 `git diff --check`
 
-- [ ] **Step 3: Review, commit, and push**
+- [x] **Step 3: Review, commit, and push**
 
 Review the diff for runtime boundary violations, then commit and push to `main`.
