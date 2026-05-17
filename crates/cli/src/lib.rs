@@ -201,6 +201,7 @@ pub enum CliReplCommand {
     SwitchProfile(String),
     Sessions,
     ResumeSession(String),
+    Doctor,
     Status,
     Export,
     Quit,
@@ -278,6 +279,9 @@ impl CliReplSession {
             CliReplCommand::ResumeSession(_) => Ok(CliReplCommandOutcome::continue_with([
                 "/resume requires an active data directory".to_string(),
             ])),
+            CliReplCommand::Doctor => Ok(CliReplCommandOutcome::continue_with([
+                "/doctor requires an active data directory".to_string(),
+            ])),
             CliReplCommand::Status => {
                 Ok(CliReplCommandOutcome::continue_with([self.status_line()]))
             }
@@ -305,6 +309,7 @@ impl CliReplSession {
         match command {
             CliReplCommand::Sessions => self.list_sessions(data_dir),
             CliReplCommand::ResumeSession(trace_id) => self.resume_session(data_dir, &trace_id),
+            CliReplCommand::Doctor => self.doctor(data_dir, config),
             other => self.handle_command(config, other),
         }
     }
@@ -324,6 +329,16 @@ impl CliReplSession {
     fn list_sessions(&self, data_dir: impl AsRef<Path>) -> Result<CliReplCommandOutcome> {
         Ok(CliReplCommandOutcome::continue_with(format_session_lines(
             &list_sessions(data_dir)?,
+        )))
+    }
+
+    fn doctor(
+        &self,
+        data_dir: impl AsRef<Path>,
+        config: &TesseraConfig,
+    ) -> Result<CliReplCommandOutcome> {
+        Ok(CliReplCommandOutcome::continue_with(format_doctor_lines(
+            &run_doctor_with_config(data_dir, config)?,
         )))
     }
 
@@ -377,6 +392,7 @@ pub fn parse_repl_command(input: &str) -> Option<CliReplCommand> {
         "/profile" if !argument.is_empty() => CliReplCommand::SwitchProfile(argument.to_string()),
         "/sessions" => CliReplCommand::Sessions,
         "/resume" if !argument.is_empty() => CliReplCommand::ResumeSession(argument.to_string()),
+        "/doctor" => CliReplCommand::Doctor,
         "/status" => CliReplCommand::Status,
         "/export" => CliReplCommand::Export,
         "/quit" | "/exit" => CliReplCommand::Quit,
@@ -770,8 +786,9 @@ where
     W: Write,
 {
     let mut session = CliReplSession::new(&config, &provider_id)?;
-    writeln!(output, "Tessera CLI interactive chat")?;
-    writeln!(output, "type /help for commands, /quit to exit")?;
+    for line in repl_startup_lines(&data_dir, &config, &provider_id) {
+        writeln!(output, "{line}")?;
+    }
     if let Some(trace_id) = resume_trace_id {
         let outcome = session.handle_command_with_data_dir(
             &data_dir,
@@ -850,6 +867,33 @@ where
     Ok(session.snapshot)
 }
 
+pub fn repl_startup_lines(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+    provider_id: &str,
+) -> Vec<String> {
+    let available_profiles = config
+        .providers
+        .iter()
+        .map(|profile| profile.id.as_str())
+        .collect::<Vec<_>>();
+
+    vec![
+        "Tessera CLI interactive chat".to_string(),
+        format!("active_profile: {provider_id}"),
+        format!("data_dir: {}", data_dir.as_ref().display()),
+        format!(
+            "available_profiles: {}",
+            if available_profiles.is_empty() {
+                "none".to_string()
+            } else {
+                available_profiles.join(", ")
+            }
+        ),
+        "type /help or run `tessera chat --list-commands` for commands; use /doctor for runtime health, /quit to exit".to_string(),
+    ]
+}
+
 pub fn chat_command_lines() -> Vec<&'static str> {
     vec![
         "commands:",
@@ -859,6 +903,7 @@ pub fn chat_command_lines() -> Vec<&'static str> {
         "  /profile <id>      switch active provider profile",
         "  /sessions          list trace-backed sessions",
         "  /resume <trace_id> project a trace into this session",
+        "  /doctor            show runtime health for this session",
         "  /status            show compact runtime status",
         "  /export            print markdown transcript",
         "  /quit, /exit       leave the REPL",

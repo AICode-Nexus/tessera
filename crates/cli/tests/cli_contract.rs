@@ -63,6 +63,7 @@ fn chat_list_commands_prints_repl_commands_without_runtime_config() {
     assert!(stdout.contains("/help"));
     assert!(stdout.contains("/profiles"));
     assert!(stdout.contains("/resume <trace_id>"));
+    assert!(stdout.contains("/doctor"));
     assert!(stdout.contains("/quit"));
     assert!(!stdout.contains("Tessera CLI interactive chat"));
 }
@@ -405,6 +406,7 @@ fn repl_parser_recognizes_local_slash_commands() {
         parse_repl_command("/sessions"),
         Some(CliReplCommand::Sessions)
     );
+    assert_eq!(parse_repl_command("/doctor"), Some(CliReplCommand::Doctor));
     assert_eq!(
         parse_repl_command("/resume trace_123"),
         Some(CliReplCommand::ResumeSession("trace_123".to_string()))
@@ -488,6 +490,90 @@ fn repl_session_handles_local_commands_without_runtime_work() {
         .handle_command(&config, CliReplCommand::Quit)
         .unwrap();
     assert!(quit.should_quit);
+}
+
+#[test]
+fn repl_doctor_reports_runtime_health_for_active_data_dir() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![
+            ProviderProfile {
+                id: "offline".to_string(),
+                kind: "mock".to_string(),
+                default_model: "mock-chat".to_string(),
+                base_url: None,
+                api_key_env: None,
+            },
+            ProviderProfile {
+                id: "local".to_string(),
+                kind: "ollama".to_string(),
+                default_model: "llama3".to_string(),
+                base_url: None,
+                api_key_env: None,
+            },
+        ],
+    };
+    let mut session = CliReplSession::new(&config, "offline").unwrap();
+
+    let outcome = session
+        .handle_command_with_data_dir(&data_dir, &config, CliReplCommand::Doctor)
+        .unwrap();
+
+    let lines = outcome.lines.join("\n");
+    assert!(!outcome.should_quit);
+    assert!(lines.contains("status: ok"));
+    assert!(lines.contains(&format!("data_dir: {}", data_dir.display())));
+    assert!(lines.contains("trace_writable: true"));
+    assert!(lines.contains("sqlite_index_healthy: true"));
+    assert!(lines.contains("provider_profiles: offline, local"));
+}
+
+#[tokio::test]
+async fn repl_startup_prints_runtime_context_before_first_prompt() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![
+            ProviderProfile {
+                id: "offline".to_string(),
+                kind: "mock".to_string(),
+                default_model: "mock-chat".to_string(),
+                base_url: None,
+                api_key_env: None,
+            },
+            ProviderProfile {
+                id: "local".to_string(),
+                kind: "ollama".to_string(),
+                default_model: "llama3".to_string(),
+                base_url: None,
+                api_key_env: None,
+            },
+        ],
+    };
+    let mut output = Vec::new();
+
+    let snapshot = run_chat_repl_with_io_and_resume(
+        data_dir.clone(),
+        config,
+        "local".to_string(),
+        None,
+        "/quit\n".as_bytes(),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert_eq!(snapshot.status.active_profile, "local");
+    assert!(stdout.contains("Tessera CLI interactive chat"));
+    assert!(stdout.contains("active_profile: local"));
+    assert!(stdout.contains(&format!("data_dir: {}", data_dir.display())));
+    assert!(stdout.contains("available_profiles: offline, local"));
+    assert!(stdout.contains("type /help or run `tessera chat --list-commands`"));
+    assert!(stdout.contains("/doctor"));
 }
 
 #[tokio::test]
