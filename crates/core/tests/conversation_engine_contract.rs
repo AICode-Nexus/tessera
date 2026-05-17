@@ -6,9 +6,9 @@ use tessera_core::{
     ContextWorkbench, ConversationEngine, ConversationRequest, CoreError, DiagnosticsReporter,
     EventSinkAction, McpToolAdapter, McpToolAnnotations, McpToolSpec, ModelRouteRequest,
     ModelRouter, NoProgressDetector, NoProgressObservation, OrderedToolResultBuffer,
-    OsSandboxPlanner, PolicyGate, ReplayRunner, RunControls, RuntimeEventQuery, RuntimeHttpApi,
-    RuntimeHttpEventRequest, RuntimeReader, SkillRegistry, ToolRegistry, ToolRepairTelemetry,
-    WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
+    OsSandboxPlanner, PolicyGate, ReplayRunner, RunCancellationToken, RunControls,
+    RuntimeEventQuery, RuntimeHttpApi, RuntimeHttpEventRequest, RuntimeReader, SkillRegistry,
+    ToolRegistry, ToolRepairTelemetry, WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
 };
 use tessera_protocol::{
     ArtifactId, ArtifactKind, ContextBudget, ContextId, ContextPlacement, ContextReference,
@@ -1092,6 +1092,7 @@ async fn conversation_engine_records_timeout_when_provider_stalls() {
             request,
             RunControls {
                 event_timeout: Some(Duration::from_millis(5)),
+                cancellation_token: None,
             },
             |_| {},
         )
@@ -1102,6 +1103,54 @@ async fn conversation_engine_records_timeout_when_provider_stalls() {
     assert!(events.contains(&"task_cancelled".to_string()));
     assert!(!events.contains(&"task_completed".to_string()));
     assert_eq!(events.last().map(String::as_str), Some("done"));
+}
+
+#[tokio::test]
+async fn conversation_engine_cancellation_token_interrupts_stalled_provider_stream() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(HangingProvider, store);
+    let cancellation_token = RunCancellationToken::new();
+    let cancel_from_task = cancellation_token.clone();
+    let request = ConversationRequest {
+        trace_id: "trace_external_cancel".to_string(),
+        provider_id: ProviderId::from_static("hanging"),
+        profile_id: ModelProfileId::from_static("hanging"),
+        model: "hanging-model".to_string(),
+        prompt: "hello external cancel".to_string(),
+        history: Vec::new(),
+    };
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        cancel_from_task.cancel("external cancel requested");
+    });
+
+    let outcome = engine
+        .run_chat_with_controls_and_event_sink(
+            request,
+            RunControls {
+                event_timeout: None,
+                cancellation_token: Some(cancellation_token),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+    let events = outcome.store.list_events(&outcome.trace_id).unwrap();
+    assert!(events.contains(&"provider_request_started".to_string()));
+    assert!(events.contains(&"task_cancelled".to_string()));
+    assert!(!events.contains(&"task_completed".to_string()));
+    assert_eq!(events.last().map(String::as_str), Some("done"));
+
+    let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let cancel_reason = records
+        .iter()
+        .find(|record| record.event_kind == "task_cancelled")
+        .and_then(|record| record.payload.get("reason"))
+        .and_then(|reason| reason.as_str());
+    assert_eq!(cancel_reason, Some("external cancel requested"));
 }
 
 #[tokio::test]

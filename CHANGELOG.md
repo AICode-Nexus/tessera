@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added numbered session lists plus `/resume <number>` and `chat --resume <number>` support for trace-backed session recovery.
 - Added REPL `/paste` multiline prompt mode with `/send` and `/cancel`.
 - Added a REPL `/cancel` command that reports when no cancellable run is active, reserving the command for future async run cancellation.
+- Added provider-neutral run cancellation controls in `tessera-core`, controls-aware CLI chat helpers, and shared client/TUI cancel intents so active provider streams can be interrupted without adding tool execution.
 
 ## [v0.1.0] - 2026-05-15
 

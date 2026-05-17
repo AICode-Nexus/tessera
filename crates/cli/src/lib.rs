@@ -4,12 +4,14 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tessera_client::{ClientMessage, ClientMessageRole, ClientSnapshot};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
     ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction, ReplayRunner,
-    ReplaySummary, RuntimeEventQuery, RuntimeReader, RuntimeSessionSummary,
+    ReplaySummary, RunCancellationToken, RunControls, RuntimeEventQuery, RuntimeReader,
+    RuntimeSessionSummary,
 };
 use tessera_protocol::{EventFrame, ModelProfileId, ProviderId, RunEvent, TraceRecord};
 use tessera_providers::{
@@ -786,6 +788,28 @@ pub async fn run_repl_prompt_with_writer<F>(
     config: &TesseraConfig,
     session: &mut CliReplSession,
     prompt: impl Into<String>,
+    write_delta: F,
+) -> Result<ConversationOutcome>
+where
+    F: FnMut(&str),
+{
+    run_repl_prompt_with_writer_and_controls(
+        data_dir,
+        config,
+        session,
+        prompt,
+        RunControls::default(),
+        write_delta,
+    )
+    .await
+}
+
+pub async fn run_repl_prompt_with_writer_and_controls<F>(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+    session: &mut CliReplSession,
+    prompt: impl Into<String>,
+    controls: RunControls,
     mut write_delta: F,
 ) -> Result<ConversationOutcome>
 where
@@ -794,12 +818,13 @@ where
     let provider_id = session.snapshot.status.active_profile.clone();
     let history = provider_history_from_snapshot(&session.snapshot);
     let snapshot = &mut session.snapshot;
-    run_chat_with_config_history_and_events(
+    run_chat_with_config_history_controls_and_events(
         data_dir,
         config,
         &provider_id,
         prompt,
         history,
+        controls,
         |frame| {
             snapshot.apply_event(frame);
             if let RunEvent::AssistantDelta { text, .. } = &frame.event {
@@ -1192,12 +1217,36 @@ where
     F: FnMut(&EventFrame) -> R,
     R: Into<EventSinkAction>,
 {
-    run_chat_with_config_history_and_events(
+    run_chat_with_config_and_controls_and_events(
+        data_dir,
+        config,
+        provider_id,
+        prompt,
+        RunControls::default(),
+        event_sink,
+    )
+    .await
+}
+
+pub async fn run_chat_with_config_and_controls_and_events<F, R>(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+    provider_id: &str,
+    prompt: impl Into<String>,
+    controls: RunControls,
+    event_sink: F,
+) -> Result<ConversationOutcome>
+where
+    F: FnMut(&EventFrame) -> R,
+    R: Into<EventSinkAction>,
+{
+    run_chat_with_config_history_controls_and_events(
         data_dir,
         config,
         provider_id,
         prompt,
         Vec::new(),
+        controls,
         event_sink,
     )
     .await
@@ -1209,6 +1258,31 @@ pub async fn run_chat_with_config_history_and_events<F, R>(
     provider_id: &str,
     prompt: impl Into<String>,
     history: Vec<ProviderMessage>,
+    event_sink: F,
+) -> Result<ConversationOutcome>
+where
+    F: FnMut(&EventFrame) -> R,
+    R: Into<EventSinkAction>,
+{
+    run_chat_with_config_history_controls_and_events(
+        data_dir,
+        config,
+        provider_id,
+        prompt,
+        history,
+        RunControls::default(),
+        event_sink,
+    )
+    .await
+}
+
+pub async fn run_chat_with_config_history_controls_and_events<F, R>(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+    provider_id: &str,
+    prompt: impl Into<String>,
+    history: Vec<ProviderMessage>,
+    controls: RunControls,
     mut event_sink: F,
 ) -> Result<ConversationOutcome>
 where
@@ -1229,6 +1303,7 @@ where
                 MockProvider::default(),
                 prompt,
                 history,
+                controls,
                 &mut event_sink,
             )
             .await
@@ -1249,6 +1324,7 @@ where
                 provider,
                 prompt,
                 history,
+                controls,
                 &mut event_sink,
             )
             .await
@@ -1265,6 +1341,7 @@ where
                 provider,
                 prompt,
                 history,
+                controls,
                 &mut event_sink,
             )
             .await
@@ -1282,29 +1359,82 @@ pub async fn run_tui_with_config(
     provider_id: String,
 ) -> Result<()> {
     let state = build_tui_state_with_config(&config, &provider_id)?;
-    tessera_tui::run_terminal_chat(state, move |selected_provider_id, prompt, live_events| {
-        let data_dir = data_dir.clone();
-        let config = config.clone();
-        async move {
-            run_chat_with_config_and_events(data_dir, &config, &selected_provider_id, prompt, {
-                let live_events = live_events.clone();
-                move |frame| match live_events
-                    .try_send(LiveClientEvent::Frame(Box::new(frame.clone())))
+    let active_cancellation_token: Arc<Mutex<Option<RunCancellationToken>>> =
+        Arc::new(Mutex::new(None));
+    let submit_cancellation_token = Arc::clone(&active_cancellation_token);
+    let cancel_cancellation_token = Arc::clone(&active_cancellation_token);
+
+    tessera_tui::run_terminal_chat_with_cancel_handler(
+        state,
+        move |selected_provider_id, prompt, live_events| {
+            let data_dir = data_dir.clone();
+            let config = config.clone();
+            let active_cancellation_token = Arc::clone(&submit_cancellation_token);
+            async move {
+                let cancellation_token = RunCancellationToken::new();
                 {
-                    Ok(()) => EventSinkAction::Continue,
-                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                        EventSinkAction::Cancel("live event channel closed".to_string())
-                    }
-                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                        EventSinkAction::Cancel("live event channel full".to_string())
-                    }
+                    let mut active = active_cancellation_token
+                        .lock()
+                        .map_err(|_| "active cancellation token lock poisoned".to_string())?;
+                    *active = Some(cancellation_token.clone());
                 }
-            })
-            .await
-            .map(|_| ())
-            .map_err(|error| error.to_string())
-        }
-    })
+
+                let controls = RunControls {
+                    event_timeout: None,
+                    cancellation_token: Some(cancellation_token.clone()),
+                };
+                let result = run_chat_with_config_and_controls_and_events(
+                    data_dir,
+                    &config,
+                    &selected_provider_id,
+                    prompt,
+                    controls,
+                    {
+                        let live_events = live_events.clone();
+                        move |frame| match live_events
+                            .try_send(LiveClientEvent::Frame(Box::new(frame.clone())))
+                        {
+                            Ok(()) => EventSinkAction::Continue,
+                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                EventSinkAction::Cancel("live event channel closed".to_string())
+                            }
+                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                                EventSinkAction::Cancel("live event channel full".to_string())
+                            }
+                        }
+                    },
+                )
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string());
+
+                let mut active = active_cancellation_token
+                    .lock()
+                    .map_err(|_| "active cancellation token lock poisoned".to_string())?;
+                if active
+                    .as_ref()
+                    .is_some_and(|current| current.is_same_handle(&cancellation_token))
+                {
+                    *active = None;
+                }
+
+                result
+            }
+        },
+        move |_task_id| {
+            let token = cancel_cancellation_token
+                .lock()
+                .map_err(|_| "active cancellation token lock poisoned".to_string())?
+                .clone();
+            match token {
+                Some(token) => {
+                    token.cancel("tui cancel requested");
+                    Ok("cancel requested".to_string())
+                }
+                None => Err("no active run to cancel".to_string()),
+            }
+        },
+    )
     .await?;
     Ok(())
 }
@@ -1335,6 +1465,7 @@ async fn run_chat_for_provider_with_events<P, F, R>(
     provider: P,
     prompt: impl Into<String>,
     history: Vec<ProviderMessage>,
+    controls: RunControls,
     event_sink: &mut F,
 ) -> Result<ConversationOutcome>
 where
@@ -1345,7 +1476,7 @@ where
     let store = TraceStore::open(data_dir)?;
     let engine = ConversationEngine::new(provider, store);
     let outcome = engine
-        .run_chat_with_event_sink(
+        .run_chat_with_controls_and_event_sink(
             ConversationRequest {
                 trace_id: next_trace_id(&profile.id),
                 provider_id: ProviderId::from(profile.id.as_str()),
@@ -1354,6 +1485,7 @@ where
                 prompt: prompt.into(),
                 history,
             },
+            controls,
             event_sink,
         )
         .await?;

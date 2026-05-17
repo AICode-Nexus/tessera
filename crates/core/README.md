@@ -4,6 +4,8 @@ Headless runtime orchestration for Tessera.
 
 The core owns the conversation lifecycle, task/turn sequencing, provider stream routing, and trace persistence coordination. CLI and TUI should both use this crate instead of talking to provider or storage internals directly.
 
+It exposes `RunControls` and `RunCancellationToken` so UI/runtime shells can request provider-neutral cancellation through the headless run loop. Cancellation records `task_cancelled` and `done` events; it does not execute tools, kill shell commands, or bypass provider/storage boundaries.
+
 It includes a draft `ModelRouter` that records manual/default `RouteDecision` values with explicit route reasons. Auto routing remains disabled until a later policy-backed implementation.
 
 It also includes a draft `NoProgressDetector` that turns no-output, repeated read-only, and repeated repair observations into provider-neutral no-progress signals. These signals stop/ask/summarize first and never enable silent route escalation.

@@ -102,6 +102,12 @@ fn client_snapshot_maps_slash_commands_to_ui_neutral_intents() {
     snapshot.draft_input = "/export".to_string();
     assert_eq!(snapshot.submit_input(), Some(ClientIntent::ExportThread));
 
+    snapshot.draft_input = "/cancel".to_string();
+    assert_eq!(
+        snapshot.submit_input(),
+        Some(ClientIntent::CancelTask { task_id: None })
+    );
+
     snapshot.draft_input = "/approve approval_write_readme".to_string();
     assert_eq!(
         snapshot.submit_input(),
@@ -140,6 +146,64 @@ fn client_snapshot_maps_slash_commands_to_ui_neutral_intents() {
         Some(ClientIntent::SubmitPrompt {
             profile_id: "mock-default".to_string(),
             prompt: "/explain this command".to_string(),
+        })
+    );
+}
+
+#[test]
+fn client_snapshot_cancel_command_targets_latest_running_task() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let first_task_id = TaskId::from_static("task_old_completed");
+    let running_task_id = TaskId::from_static("task_running_cancel");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_cancel_intent",
+        1,
+        RunEvent::TaskCreated {
+            task_id: first_task_id.clone(),
+            kind: TaskKind::Chat,
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_cancel_intent",
+        2,
+        RunEvent::TaskStarted {
+            task_id: first_task_id.clone(),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_cancel_intent",
+        3,
+        RunEvent::TaskCompleted {
+            task_id: first_task_id,
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_cancel_intent",
+        4,
+        RunEvent::TaskCreated {
+            task_id: running_task_id.clone(),
+            kind: TaskKind::Chat,
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_cancel_intent",
+        5,
+        RunEvent::TaskStarted {
+            task_id: running_task_id.clone(),
+        },
+    ));
+
+    assert_eq!(
+        snapshot.active_cancellable_task_id(),
+        Some(running_task_id.clone())
+    );
+
+    snapshot.draft_input = "/cancel".to_string();
+    assert_eq!(
+        snapshot.submit_input(),
+        Some(ClientIntent::CancelTask {
+            task_id: Some(running_task_id)
         })
     );
 }

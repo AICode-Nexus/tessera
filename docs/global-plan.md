@@ -74,6 +74,7 @@
 - [x] core 将 provider stream 转成 EventFrame 并写 trace。
 - [x] core 不依赖 provider 私有响应结构。
 - [x] cancellation / timeout / backpressure 基础语义：live sink 可请求取消，provider event timeout 会写 `task_cancelled`，TUI live channel 已 bounded。
+- [x] cancellation controls 基础：`RunCancellationToken` 可从 core 外部打断 provider stream，写入 `task_cancelled` / `done`，CLI/TUI 通过同一 `RunControls` 通道接入而不绕过 core。
 - [x] replay runner 初版。
 
 ### CLI
@@ -89,6 +90,7 @@
 - [x] CLI numbered session resume：`sessions` / `/sessions` 文本输出带 1-based 编号，`/resume <number>` 和 `chat --resume <number>` 可按当前 session 排序恢复 trace。
 - [x] CLI REPL multiline input：`/paste` 进入多行 prompt 收集，`/send` 提交到原有 core/provider/chat path，`/cancel` 丢弃本地 buffer。
 - [x] CLI REPL cancel command placeholder：普通 REPL 下 `/cancel` 明确报告当前没有可取消 run，保留命令入口给后续 async run cancellation。
+- [x] CLI run cancellation controls：config-routed chat helpers 可传入 `RunControls` / `RunCancellationToken`，预取消不会发起 provider request，后续异步 REPL 可复用同一通道。
 - [x] `tessera config validate`：顶层配置自检命令，可输出文本或 `--json`，检查 provider shape、重复 profile id、data_dir resolution 和 secret env 是否存在，不打开 storage、不输出真实 secret。
 - [x] `tessera profiles`：顶层 provider profile inspection 命令，可输出文本或 `--json`，只展示 secret env var 名称，不读取真实 secret。
 - [x] `tessera sessions`：顶层 session discovery 命令，可输出带编号的人类可读列表或 `--json`，复用 read-only `RuntimeReader`。
@@ -117,6 +119,7 @@
 - [x] 模型/profile 切换入口：Tab / Shift-Tab 产生 `ClientIntent::SwitchProfile`，提交 prompt 时携带当前 profile。
 - [x] `/new`、`/save`、`/export` 基础入口：shared client slash-command intent、TUI local handling、markdown projection export。
 - [x] usage/cache/cost live status projection：`tessera-client` 从 `UsageReported` live event 和 replay trace record 更新 UI-neutral `ClientStatus`，TUI 仍只负责渲染。
+- [x] cancel intent foundation：`/cancel` 可生成 UI-neutral `ClientIntent::CancelTask`，TUI Ctrl-C 在有 running task 时分发取消意图，CLI bridge 用 core cancellation token 取消活跃 TUI run。
 - [x] TUI 只订阅 core 事件，不直接依赖 provider SDK 或 SQLite internals。
 
 ### GUI Preparation
@@ -179,6 +182,7 @@
 36. [x] CLI numbered session resume：`format_session_lines` 已输出 1-based 编号，`/resume <number>` / `chat --resume <number>` 会按当前 read-only session list 映射到 trace_id 后再投影恢复。
 37. [x] CLI REPL multiline paste mode：`/paste` / `/send` / `/cancel` 已接入交互输入循环；提交后复用原有 prompt writer，不新增 runtime 分支。
 38. [x] CLI REPL cancel command placeholder：`/cancel` 已接入普通 command path，无 active run 时返回明确提示；真正运行中取消仍等待异步输入/终端事件层。
+39. [x] Run cancellation controls：core `RunCancellationToken`、CLI controls-aware helper、client `/cancel` intent、TUI Ctrl-C cancel intent 已接入；line-oriented CLI REPL 的活跃运行中 `/cancel` 仍等待异步输入层。
 
 ## 4. v0.2 Checklist
 

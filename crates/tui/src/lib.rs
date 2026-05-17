@@ -15,7 +15,7 @@ pub use tessera_client::{
     ClientIntent, ClientMessage, ClientMessageRole as ChatMessageRole,
     ClientSnapshot as ChatViewState,
 };
-use tessera_protocol::EventFrame;
+use tessera_protocol::{EventFrame, TaskId};
 use tokio::sync::mpsc;
 
 pub type TuiUserIntent = ClientIntent;
@@ -27,6 +27,7 @@ pub enum TerminalInput {
     NextProfile,
     PreviousProfile,
     Submit,
+    Interrupt,
     Quit,
 }
 
@@ -41,6 +42,7 @@ pub enum TerminalAction {
 #[derive(Clone, Debug, PartialEq)]
 pub enum LiveClientEvent {
     Frame(Box<EventFrame>),
+    Notice(String),
     Error(String),
 }
 
@@ -137,6 +139,14 @@ pub fn handle_terminal_input(state: &mut ChatViewState, input: TerminalInput) ->
             .cycle_profile(-1)
             .map(TerminalAction::Dispatch)
             .unwrap_or(TerminalAction::Ignore),
+        TerminalInput::Interrupt => state
+            .active_cancellable_task_id()
+            .map(|task_id| {
+                TerminalAction::Dispatch(ClientIntent::CancelTask {
+                    task_id: Some(task_id),
+                })
+            })
+            .unwrap_or(TerminalAction::Quit),
         TerminalInput::Submit => state
             .submit_input()
             .map(TerminalAction::Dispatch)
@@ -148,6 +158,7 @@ pub fn handle_terminal_input(state: &mut ChatViewState, input: TerminalInput) ->
 pub fn apply_live_event(state: &mut ChatViewState, event: LiveClientEvent) {
     match event {
         LiveClientEvent::Frame(frame) => state.apply_event(&frame),
+        LiveClientEvent::Notice(message) => state.push_notice(message),
         LiveClientEvent::Error(error) => state.projection.messages.push(ClientMessage {
             role: ChatMessageRole::Assistant,
             content: format!("Error: {error}"),
@@ -193,7 +204,7 @@ pub fn map_key_event(event: KeyEvent) -> Option<TerminalInput> {
         KeyCode::BackTab => Some(TerminalInput::PreviousProfile),
         KeyCode::Esc => Some(TerminalInput::Quit),
         KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(TerminalInput::Quit)
+            Some(TerminalInput::Interrupt)
         }
         KeyCode::Char(character) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(TerminalInput::Char(character))
@@ -235,13 +246,30 @@ where
     F: FnMut(String, String, LiveClientEventSender) -> Fut,
     Fut: Future<Output = Result<(), String>> + Send + 'static,
 {
+    run_terminal_chat_with_cancel_handler(initial_state, &mut submit_prompt, |_| {
+        Err("no active run to cancel".to_string())
+    })
+    .await
+}
+
+pub async fn run_terminal_chat_with_cancel_handler<F, Fut, C>(
+    initial_state: ChatViewState,
+    submit_prompt: F,
+    cancel_task: C,
+) -> io::Result<ChatViewState>
+where
+    F: FnMut(String, String, LiveClientEventSender) -> Fut,
+    Fut: Future<Output = Result<(), String>> + Send + 'static,
+    C: FnMut(Option<TaskId>) -> Result<String, String>,
+{
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_terminal_chat_loop(&mut terminal, initial_state, &mut submit_prompt).await;
+    let result =
+        run_terminal_chat_loop(&mut terminal, initial_state, submit_prompt, cancel_task).await;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -253,7 +281,8 @@ where
 async fn run_terminal_chat_loop<B, F, Fut>(
     terminal: &mut Terminal<B>,
     mut state: ChatViewState,
-    submit_prompt: &mut F,
+    mut submit_prompt: F,
+    mut cancel_task: impl FnMut(Option<TaskId>) -> Result<String, String>,
 ) -> io::Result<ChatViewState>
 where
     B: ratatui::backend::Backend,
@@ -296,11 +325,14 @@ where
                         }
                     });
                 }
+                ClientIntent::CancelTask { task_id } => match cancel_task(task_id) {
+                    Ok(message) => apply_live_event(&mut state, LiveClientEvent::Notice(message)),
+                    Err(error) => apply_live_event(&mut state, LiveClientEvent::Error(error)),
+                },
                 ClientIntent::SwitchProfile { .. }
                 | ClientIntent::NewThread
                 | ClientIntent::SaveThread
                 | ClientIntent::ExportThread
-                | ClientIntent::CancelTask { .. }
                 | ClientIntent::ApproveToolCall { .. }
                 | ClientIntent::DenyToolCall { .. }
                 | ClientIntent::AcceptMemoryProposal { .. }

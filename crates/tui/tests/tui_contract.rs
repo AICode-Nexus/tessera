@@ -358,7 +358,7 @@ fn terminal_key_mapping_handles_submit_backspace_and_quit() {
     );
     assert_eq!(
         map_key_event(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
-        Some(TerminalInput::Quit)
+        Some(TerminalInput::Interrupt)
     );
     assert_eq!(
         map_key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
@@ -371,6 +371,46 @@ fn terminal_key_mapping_handles_submit_backspace_and_quit() {
     assert_eq!(
         map_key_event(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)),
         Some(TerminalInput::PreviousProfile)
+    );
+}
+
+#[test]
+fn terminal_interrupt_cancels_running_task_and_quits_when_idle() {
+    let mut idle_state = ChatViewState::new("mock-default");
+    assert_eq!(
+        handle_terminal_input(&mut idle_state, TerminalInput::Interrupt),
+        TerminalAction::Quit
+    );
+
+    let mut running_state = ChatViewState::new("mock-default");
+    let task_id = TaskId::from_static("task_tui_cancel");
+    apply_live_event(
+        &mut running_state,
+        LiveClientEvent::Frame(Box::new(EventFrame::new(
+            "trace_tui_cancel",
+            1,
+            RunEvent::TaskCreated {
+                task_id: task_id.clone(),
+                kind: TaskKind::Chat,
+            },
+        ))),
+    );
+    apply_live_event(
+        &mut running_state,
+        LiveClientEvent::Frame(Box::new(EventFrame::new(
+            "trace_tui_cancel",
+            2,
+            RunEvent::TaskStarted {
+                task_id: task_id.clone(),
+            },
+        ))),
+    );
+
+    assert_eq!(
+        handle_terminal_input(&mut running_state, TerminalInput::Interrupt),
+        TerminalAction::Dispatch(ClientIntent::CancelTask {
+            task_id: Some(task_id)
+        })
     );
 }
 

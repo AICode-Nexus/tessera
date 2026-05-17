@@ -3,11 +3,12 @@ use std::io::Write;
 use tessera_cli::{
     build_tui_state_with_config, list_sessions, parse_repl_command, resolve_config,
     resolve_data_dir_with_config, run_chat_mock, run_chat_repl_with_io_and_resume,
-    run_chat_with_config, run_chat_with_config_and_events, run_doctor, run_repl_prompt_with_writer,
+    run_chat_with_config, run_chat_with_config_and_controls_and_events,
+    run_chat_with_config_and_events, run_doctor, run_repl_prompt_with_writer,
     write_config_template, CliReplCommand, CliReplSession, DoctorReport,
 };
 use tessera_config::{ProviderProfile, TesseraConfig};
-use tessera_core::EventSinkAction;
+use tessera_core::{EventSinkAction, RunCancellationToken, RunControls};
 use tessera_protocol::RunEvent;
 
 #[test]
@@ -304,6 +305,43 @@ async fn config_routed_chat_records_cancellation_when_event_sink_stops() {
 
     let events = output.store.list_events(&output.trace_id).unwrap();
     assert!(events.contains(&"task_cancelled".to_string()));
+    assert!(!events.contains(&"task_completed".to_string()));
+}
+
+#[tokio::test]
+async fn config_routed_chat_honors_pre_cancelled_run_controls() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-routed".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let cancellation_token = RunCancellationToken::new();
+    cancellation_token.cancel("cli cancel before provider request");
+
+    let output = run_chat_with_config_and_controls_and_events(
+        temp.path(),
+        &config,
+        "offline",
+        "hello",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: Some(cancellation_token),
+        },
+        |_| {},
+    )
+    .await
+    .unwrap();
+
+    let events = output.store.list_events(&output.trace_id).unwrap();
+    assert!(events.contains(&"user_message_recorded".to_string()));
+    assert!(events.contains(&"task_cancelled".to_string()));
+    assert!(!events.contains(&"provider_request_started".to_string()));
     assert!(!events.contains(&"task_completed".to_string()));
 }
 

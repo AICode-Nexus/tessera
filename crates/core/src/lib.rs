@@ -1,6 +1,8 @@
 use futures::TryStreamExt;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tessera_protocol::{
     ArtifactId, ArtifactKind, ContextBudget, ContextId, ContextPlacement, ContextReference,
@@ -51,9 +53,83 @@ impl From<()> for EventSinkAction {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone)]
+pub struct RunCancellationToken {
+    inner: Arc<RunCancellationState>,
+}
+
+struct RunCancellationState {
+    reason: Mutex<Option<String>>,
+    notify: tokio::sync::Notify,
+}
+
+impl RunCancellationToken {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(RunCancellationState {
+                reason: Mutex::new(None),
+                notify: tokio::sync::Notify::new(),
+            }),
+        }
+    }
+
+    pub fn cancel(&self, reason: impl Into<String>) {
+        let mut guard = self
+            .inner
+            .reason
+            .lock()
+            .expect("cancellation mutex poisoned");
+        if guard.is_none() {
+            *guard = Some(reason.into());
+            self.inner.notify.notify_waiters();
+        }
+    }
+
+    pub fn cancellation_reason(&self) -> Option<String> {
+        self.inner
+            .reason
+            .lock()
+            .expect("cancellation mutex poisoned")
+            .clone()
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation_reason().is_some()
+    }
+
+    pub fn is_same_handle(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    async fn cancelled(&self) -> String {
+        loop {
+            if let Some(reason) = self.cancellation_reason() {
+                return reason;
+            }
+            self.inner.notify.notified().await;
+        }
+    }
+}
+
+impl Default for RunCancellationToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for RunCancellationToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RunCancellationToken")
+            .field("is_cancelled", &self.is_cancelled())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct RunControls {
     pub event_timeout: Option<Duration>,
+    pub cancellation_token: Option<RunCancellationToken>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1877,6 +1953,7 @@ where
         let mut no_progress_detector = NoProgressDetector::default();
         let provider_messages = request.provider_messages();
         let prompt = request.prompt.clone();
+        let cancellation_token = controls.cancellation_token.clone();
 
         macro_rules! append_event {
             ($event:expr) => {{
@@ -1909,12 +1986,39 @@ where
             text: prompt,
         });
 
+        if let Some(reason) = cancellation_token
+            .as_ref()
+            .and_then(RunCancellationToken::cancellation_reason)
+        {
+            return self.finish_cancelled(
+                trace_id,
+                assistant_text,
+                &mut context,
+                reason,
+                &mut event_sink,
+            );
+        }
+
         let capability = match self.provider.capability().await {
             Ok(capability) => capability,
             Err(error) => {
                 return self.finish_failed(&mut context, error, &mut event_sink);
             }
         };
+
+        if let Some(reason) = cancellation_token
+            .as_ref()
+            .and_then(RunCancellationToken::cancellation_reason)
+        {
+            return self.finish_cancelled(
+                trace_id,
+                assistant_text,
+                &mut context,
+                reason,
+                &mut event_sink,
+            );
+        }
+
         let route_decision = ModelRouter::draft().route(ModelRouteRequest {
             requested_profile: Some(request.profile_id.clone()),
             default_profile: request.profile_id.clone(),
@@ -1958,29 +2062,94 @@ where
         };
 
         loop {
-            let next_event = if let Some(timeout) = controls.event_timeout {
-                match tokio::time::timeout(timeout, stream.try_next()).await {
-                    Ok(Ok(result)) => result,
-                    Ok(Err(error)) => {
-                        return self.finish_failed(&mut context, error, &mut event_sink);
-                    }
-                    Err(_) => {
-                        return self.finish_cancelled(
-                            trace_id,
-                            assistant_text,
-                            &mut context,
-                            format!("provider event timeout after {}ms", timeout.as_millis()),
-                            &mut event_sink,
-                        );
+            if let Some(reason) = cancellation_token
+                .as_ref()
+                .and_then(RunCancellationToken::cancellation_reason)
+            {
+                return self.finish_cancelled(
+                    trace_id,
+                    assistant_text,
+                    &mut context,
+                    reason,
+                    &mut event_sink,
+                );
+            }
+
+            let next_event = match (controls.event_timeout, cancellation_token.as_ref()) {
+                (Some(timeout), Some(token)) => {
+                    tokio::select! {
+                        reason = token.cancelled() => {
+                            return self.finish_cancelled(
+                                trace_id,
+                                assistant_text,
+                                &mut context,
+                                reason,
+                                &mut event_sink,
+                            );
+                        }
+                        timed = tokio::time::timeout(timeout, stream.try_next()) => {
+                            match timed {
+                                Ok(Ok(result)) => result,
+                                Ok(Err(error)) => {
+                                    return self.finish_failed(&mut context, error, &mut event_sink);
+                                }
+                                Err(_) => {
+                                    return self.finish_cancelled(
+                                        trace_id,
+                                        assistant_text,
+                                        &mut context,
+                                        format!("provider event timeout after {}ms", timeout.as_millis()),
+                                        &mut event_sink,
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
-            } else {
-                match stream.try_next().await {
+                (Some(timeout), None) => {
+                    match tokio::time::timeout(timeout, stream.try_next()).await {
+                        Ok(Ok(result)) => result,
+                        Ok(Err(error)) => {
+                            return self.finish_failed(&mut context, error, &mut event_sink);
+                        }
+                        Err(_) => {
+                            return self.finish_cancelled(
+                                trace_id,
+                                assistant_text,
+                                &mut context,
+                                format!("provider event timeout after {}ms", timeout.as_millis()),
+                                &mut event_sink,
+                            );
+                        }
+                    }
+                }
+                (None, Some(token)) => {
+                    tokio::select! {
+                        reason = token.cancelled() => {
+                            return self.finish_cancelled(
+                                trace_id,
+                                assistant_text,
+                                &mut context,
+                                reason,
+                                &mut event_sink,
+                            );
+                        }
+                        result = stream.try_next() => {
+                            match result {
+                                Ok(result) => result,
+                                Err(error) => {
+                                    return self.finish_failed(&mut context, error, &mut event_sink);
+                                }
+                            }
+                        }
+                    }
+                }
+                (None, None) => match stream.try_next().await {
                     Ok(result) => result,
                     Err(error) => {
                         return self.finish_failed(&mut context, error, &mut event_sink);
                     }
-                }
+                },
             };
 
             let Some(event) = next_event else {

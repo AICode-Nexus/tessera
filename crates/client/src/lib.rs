@@ -752,6 +752,9 @@ impl ClientSnapshot {
             "/new" => Some(ClientIntent::NewThread),
             "/save" => Some(ClientIntent::SaveThread),
             "/export" => Some(ClientIntent::ExportThread),
+            "/cancel" => Some(ClientIntent::CancelTask {
+                task_id: self.active_cancellable_task_id(),
+            }),
             _ if prompt.starts_with("/approve ") => approval_intent(&prompt, "/approve ", true),
             _ if prompt.starts_with("/deny ") => approval_intent(&prompt, "/deny ", false),
             _ if prompt.starts_with("/remember ") => memory_intent(&prompt, "/remember ", true),
@@ -765,6 +768,14 @@ impl ClientSnapshot {
 
     pub fn active_profile_position(&self) -> (usize, usize) {
         self.status.active_profile_position()
+    }
+
+    pub fn active_cancellable_task_id(&self) -> Option<TaskId> {
+        self.tasks
+            .iter()
+            .rev()
+            .find(|task| task.status == TaskStatus::Running)
+            .map(|task| task.task_id.clone())
     }
 
     pub fn cycle_profile(&mut self, offset: isize) -> Option<ClientIntent> {
