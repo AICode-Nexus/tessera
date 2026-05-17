@@ -53,6 +53,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added detailed text output for `tessera doctor`, including data dir, trace writability, SQLite index health, and configured provider profile IDs.
 - Added `tessera chat --list-commands` to print interactive slash commands without resolving config, opening storage, or starting the REPL.
 - Added REPL startup context and `/doctor` runtime health inside interactive `tessera chat`.
+- Added REPL `/clear`, `/history`, and `/commands` local ergonomics without provider or storage execution.
 
 ## [v0.1.0] - 2026-05-15
 

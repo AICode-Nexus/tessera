@@ -61,7 +61,9 @@ fn chat_list_commands_prints_repl_commands_without_runtime_config() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("commands:"));
     assert!(stdout.contains("/help"));
+    assert!(stdout.contains("/clear"));
     assert!(stdout.contains("/profiles"));
+    assert!(stdout.contains("/history"));
     assert!(stdout.contains("/resume <trace_id>"));
     assert!(stdout.contains("/doctor"));
     assert!(stdout.contains("/quit"));
@@ -385,10 +387,16 @@ fn tui_state_rejects_unknown_initial_profile() {
 fn repl_parser_recognizes_local_slash_commands() {
     assert_eq!(parse_repl_command("hello repl"), None);
     assert_eq!(parse_repl_command("/help"), Some(CliReplCommand::Help));
+    assert_eq!(parse_repl_command("/commands"), Some(CliReplCommand::Help));
     assert_eq!(parse_repl_command("/new"), Some(CliReplCommand::NewThread));
+    assert_eq!(parse_repl_command("/clear"), Some(CliReplCommand::Clear));
     assert_eq!(
         parse_repl_command("/profiles"),
         Some(CliReplCommand::Profiles)
+    );
+    assert_eq!(
+        parse_repl_command("/history"),
+        Some(CliReplCommand::History)
     );
     assert_eq!(parse_repl_command("/status"), Some(CliReplCommand::Status));
     assert_eq!(parse_repl_command("/export"), Some(CliReplCommand::Export));
@@ -490,6 +498,35 @@ fn repl_session_handles_local_commands_without_runtime_work() {
         .handle_command(&config, CliReplCommand::Quit)
         .unwrap();
     assert!(quit.should_quit);
+}
+
+#[test]
+fn repl_session_lists_and_clears_visible_history_without_runtime_work() {
+    let config = TesseraConfig::default_with_mock();
+    let mut session = CliReplSession::new(&config, "mock").unwrap();
+
+    let empty_history = session
+        .handle_command(&config, CliReplCommand::History)
+        .unwrap();
+    assert!(empty_history
+        .lines
+        .join("\n")
+        .contains("no messages in current thread"));
+
+    session.snapshot_mut().push_notice("temporary note");
+    let history = session
+        .handle_command(&config, CliReplCommand::History)
+        .unwrap();
+    assert!(history
+        .lines
+        .join("\n")
+        .contains("1. system: temporary note"));
+
+    let clear = session
+        .handle_command(&config, CliReplCommand::Clear)
+        .unwrap();
+    assert!(clear.lines.join("\n").contains("current thread cleared"));
+    assert!(session.snapshot().projection.messages.is_empty());
 }
 
 #[test]

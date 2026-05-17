@@ -197,11 +197,13 @@ static TRACE_COUNTER: AtomicU64 = AtomicU64::new(1);
 pub enum CliReplCommand {
     Help,
     NewThread,
+    Clear,
     Profiles,
     SwitchProfile(String),
     Sessions,
     ResumeSession(String),
     Doctor,
+    History,
     Status,
     Export,
     Quit,
@@ -251,6 +253,12 @@ impl CliReplSession {
                 self.snapshot.start_new_thread();
                 Ok(CliReplCommandOutcome::continue_with(["new thread started"]))
             }
+            CliReplCommand::Clear => {
+                self.snapshot.start_new_thread();
+                Ok(CliReplCommandOutcome::continue_with([
+                    "current thread cleared",
+                ]))
+            }
             CliReplCommand::Profiles => {
                 let lines: Vec<String> = config
                     .providers
@@ -285,6 +293,9 @@ impl CliReplSession {
             CliReplCommand::Status => {
                 Ok(CliReplCommandOutcome::continue_with([self.status_line()]))
             }
+            CliReplCommand::History => Ok(CliReplCommandOutcome::continue_with(
+                format_history_lines(&self.snapshot.projection.messages),
+            )),
             CliReplCommand::Export => Ok(CliReplCommandOutcome::continue_with(
                 self.snapshot.export_markdown().lines().map(str::to_string),
             )),
@@ -386,13 +397,15 @@ pub fn parse_repl_command(input: &str) -> Option<CliReplCommand> {
     let command = trimmed.split_whitespace().next().unwrap_or(trimmed);
     let argument = trimmed[command.len()..].trim();
     Some(match command {
-        "/help" | "/?" => CliReplCommand::Help,
+        "/help" | "/commands" | "/?" => CliReplCommand::Help,
         "/new" => CliReplCommand::NewThread,
+        "/clear" => CliReplCommand::Clear,
         "/profiles" => CliReplCommand::Profiles,
         "/profile" if !argument.is_empty() => CliReplCommand::SwitchProfile(argument.to_string()),
         "/sessions" => CliReplCommand::Sessions,
         "/resume" if !argument.is_empty() => CliReplCommand::ResumeSession(argument.to_string()),
         "/doctor" => CliReplCommand::Doctor,
+        "/history" => CliReplCommand::History,
         "/status" => CliReplCommand::Status,
         "/export" => CliReplCommand::Export,
         "/quit" | "/exit" => CliReplCommand::Quit,
@@ -436,6 +449,44 @@ pub fn format_session_lines(sessions: &[CliSessionSummary]) -> Vec<String> {
                 session.trace_id, session.event_count, updated_at, preview
             )
         })
+        .collect()
+}
+
+pub fn format_history_lines(messages: &[ClientMessage]) -> Vec<String> {
+    if messages.is_empty() {
+        return vec!["no messages in current thread".to_string()];
+    }
+
+    messages
+        .iter()
+        .enumerate()
+        .map(|(index, message)| {
+            let role = match message.role {
+                ClientMessageRole::System => "system",
+                ClientMessageRole::User => "user",
+                ClientMessageRole::Assistant => "assistant",
+                ClientMessageRole::Reasoning => "reasoning",
+            };
+            format!(
+                "{}. {role}: {}",
+                index + 1,
+                compact_history_preview(&message.content)
+            )
+        })
+        .collect()
+}
+
+fn compact_history_preview(content: &str) -> String {
+    let collapsed = content.split_whitespace().collect::<Vec<_>>().join(" ");
+    const MAX_CHARS: usize = 120;
+    if collapsed.chars().count() <= MAX_CHARS {
+        return collapsed;
+    }
+
+    collapsed
+        .chars()
+        .take(MAX_CHARS.saturating_sub(3))
+        .chain("...".chars())
         .collect()
 }
 
@@ -897,13 +948,15 @@ pub fn repl_startup_lines(
 pub fn chat_command_lines() -> Vec<&'static str> {
     vec![
         "commands:",
-        "  /help              show this help",
+        "  /help, /commands   show this help",
         "  /new               start a fresh visible thread",
+        "  /clear             clear the current visible thread",
         "  /profiles          list configured provider profiles",
         "  /profile <id>      switch active provider profile",
         "  /sessions          list trace-backed sessions",
         "  /resume <trace_id> project a trace into this session",
         "  /doctor            show runtime health for this session",
+        "  /history           list current visible messages",
         "  /status            show compact runtime status",
         "  /export            print markdown transcript",
         "  /quit, /exit       leave the REPL",
