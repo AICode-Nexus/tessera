@@ -2,7 +2,7 @@
 
 Headless command entrypoint for Tessera.
 
-v0.1 exposes `tessera doctor --json`, `tessera init`, one-shot `tessera chat --provider mock --prompt ...`, script-friendly `chat --json`, and interactive `tessera chat --provider mock` / `chat --continue` on top of `tessera-core`.
+v0.1 exposes `tessera doctor --json`, `tessera init`, one-shot `tessera chat --provider mock --prompt ...`, script-friendly `chat --json`, trace inspection with `transcript` / `replay`, and interactive `tessera chat --provider mock` / `chat --continue` on top of `tessera-core`.
 
 Interactive `chat` mode supports `/help`, `/new`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id>`, `/status`, `/export`, and `/quit` while keeping provider execution behind core and client projection in `tessera-client`.
 

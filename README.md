@@ -4,7 +4,7 @@ Tessera is a model-agnostic, agent-ready terminal workbench built on typed event
 
 ## Current Status
 
-This repository now has the v0.1 Rust workspace scaffold and a mock-driven runtime slice. The current implementation is intentionally narrow: protocol types, shared client projection, trace storage, provider adapters, core conversation loop, `doctor --json`, safe config initialization, one-shot and interactive CLI `chat` with trace-backed session listing/resume that continues with restored user/assistant history, a minimal Ratatui terminal chat loop with profile switching and live core event delivery, early v0.2 GUI work over mock/replay projection and generated TypeScript DTOs, plus v0.3/v0.4 foundation metadata/projection for tool policy, approvals, memory proposal review, diagnostics events, MCP tool metadata adaptation, ordered tool results, repair telemetry, workspace guardrail decisions, OS sandbox profile planning, checkpoint metadata planning, and read-only runtime API JSON/SSE shaping without tool execution.
+This repository now has the v0.1 Rust workspace scaffold and a mock-driven runtime slice. The current implementation is intentionally narrow: protocol types, shared client projection, trace storage, provider adapters, core conversation loop, `doctor --json`, safe config initialization, one-shot and interactive CLI `chat` with trace-backed session listing/resume that continues with restored user/assistant history, transcript/replay inspection commands, a minimal Ratatui terminal chat loop with profile switching and live core event delivery, early v0.2 GUI work over mock/replay projection and generated TypeScript DTOs, plus v0.3/v0.4 foundation metadata/projection for tool policy, approvals, memory proposal review, diagnostics events, MCP tool metadata adaptation, ordered tool results, repair telemetry, workspace guardrail decisions, OS sandbox profile planning, checkpoint metadata planning, and read-only runtime API JSON/SSE shaping without tool execution.
 
 ## Design Goals
 
@@ -67,6 +67,7 @@ printf 'hello from stdin\n' | PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --provider mock --file prompt.md
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- sessions
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- transcript <trace_id>
+PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- replay <trace_id>
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --provider mock
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- tui --provider mock
 ```
@@ -91,12 +92,14 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- sessions --config ./te
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- sessions --config ./tessera.toml --json
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- transcript <trace_id> --config ./tessera.toml
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- transcript <trace_id> --config ./tessera.toml --json
+PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- replay <trace_id> --config ./tessera.toml
+PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- replay <trace_id> --config ./tessera.toml --json
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --resume <trace_id>
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --continue
 ```
 
-Use `chat --stdin` to pipe a prompt into one-shot chat, or `chat --file <path>` to read a prompt from a UTF-8 file. Add `--json` to a one-shot chat command to emit `trace_id` and `assistant_text` for scripts. Use `tessera sessions` to list trace-backed sessions and `tessera transcript <trace_id>` to inspect one without entering the REPL. In interactive `chat` mode, use `/help`, `/new`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id>`, `/status`, `/export`, and `/quit`. You can also start directly from a prior trace with `chat --resume <trace_id>` or resume the most recent trace with `chat --continue`. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
+Use `chat --stdin` to pipe a prompt into one-shot chat, or `chat --file <path>` to read a prompt from a UTF-8 file. Add `--json` to a one-shot chat command to emit `trace_id` and `assistant_text` for scripts. Use `tessera sessions` to list trace-backed sessions, `tessera transcript <trace_id>` to inspect one without entering the REPL, and `tessera replay <trace_id>` to reconstruct a trace summary without provider access. In interactive `chat` mode, use `/help`, `/new`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id>`, `/status`, `/export`, and `/quit`. You can also start directly from a prior trace with `chat --resume <trace_id>` or resume the most recent trace with `chat --continue`. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
 
 Run the GUI shell spike:
 

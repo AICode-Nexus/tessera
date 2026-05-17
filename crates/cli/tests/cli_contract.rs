@@ -72,6 +72,19 @@ fn transcript_help_lists_trace_id_and_json_option() {
     assert!(stdout.contains("--json"));
 }
 
+#[test]
+fn replay_help_lists_trace_id_and_json_option() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["replay", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("<TRACE_ID>"));
+    assert!(stdout.contains("--json"));
+}
+
 #[tokio::test]
 async fn doctor_json_reports_trace_and_sqlite_health() {
     let temp = tempfile::tempdir().unwrap();
@@ -789,6 +802,70 @@ default_model = "mock-chat"
         transcript["messages"][1]["content"],
         "mock response to: hello transcript"
     );
+}
+
+#[tokio::test]
+async fn replay_command_reconstructs_trace_summary_without_provider_call() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    let config = resolve_config(Some(config_path.clone())).unwrap();
+    let trace_id = run_chat_with_config(&data_dir, &config, "offline", "hello replay cli")
+        .await
+        .unwrap()
+        .trace_id;
+
+    let text_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["replay"])
+        .arg(&trace_id)
+        .args(["--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+
+    assert!(text_output.status.success());
+    let text = String::from_utf8(text_output.stdout).unwrap();
+    assert!(text.contains(&trace_id));
+    assert!(text.contains("events:"));
+    assert!(text.contains("mock response to: hello replay cli"));
+
+    let json_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["replay"])
+        .arg(&trace_id)
+        .args(["--config"])
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert!(json_output.status.success());
+    let replay: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    assert_eq!(replay["trace_id"], trace_id);
+    assert_eq!(
+        replay["assistant_text"],
+        "mock response to: hello replay cli"
+    );
+    assert!(replay["event_count"].as_u64().unwrap() > 0);
+    assert!(replay["event_kinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|kind| kind == "assistant_delta"));
 }
 
 #[tokio::test]

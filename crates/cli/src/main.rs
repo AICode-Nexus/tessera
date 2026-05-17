@@ -44,6 +44,15 @@ enum Commands {
         #[arg(long)]
         data_dir: Option<PathBuf>,
     },
+    Replay {
+        trace_id: String,
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+    },
     Chat {
         #[arg(long, default_value = "mock")]
         provider: String,
@@ -126,6 +135,21 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 let markdown = tessera_cli::export_transcript_markdown(data_dir, &trace_id)?;
                 print!("{markdown}");
+            }
+        }
+        Commands::Replay {
+            trace_id,
+            json,
+            config,
+            data_dir,
+        } => {
+            let config = tessera_cli::resolve_config(config)?;
+            let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
+            let replay = tessera_cli::replay_trace(data_dir, &trace_id)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&replay)?);
+            } else {
+                print!("{}", tessera_cli::format_replay_summary(&replay));
             }
         }
         Commands::Chat {

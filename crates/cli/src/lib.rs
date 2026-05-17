@@ -7,8 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tessera_client::{ClientMessage, ClientMessageRole, ClientSnapshot};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
-    ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction,
-    RuntimeEventQuery, RuntimeReader, RuntimeSessionSummary,
+    ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction, ReplayRunner,
+    ReplaySummary, RuntimeEventQuery, RuntimeReader, RuntimeSessionSummary,
 };
 use tessera_protocol::{EventFrame, ModelProfileId, ProviderId, RunEvent};
 use tessera_providers::{
@@ -50,11 +50,30 @@ pub struct CliChatOutput {
     pub assistant_text: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliReplaySummary {
+    pub trace_id: String,
+    pub event_count: usize,
+    pub event_kinds: Vec<String>,
+    pub assistant_text: String,
+}
+
 impl From<ConversationOutcome> for CliChatOutput {
     fn from(outcome: ConversationOutcome) -> Self {
         Self {
             trace_id: outcome.trace_id,
             assistant_text: outcome.assistant_text,
+        }
+    }
+}
+
+impl From<ReplaySummary> for CliReplaySummary {
+    fn from(summary: ReplaySummary) -> Self {
+        Self {
+            event_count: summary.event_kinds.len(),
+            trace_id: summary.trace_id,
+            assistant_text: summary.assistant_text,
+            event_kinds: summary.event_kinds,
         }
     }
 }
@@ -326,6 +345,20 @@ pub fn load_transcript(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<Cli
 
 pub fn export_transcript_markdown(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<String> {
     Ok(load_transcript_snapshot(data_dir, trace_id)?.export_markdown())
+}
+
+pub fn replay_trace(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<CliReplaySummary> {
+    let store = TraceStore::open(data_dir)?;
+    Ok(CliReplaySummary::from(
+        ReplayRunner::new(&store).replay(trace_id)?,
+    ))
+}
+
+pub fn format_replay_summary(summary: &CliReplaySummary) -> String {
+    format!(
+        "trace: {}\nevents: {}\nassistant:\n{}\n",
+        summary.trace_id, summary.event_count, summary.assistant_text
+    )
 }
 
 fn load_transcript_snapshot(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<ClientSnapshot> {
