@@ -3,6 +3,7 @@ use futures::{stream, Stream};
 use reqwest::StatusCode;
 use serde_json::{json, Value};
 use std::pin::Pin;
+use std::time::Duration;
 use tessera_protocol::{
     CostEstimate, ErrorSource, ExtensionMap, ItemId, ModelProfileId, NormalizedError,
     ProviderCapability, ProviderId, RunEvent,
@@ -53,7 +54,7 @@ pub mod mock {
             } else {
                 format!("{} to: {}", self.response_prefix, request.prompt)
             };
-            let events = vec![
+            let events: Vec<std::result::Result<RunEvent, ProviderError>> = vec![
                 Ok(RunEvent::AssistantMessageStarted {
                     item_id: assistant_item_id.clone(),
                 }),
@@ -86,6 +87,15 @@ pub mod mock {
                     latency_ms: Some(0),
                 }),
             ];
+
+            if request.model == "mock-slow" {
+                return Ok(Box::pin(async_stream::try_stream! {
+                    for event in events {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        yield event?;
+                    }
+                }));
+            }
 
             Ok(Box::pin(stream::iter(events)))
         }

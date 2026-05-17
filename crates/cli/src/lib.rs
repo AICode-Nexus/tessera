@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tessera_client::{ClientMessage, ClientMessageRole, ClientSnapshot};
 use tessera_config::{ProviderProfile, TesseraConfig};
@@ -20,6 +21,7 @@ use tessera_providers::{
 };
 use tessera_storage::TraceStore;
 use tessera_tui::{ChatViewState, LiveClientEvent};
+use tokio::sync::mpsc;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DoctorReport {
@@ -848,7 +850,7 @@ pub async fn run_chat_repl_with_config(
         config,
         provider_id,
         None,
-        stdin.lock(),
+        BufReader::new(stdin),
         stdout.lock(),
     )
     .await?;
@@ -868,7 +870,7 @@ pub async fn run_chat_repl_with_config_and_resume(
         config,
         provider_id,
         resume_trace_id,
-        stdin.lock(),
+        BufReader::new(stdin),
         stdout.lock(),
     )
     .await?;
@@ -883,10 +885,51 @@ pub async fn run_chat_repl_with_io<R, W>(
     output: W,
 ) -> Result<ClientSnapshot>
 where
-    R: BufRead,
+    R: BufRead + Send + 'static,
     W: Write,
 {
     run_chat_repl_with_io_and_resume(data_dir, config, provider_id, None, input, output).await
+}
+
+const REPL_LINE_BUFFER_CAPACITY: usize = 128;
+
+type ReplLineReceiver = mpsc::Receiver<io::Result<String>>;
+
+fn spawn_repl_line_reader<R>(mut input: R) -> ReplLineReceiver
+where
+    R: BufRead + Send + 'static,
+{
+    let (sender, receiver) = mpsc::channel(REPL_LINE_BUFFER_CAPACITY);
+    thread::spawn(move || loop {
+        let mut line = String::new();
+        match input.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                if sender.blocking_send(Ok(line)).is_err() {
+                    break;
+                }
+            }
+            Err(error) => {
+                let _ = sender.blocking_send(Err(error));
+                break;
+            }
+        }
+    });
+    receiver
+}
+
+async fn next_repl_line(
+    input_lines: &mut ReplLineReceiver,
+    pending_lines: &mut VecDeque<String>,
+) -> Result<Option<String>> {
+    if let Some(line) = pending_lines.pop_front() {
+        return Ok(Some(line));
+    }
+    match input_lines.recv().await {
+        Some(Ok(line)) => Ok(Some(line)),
+        Some(Err(error)) => Err(error.into()),
+        None => Ok(None),
+    }
 }
 
 pub async fn run_chat_repl_with_io_and_resume<R, W>(
@@ -894,13 +937,15 @@ pub async fn run_chat_repl_with_io_and_resume<R, W>(
     config: TesseraConfig,
     provider_id: String,
     resume_trace_id: Option<String>,
-    mut input: R,
+    input: R,
     mut output: W,
 ) -> Result<ClientSnapshot>
 where
-    R: BufRead,
+    R: BufRead + Send + 'static,
     W: Write,
 {
+    let mut input_lines = spawn_repl_line_reader(input);
+    let mut pending_lines = VecDeque::new();
     let mut session = CliReplSession::new(&config, &provider_id)?;
     for line in repl_startup_lines(&data_dir, &config, &provider_id) {
         writeln!(output, "{line}")?;
@@ -916,7 +961,6 @@ where
         }
     }
 
-    let mut line = String::new();
     loop {
         write!(
             output,
@@ -925,10 +969,9 @@ where
         )?;
         output.flush()?;
 
-        line.clear();
-        if input.read_line(&mut line)? == 0 {
+        let Some(line) = next_repl_line(&mut input_lines, &mut pending_lines).await? else {
             break;
-        }
+        };
         let user_input = line.trim();
         if user_input.is_empty() {
             continue;
@@ -943,11 +986,11 @@ where
                     write!(output, "paste> ")?;
                     output.flush()?;
 
-                    line.clear();
-                    if input.read_line(&mut line)? == 0 {
+                    let Some(line) = next_repl_line(&mut input_lines, &mut pending_lines).await?
+                    else {
                         should_quit = true;
                         break;
-                    }
+                    };
                     let pasted_line = line.trim_end_matches(['\r', '\n']);
                     match pasted_line {
                         "/send" => {
@@ -960,6 +1003,8 @@ where
                                     &mut session,
                                     pasted,
                                     &mut output,
+                                    &mut input_lines,
+                                    &mut pending_lines,
                                 )
                                 .await?;
                             }
@@ -1005,6 +1050,8 @@ where
             &mut session,
             user_input.to_string(),
             &mut output,
+            &mut input_lines,
+            &mut pending_lines,
         )
         .await?;
     }
@@ -1018,32 +1065,76 @@ async fn run_repl_prompt_and_write<W>(
     session: &mut CliReplSession,
     prompt: String,
     output: &mut W,
+    input_lines: &mut ReplLineReceiver,
+    pending_lines: &mut VecDeque<String>,
 ) -> Result<()>
 where
     W: Write,
 {
     write!(output, "assistant> ")?;
     output.flush()?;
-    let mut write_error = None;
-    let result = run_repl_prompt_with_writer(data_dir, config, session, prompt, |delta| {
-        if write_error.is_some() {
-            return;
+
+    let cancellation_token = RunCancellationToken::new();
+    let controls = RunControls {
+        event_timeout: None,
+        cancellation_token: Some(cancellation_token.clone()),
+    };
+    let (delta_tx, mut delta_rx) = mpsc::unbounded_channel::<String>();
+    let run = run_repl_prompt_with_writer_and_controls(
+        data_dir,
+        config,
+        session,
+        prompt,
+        controls,
+        move |delta| {
+            let _ = delta_tx.send(delta.to_string());
+        },
+    );
+    tokio::pin!(run);
+    let mut input_closed = false;
+    let mut cancel_announced = false;
+
+    loop {
+        tokio::select! {
+            result = &mut run => {
+                while let Ok(delta) = delta_rx.try_recv() {
+                    write!(output, "{delta}")?;
+                    output.flush()?;
+                }
+                result?;
+                writeln!(output)?;
+                return Ok(());
+            }
+            maybe_delta = delta_rx.recv() => {
+                if let Some(delta) = maybe_delta {
+                    write!(output, "{delta}")?;
+                    output.flush()?;
+                }
+            }
+            maybe_line = input_lines.recv(), if !input_closed => {
+                match maybe_line {
+                    Some(Ok(line)) => {
+                        if pending_lines.is_empty()
+                            && matches!(parse_repl_command(line.trim()), Some(CliReplCommand::Cancel))
+                        {
+                            cancellation_token.cancel("cli repl cancel requested");
+                            if !cancel_announced {
+                                writeln!(output, "\ncancel requested")?;
+                                output.flush()?;
+                                cancel_announced = true;
+                            }
+                        } else {
+                            pending_lines.push_back(line);
+                        }
+                    }
+                    Some(Err(error)) => return Err(error.into()),
+                    None => {
+                        input_closed = true;
+                    }
+                }
+            }
         }
-        if let Err(error) = write!(output, "{delta}") {
-            write_error = Some(error);
-            return;
-        }
-        if let Err(error) = output.flush() {
-            write_error = Some(error);
-        }
-    })
-    .await;
-    if let Some(error) = write_error {
-        return Err(error.into());
     }
-    result?;
-    writeln!(output)?;
-    Ok(())
 }
 
 pub fn repl_startup_lines(

@@ -1,7 +1,11 @@
-use std::io::Write;
+use std::{
+    collections::VecDeque,
+    io::{self, Read, Write},
+    time::Duration,
+};
 
 use tessera_cli::{
-    build_tui_state_with_config, list_sessions, parse_repl_command, resolve_config,
+    build_tui_state_with_config, list_events, list_sessions, parse_repl_command, resolve_config,
     resolve_data_dir_with_config, run_chat_mock, run_chat_repl_with_io_and_resume,
     run_chat_with_config, run_chat_with_config_and_controls_and_events,
     run_chat_with_config_and_events, run_doctor, run_repl_prompt_with_writer,
@@ -10,6 +14,68 @@ use tessera_cli::{
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{EventSinkAction, RunCancellationToken, RunControls};
 use tessera_protocol::RunEvent;
+
+struct DelayedLineReader {
+    lines: VecDeque<(Duration, String)>,
+    buffer: Vec<u8>,
+    offset: usize,
+}
+
+impl DelayedLineReader {
+    fn new<I, S>(lines: I) -> Self
+    where
+        I: IntoIterator<Item = (Duration, S)>,
+        S: Into<String>,
+    {
+        Self {
+            lines: lines
+                .into_iter()
+                .map(|(delay, line)| (delay, line.into()))
+                .collect(),
+            buffer: Vec::new(),
+            offset: 0,
+        }
+    }
+
+    fn refill(&mut self) {
+        if self.offset < self.buffer.len() {
+            return;
+        }
+        self.buffer.clear();
+        self.offset = 0;
+        let Some((delay, line)) = self.lines.pop_front() else {
+            return;
+        };
+        if !delay.is_zero() {
+            std::thread::sleep(delay);
+        }
+        self.buffer.extend_from_slice(line.as_bytes());
+    }
+}
+
+impl Read for DelayedLineReader {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        self.refill();
+        if self.offset >= self.buffer.len() {
+            return Ok(0);
+        }
+        let len = output.len().min(self.buffer.len() - self.offset);
+        output[..len].copy_from_slice(&self.buffer[self.offset..self.offset + len]);
+        self.offset += len;
+        Ok(len)
+    }
+}
+
+impl io::BufRead for DelayedLineReader {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        self.refill();
+        Ok(&self.buffer[self.offset..])
+    }
+
+    fn consume(&mut self, amount: usize) {
+        self.offset = (self.offset + amount).min(self.buffer.len());
+    }
+}
 
 #[test]
 fn version_output_reports_crate_version_and_git_sha() {
@@ -753,6 +819,54 @@ async fn repl_paste_mode_submits_multiline_prompt_and_can_cancel() {
         .messages
         .iter()
         .any(|message| message.content.contains("ignored pasted line")));
+}
+
+#[tokio::test]
+async fn repl_cancel_interrupts_active_run_and_records_cancelled_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-slow".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let mut output = Vec::new();
+
+    let snapshot = run_chat_repl_with_io_and_resume(
+        temp.path().to_path_buf(),
+        config,
+        "offline".to_string(),
+        None,
+        DelayedLineReader::new([
+            (Duration::ZERO, "cancel this slow run\n"),
+            (Duration::from_millis(20), "/cancel\n"),
+            (Duration::ZERO, "/quit\n"),
+        ]),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(stdout.contains("cancel requested"));
+    assert!(!stdout.contains("no active run to cancel"));
+    assert_eq!(snapshot.status.task_summary, "task cancelled");
+
+    let sessions = list_sessions(temp.path()).unwrap();
+    assert_eq!(sessions.len(), 1);
+    let event_page = list_events(temp.path(), &sessions[0].trace_id, None, None).unwrap();
+    let event_kinds = event_page
+        .records
+        .iter()
+        .map(|record| record.event_kind.as_str())
+        .collect::<Vec<_>>();
+    assert!(event_kinds.contains(&"provider_request_started"));
+    assert!(event_kinds.contains(&"task_cancelled"));
+    assert!(!event_kinds.contains(&"task_completed"));
 }
 
 #[test]
