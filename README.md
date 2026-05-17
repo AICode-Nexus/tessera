@@ -4,7 +4,7 @@ Tessera is a model-agnostic, agent-ready terminal workbench built on typed event
 
 ## Current Status
 
-This repository now has the v0.1 Rust workspace scaffold and a mock-driven runtime slice. The current implementation is intentionally narrow: protocol types, shared client projection, trace storage, provider adapters, core conversation loop, `doctor --json`, safe config initialization and validation, one-shot and interactive CLI `chat` with trace-backed session listing/resume that continues with restored user/assistant history, provider profile listing, transcript/replay/event inspection commands, a minimal Ratatui terminal chat loop with profile switching and live core event delivery, early v0.2 GUI work over mock/replay projection and generated TypeScript DTOs, plus v0.3/v0.4 foundation metadata/projection for tool policy, approvals, memory proposal review, diagnostics events, MCP tool metadata adaptation, ordered tool results, repair telemetry, workspace guardrail decisions, OS sandbox profile planning, checkpoint metadata planning, and read-only runtime API JSON/SSE shaping without tool execution.
+This repository now has the v0.1 Rust workspace scaffold and a mock-driven runtime slice. The current implementation is intentionally narrow: protocol types, shared client projection, trace storage, provider adapters, core conversation loop, `doctor` / `doctor --json`, safe config initialization and validation, one-shot and interactive CLI `chat` with trace-backed session listing/resume that continues with restored user/assistant history, provider profile listing, transcript/replay/event inspection commands, a minimal Ratatui terminal chat loop with profile switching and live core event delivery, early v0.2 GUI work over mock/replay projection and generated TypeScript DTOs, plus v0.3/v0.4 foundation metadata/projection for tool policy, approvals, memory proposal review, diagnostics events, MCP tool metadata adaptation, ordered tool results, repair telemetry, workspace guardrail decisions, OS sandbox profile planning, checkpoint metadata planning, and read-only runtime API JSON/SSE shaping without tool execution.
 
 ## Design Goals
 
@@ -59,6 +59,7 @@ PATH="$HOME/.cargo/bin:$PATH" cargo fmt --all -- --check
 Run the current mock path:
 
 ```bash
+PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- doctor
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- doctor --json
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- init --config ./tessera.toml
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- profiles
@@ -86,6 +87,8 @@ default_model = "mock-chat"
 ```
 
 ```bash
+PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- doctor --config ./tessera.toml
+PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- doctor --config ./tessera.toml --json
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --prompt "hello"
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --prompt "hello" --json
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- config validate --config ./tessera.toml
@@ -107,7 +110,7 @@ PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tesser
 PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --continue
 ```
 
-Use `chat --stdin` to pipe a prompt into one-shot chat, or `chat --file <path>` to read a prompt from a UTF-8 file. Add `--json` to a one-shot chat command to emit `trace_id` and `assistant_text` for scripts. Use `tessera config validate` to check provider shape, duplicate IDs, resolved data dir, and configured secret env presence without touching storage or printing secret values. Use `tessera profiles` to inspect configured provider profiles without exposing secret values, `tessera sessions` to list trace-backed sessions, `tessera transcript <trace_id>` to inspect one without entering the REPL, `tessera replay <trace_id>` to reconstruct a trace summary without provider access, and `tessera events <trace_id>` to page raw trace events with `--since` / `--limit`. In interactive `chat` mode, use `/help`, `/new`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id>`, `/status`, `/export`, and `/quit`. You can also start directly from a prior trace with `chat --resume <trace_id>` or resume the most recent trace with `chat --continue`. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
+Use `chat --stdin` to pipe a prompt into one-shot chat, or `chat --file <path>` to read a prompt from a UTF-8 file. Add `--json` to a one-shot chat command to emit `trace_id` and `assistant_text` for scripts. Use `tessera doctor` to inspect resolved runtime health, trace writability, SQLite index health, and provider profile IDs in a readable form. Use `tessera config validate` to check provider shape, duplicate IDs, resolved data dir, and configured secret env presence without touching storage or printing secret values. Use `tessera profiles` to inspect configured provider profiles without exposing secret values, `tessera sessions` to list trace-backed sessions, `tessera transcript <trace_id>` to inspect one without entering the REPL, `tessera replay <trace_id>` to reconstruct a trace summary without provider access, and `tessera events <trace_id>` to page raw trace events with `--since` / `--limit`. In interactive `chat` mode, use `/help`, `/new`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id>`, `/status`, `/export`, and `/quit`. You can also start directly from a prior trace with `chat --resume <trace_id>` or resume the most recent trace with `chat --continue`. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
 
 Run the GUI shell spike:
 

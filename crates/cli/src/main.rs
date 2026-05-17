@@ -158,7 +158,9 @@ async fn main() -> anyhow::Result<()> {
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                println!("status: {}", report.status);
+                for line in tessera_cli::format_doctor_lines(&report) {
+                    println!("{line}");
+                }
             }
         }
         Commands::Sessions {

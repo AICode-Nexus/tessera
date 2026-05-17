@@ -141,6 +141,48 @@ async fn doctor_json_reports_trace_and_sqlite_health() {
         .any(|profile| profile == "mock"));
 }
 
+#[test]
+fn doctor_text_reports_runtime_health_details() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+
+[[providers]]
+id = "local"
+kind = "ollama"
+default_model = "llama3"
+base_url = "http://localhost:11434"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["doctor", "--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("status: ok"));
+    assert!(stdout.contains(&format!("data_dir: {}", data_dir.display())));
+    assert!(stdout.contains("trace_writable: true"));
+    assert!(stdout.contains("sqlite_index_healthy: true"));
+    assert!(stdout.contains("provider_profiles: offline, local"));
+}
+
 #[tokio::test]
 async fn chat_command_path_runs_mock_provider() {
     let temp = tempfile::tempdir().unwrap();

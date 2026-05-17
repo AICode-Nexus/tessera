@@ -78,7 +78,7 @@
 
 ### CLI
 
-- [x] `tessera doctor --json`。
+- [x] `tessera doctor` / `tessera doctor --json`：文本输出包含 status、data_dir、trace writable、SQLite index health、provider profile IDs，JSON 保持脚本友好。
 - [x] `tessera chat --provider mock --prompt ...`。
 - [x] `tessera chat --stdin`：支持从 stdin 管道读取单轮 prompt，便于脚本组合。
 - [x] `tessera chat --file <path>`：支持从 UTF-8 文件读取单轮 prompt，便于脚本、文档和批处理请求组合。
@@ -166,6 +166,7 @@
 29. [x] CLI events command：`tessera events <trace_id> [--json] [--since <seq>] [--limit <n>]` 已接入 `RuntimeReader::list_events`，可分页检查 trace event records。
 30. [x] CLI profiles command：`tessera profiles [--json]` 已接入 config resolution，可只读列出 provider id/kind/default_model/base_url/api_key_env 名称。
 31. [x] CLI config validate command：`tessera config validate [--json]` 已接入 config/data-dir resolution，可在 chat/tui 前只读检查 provider config 和 secret env presence。
+32. [x] CLI doctor text details：`tessera doctor` 已输出 data_dir、trace_writable、sqlite_index_healthy 和 provider_profiles，和 `--json` 共享同一个 `DoctorReport`。
 
 ## 4. v0.2 Checklist
 

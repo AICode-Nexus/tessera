@@ -165,6 +165,23 @@ impl From<RuntimeSessionSummary> for CliSessionSummary {
     }
 }
 
+pub fn format_doctor_lines(report: &DoctorReport) -> Vec<String> {
+    vec![
+        format!("status: {}", report.status),
+        format!("data_dir: {}", report.data_dir),
+        format!("trace_writable: {}", report.trace_writable),
+        format!("sqlite_index_healthy: {}", report.sqlite_index_healthy),
+        format!(
+            "provider_profiles: {}",
+            if report.provider_profiles.is_empty() {
+                "none".to_string()
+            } else {
+                report.provider_profiles.join(", ")
+            }
+        ),
+    ]
+}
+
 pub type Result<T> = anyhow::Result<T>;
 
 pub const VERSION_TEXT: &str = concat!(
