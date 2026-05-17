@@ -35,6 +35,12 @@ enum Commands {
         #[arg(long)]
         data_dir: Option<PathBuf>,
     },
+    Profiles {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
     Transcript {
         trace_id: String,
         #[arg(long)]
@@ -130,6 +136,17 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&sessions)?);
             } else {
                 for line in tessera_cli::format_session_lines(&sessions) {
+                    println!("{line}");
+                }
+            }
+        }
+        Commands::Profiles { json, config } => {
+            let config = tessera_cli::resolve_config(config)?;
+            let profiles = tessera_cli::list_profiles(&config);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&profiles)?);
+            } else {
+                for line in tessera_cli::format_profile_lines(&profiles) {
                     println!("{line}");
                 }
             }

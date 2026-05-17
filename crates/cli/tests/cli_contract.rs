@@ -60,6 +60,19 @@ fn sessions_help_lists_json_and_data_options() {
 }
 
 #[test]
+fn profiles_help_lists_json_and_config_options() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["profiles", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--json"));
+    assert!(stdout.contains("--config"));
+}
+
+#[test]
 fn transcript_help_lists_trace_id_and_json_option() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
         .args(["transcript", "--help"])
@@ -943,6 +956,68 @@ default_model = "mock-chat"
         .as_str()
         .unwrap()
         .is_empty());
+}
+
+#[test]
+fn profiles_command_lists_configured_profiles_without_secret_values() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+data_dir = "./data"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+
+[[providers]]
+id = "remote"
+kind = "openai-compatible"
+default_model = "test-model"
+base_url = "https://example.invalid/v1"
+api_key_env = "TESSERA_TEST_PROFILE_SECRET"
+"#,
+    )
+    .unwrap();
+
+    let text_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["profiles", "--config"])
+        .arg(&config_path)
+        .env("TESSERA_TEST_PROFILE_SECRET", "super-secret-profile-key")
+        .output()
+        .unwrap();
+
+    assert!(text_output.status.success());
+    let text = String::from_utf8(text_output.stdout).unwrap();
+    assert!(text.contains("offline | mock | model mock-chat"));
+    assert!(text.contains("remote | openai-compatible | model test-model"));
+    assert!(text.contains("base_url https://example.invalid/v1"));
+    assert!(text.contains("api_key_env TESSERA_TEST_PROFILE_SECRET"));
+    assert!(!text.contains("super-secret-profile-key"));
+
+    let json_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["profiles", "--config"])
+        .arg(&config_path)
+        .arg("--json")
+        .env("TESSERA_TEST_PROFILE_SECRET", "super-secret-profile-key")
+        .output()
+        .unwrap();
+
+    assert!(json_output.status.success());
+    let profiles: serde_json::Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    assert_eq!(profiles[0]["id"], "offline");
+    assert_eq!(profiles[0]["kind"], "mock");
+    assert_eq!(profiles[0]["default_model"], "mock-chat");
+    assert_eq!(profiles[0]["base_url"], serde_json::Value::Null);
+    assert_eq!(profiles[0]["api_key_env"], serde_json::Value::Null);
+    assert_eq!(profiles[1]["id"], "remote");
+    assert_eq!(profiles[1]["base_url"], "https://example.invalid/v1");
+    assert_eq!(profiles[1]["api_key_env"], "TESSERA_TEST_PROFILE_SECRET");
+    assert!(!String::from_utf8(json_output.stdout)
+        .unwrap()
+        .contains("super-secret-profile-key"));
 }
 
 #[tokio::test]

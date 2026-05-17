@@ -65,6 +65,15 @@ pub struct CliEventPage {
     pub next_since_seq: Option<u64>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliProviderProfile {
+    pub id: String,
+    pub kind: String,
+    pub default_model: String,
+    pub base_url: Option<String>,
+    pub api_key_env: Option<String>,
+}
+
 impl From<ConversationOutcome> for CliChatOutput {
     fn from(outcome: ConversationOutcome) -> Self {
         Self {
@@ -91,6 +100,18 @@ impl From<tessera_core::RuntimeEventPage> for CliEventPage {
             trace_id: page.trace_id,
             records: page.records,
             next_since_seq: page.next_since_seq,
+        }
+    }
+}
+
+impl From<&ProviderProfile> for CliProviderProfile {
+    fn from(profile: &ProviderProfile) -> Self {
+        Self {
+            id: profile.id.clone(),
+            kind: profile.kind.clone(),
+            default_model: profile.default_model.clone(),
+            base_url: profile.base_url.clone(),
+            api_key_env: profile.api_key_env.clone(),
         }
     }
 }
@@ -412,6 +433,32 @@ pub fn format_event_lines(page: &CliEventPage) -> Vec<String> {
             .unwrap_or_else(|| "none".to_string())
     ));
     lines
+}
+
+pub fn list_profiles(config: &TesseraConfig) -> Vec<CliProviderProfile> {
+    config
+        .providers
+        .iter()
+        .map(CliProviderProfile::from)
+        .collect()
+}
+
+pub fn format_profile_lines(profiles: &[CliProviderProfile]) -> Vec<String> {
+    if profiles.is_empty() {
+        return vec!["no provider profiles configured".to_string()];
+    }
+
+    profiles
+        .iter()
+        .map(|profile| {
+            let base_url = profile.base_url.as_deref().unwrap_or("none");
+            let api_key_env = profile.api_key_env.as_deref().unwrap_or("none");
+            format!(
+                "{} | {} | model {} | base_url {} | api_key_env {}",
+                profile.id, profile.kind, profile.default_model, base_url, api_key_env
+            )
+        })
+        .collect()
 }
 
 fn load_transcript_snapshot(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<ClientSnapshot> {
