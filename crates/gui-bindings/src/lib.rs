@@ -3,14 +3,15 @@
 use std::{fs, path::Path};
 
 use tessera_client::{
-    ClientApproval, ClientApprovalStatus, ClientArtifact, ClientIntent, ClientMemoryProposal,
-    ClientMemoryProposalStatus, ClientMessage, ClientMessageRole, ClientProjection, ClientSnapshot,
-    ClientStatus, ClientTask, ClientTelemetrySummary,
+    ClientApproval, ClientApprovalStatus, ClientArtifact, ClientContextBudgetSummary,
+    ClientContextHandle, ClientContextPlacement, ClientContextSourceKind, ClientIntent,
+    ClientMemoryProposal, ClientMemoryProposalStatus, ClientMessage, ClientMessageRole,
+    ClientProjection, ClientSnapshot, ClientStatus, ClientTask, ClientTelemetrySummary,
 };
 use tessera_gui_bridge::{GuiCommandOutcome, GuiEvent, GuiProfile, GuiRuntimeMode, GuiShellState};
 use tessera_protocol::{
-    ApprovalId, ArtifactId, ArtifactKind, EventId, ItemId, MemoryProposalId, TaskId, TaskKind,
-    TaskStatus, ThreadId, Timestamp, ToolCallId, ToolId, TraceRecord, TurnId,
+    ApprovalId, ArtifactId, ArtifactKind, ContextId, EventId, ItemId, MemoryProposalId, TaskId,
+    TaskKind, TaskStatus, ThreadId, Timestamp, ToolCallId, ToolId, TraceRecord, TurnId,
 };
 use ts_rs::{Config, TS};
 
@@ -32,6 +33,10 @@ pub fn generate_bindings() -> String {
     push_decl::<ClientApproval>(&mut output, &cfg);
     push_decl::<ClientApprovalStatus>(&mut output, &cfg);
     push_decl::<ClientArtifact>(&mut output, &cfg);
+    push_decl::<ClientContextBudgetSummary>(&mut output, &cfg);
+    push_decl::<ClientContextHandle>(&mut output, &cfg);
+    push_decl::<ClientContextPlacement>(&mut output, &cfg);
+    push_decl::<ClientContextSourceKind>(&mut output, &cfg);
     push_decl::<ClientIntent>(&mut output, &cfg);
     push_decl::<ClientMemoryProposal>(&mut output, &cfg);
     push_decl::<ClientMemoryProposalStatus>(&mut output, &cfg);
@@ -42,6 +47,7 @@ pub fn generate_bindings() -> String {
     push_decl::<ClientStatus>(&mut output, &cfg);
     push_decl::<ClientTask>(&mut output, &cfg);
     push_decl::<ClientTelemetrySummary>(&mut output, &cfg);
+    push_decl::<ContextId>(&mut output, &cfg);
     push_decl::<EventId>(&mut output, &cfg);
     push_decl::<GuiCommandOutcome>(&mut output, &cfg);
     push_decl::<GuiEvent>(&mut output, &cfg);

@@ -2,10 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 use tessera_protocol::{
-    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, EventFrame, ItemId, MemoryProposal,
-    MemoryProposalId, MemoryProposalStatus, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId,
-    Timestamp, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
-    ToolSideEffect, TraceRecord, TurnId,
+    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, ContextId, ContextPlacement,
+    ContextReference, ContextSourceKind, EventFrame, ItemId, MemoryProposal, MemoryProposalId,
+    MemoryProposalStatus, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId, Timestamp,
+    ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect,
+    TraceRecord, TurnId,
 };
 
 /// User intent shared by CLI/TUI/GUI surfaces before it reaches runtime code.
@@ -146,6 +147,98 @@ impl ClientArtifact {
             .any(|existing| existing == event_kind)
         {
             self.referenced_by_event_kinds.push(event_kind.to_string());
+        }
+    }
+}
+
+/// UI-neutral context source kind shared by client shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientContextSourceKind {
+    File,
+    Directory,
+    Workspace,
+    Artifact,
+    Trace,
+    Inline,
+    Url,
+}
+
+impl From<ContextSourceKind> for ClientContextSourceKind {
+    fn from(kind: ContextSourceKind) -> Self {
+        match kind {
+            ContextSourceKind::File => Self::File,
+            ContextSourceKind::Directory => Self::Directory,
+            ContextSourceKind::Workspace => Self::Workspace,
+            ContextSourceKind::Artifact => Self::Artifact,
+            ContextSourceKind::Trace => Self::Trace,
+            ContextSourceKind::Inline => Self::Inline,
+            ContextSourceKind::Url => Self::Url,
+        }
+    }
+}
+
+/// UI-neutral context placement shared by client shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientContextPlacement {
+    StablePrefix,
+    AppendOnlyTranscript,
+    VolatileScratch,
+}
+
+impl From<ContextPlacement> for ClientContextPlacement {
+    fn from(placement: ContextPlacement) -> Self {
+        match placement {
+            ContextPlacement::StablePrefix => Self::StablePrefix,
+            ContextPlacement::AppendOnlyTranscript => Self::AppendOnlyTranscript,
+            ContextPlacement::VolatileScratch => Self::VolatileScratch,
+        }
+    }
+}
+
+/// Client-side context budget summary kept independent from core crate boundaries.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientContextBudgetSummary {
+    pub max_tokens: u64,
+    pub reserved_output_tokens: u64,
+    pub available_tokens: u64,
+    pub used_tokens: u64,
+    pub remaining_tokens: u64,
+    pub stable_prefix_tokens: u64,
+    pub append_only_transcript_tokens: u64,
+    pub volatile_scratch_tokens: u64,
+    pub over_budget: bool,
+}
+
+/// UI-neutral context handle projection shared by terminal and future GUI shells.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientContextHandle {
+    pub context_id: ContextId,
+    pub source_kind: ClientContextSourceKind,
+    pub source_uri: Option<String>,
+    pub label: Option<String>,
+    pub placement: ClientContextPlacement,
+    pub estimated_tokens: u64,
+    pub pinned: bool,
+    pub summary: Option<String>,
+}
+
+impl ClientContextHandle {
+    fn from_reference(reference: ContextReference) -> Self {
+        Self {
+            context_id: reference.id,
+            source_kind: reference.source.kind.into(),
+            source_uri: reference.source.uri,
+            label: reference.source.label,
+            placement: reference.placement.into(),
+            estimated_tokens: reference.estimated_tokens,
+            pinned: reference.pinned,
+            summary: reference.summary,
         }
     }
 }
@@ -442,6 +535,8 @@ pub struct ClientStatus {
     pub cost_summary: String,
     pub context_summary: String,
     #[serde(default)]
+    pub context_handles_summary: String,
+    #[serde(default)]
     pub telemetry: ClientTelemetrySummary,
 }
 
@@ -480,6 +575,10 @@ impl ClientStatus {
             cache_summary: "cache 0/0".to_string(),
             cost_summary: "CNY 0.0000".to_string(),
             context_summary: "ctx 0 tokens".to_string(),
+            context_handles_summary: context_handles_summary(
+                0,
+                &ClientContextBudgetSummary::default(),
+            ),
             telemetry: ClientTelemetrySummary::default(),
         }
     }
@@ -556,6 +655,14 @@ impl ClientStatus {
             .filter(|proposal| proposal.status == ClientMemoryProposalStatus::Pending)
             .count();
         self.memory_summary = format!("memory {pending} pending");
+    }
+
+    fn update_context_handles_summary(
+        &mut self,
+        handles: &[ClientContextHandle],
+        summary: &ClientContextBudgetSummary,
+    ) {
+        self.context_handles_summary = context_handles_summary(handles.len(), summary);
     }
 }
 
@@ -712,6 +819,8 @@ pub struct ClientSnapshot {
     pub artifacts: Vec<ClientArtifact>,
     pub approvals: Vec<ClientApproval>,
     pub memory_proposals: Vec<ClientMemoryProposal>,
+    #[serde(default)]
+    pub context_handles: Vec<ClientContextHandle>,
     pub draft_input: String,
 }
 
@@ -734,6 +843,7 @@ impl ClientSnapshot {
             artifacts: Vec::new(),
             approvals: Vec::new(),
             memory_proposals: Vec::new(),
+            context_handles: Vec::new(),
             draft_input: String::new(),
         }
     }
@@ -780,6 +890,18 @@ impl ClientSnapshot {
 
     pub fn cycle_profile(&mut self, offset: isize) -> Option<ClientIntent> {
         self.status.cycle_profile(offset)
+    }
+
+    pub fn set_context_handles<I>(&mut self, references: I, summary: ClientContextBudgetSummary)
+    where
+        I: IntoIterator<Item = ContextReference>,
+    {
+        self.context_handles = references
+            .into_iter()
+            .map(ClientContextHandle::from_reference)
+            .collect();
+        self.status
+            .update_context_handles_summary(&self.context_handles, &summary);
     }
 
     pub fn apply_event(&mut self, frame: &EventFrame) {
@@ -1143,12 +1265,17 @@ impl ClientSnapshot {
         self.artifacts.clear();
         self.approvals.clear();
         self.memory_proposals.clear();
+        self.context_handles.clear();
         self.draft_input.clear();
         self.status.reset_telemetry();
         self.status.update_task_summary(&self.tasks);
         self.status.update_artifact_summary(&self.artifacts);
         self.status.update_approval_summary(&self.approvals);
         self.status.update_memory_summary(&self.memory_proposals);
+        self.status.update_context_handles_summary(
+            &self.context_handles,
+            &ClientContextBudgetSummary::default(),
+        );
     }
 
     pub fn push_notice(&mut self, content: impl Into<String>) {
@@ -1504,6 +1631,17 @@ fn latest_task_summary(tasks: &[ClientTask]) -> String {
     };
 
     format!("task {}", task_status_label(&task.status))
+}
+
+fn context_handles_summary(handle_count: usize, summary: &ClientContextBudgetSummary) -> String {
+    let mut label = format!(
+        "context {handle_count} handles / {}/{} tokens",
+        summary.used_tokens, summary.available_tokens
+    );
+    if summary.over_budget {
+        label.push_str(" over budget");
+    }
+    label
 }
 
 fn task_status_label(status: &TaskStatus) -> &'static str {

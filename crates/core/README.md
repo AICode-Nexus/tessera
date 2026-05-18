@@ -30,7 +30,7 @@ It includes an `OsSandboxPlanner` that maps tool descriptors to read-only, works
 
 It includes a `WorkspaceCheckpointPlanner` that creates checkpoint metadata for sandbox profiles that require checkpoints. It does not create side-git state, read or write workspace files, restore snapshots, or revert changes.
 
-It includes a pure in-memory `ContextWorkbench` for managing context references and token budget summaries across stable prefix, append-only transcript, and volatile scratch placement. It does not read files or build provider prompts.
+It includes a pure in-memory `ContextWorkbench` for managing context references and token budget summaries across stable prefix, append-only transcript, and volatile scratch placement. Its read-only projection helper exposes context handles plus budget summary for client shells. It does not read files, canonicalize URIs, build provider prompts, or write context trace events.
 
 It also exposes read-only runtime API foundations: `RuntimeReader` can page trace events, query indexed runtime object IDs, and rebuild task/artifact/snapshot summaries through the core boundary, while `RuntimeHttpApi` can shape those event pages as JSON and SSE frames. This is not a listening HTTP server and does not own runtime execution.
 
