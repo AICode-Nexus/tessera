@@ -90,7 +90,7 @@
 - [x] CLI numbered session resume：`sessions` / `/sessions` 文本输出带 1-based 编号，`/resume <number>` 和 `chat --resume <number>` 可按当前 session 排序恢复 trace。
 - [x] CLI REPL multiline input：`/paste` 进入多行 prompt 收集，`/send` 提交到原有 core/provider/chat path，`/cancel` 丢弃本地 buffer。
 - [x] CLI REPL active cancel：普通 REPL 下 `/cancel` 在 provider run 活跃时通过 `RunCancellationToken` 取消运行并记录 `task_cancelled`，无活跃 run 时报告 no active run。
-- [x] CLI pause/resume discovery：`/help`、`/commands`、`chat --list-commands` 展示 `/pause [task_id]` 和 `/resume-task <task_id>`，REPL parser 可识别；idle `/pause` 与 `/resume-task` 保持 metadata-only，active `/pause` 已在后续阶段接入 core pause token。
+- [x] CLI pause/resume discovery：`/help`、`/commands`、`chat --list-commands` 展示 `/pause [task_id]` 和 `/resume-task <task_id>`，REPL parser 可识别；idle `/pause` 保持 metadata-only，active `/pause` 与 CLI chat-only `/resume-task` 已在后续阶段接入。
 - [x] CLI bare entrypoint：裸 `tessera` 默认进入 mock 交互式 REPL；`tessera chat ...` 保留为显式脚本和配置入口。
 - [x] CLI run cancellation controls：config-routed chat helpers 可传入 `RunControls` / `RunCancellationToken`，预取消不会发起 provider request，后续异步 REPL 可复用同一通道。
 - [x] `tessera config validate`：顶层配置自检命令，可输出文本或 `--json`，检查 provider shape、重复 profile id、data_dir resolution 和 secret env 是否存在，不打开 storage、不输出真实 secret。
@@ -122,7 +122,7 @@
 - [x] `/new`、`/save`、`/export` 基础入口：shared client slash-command intent、TUI local handling、markdown projection export。
 - [x] usage/cache/cost live status projection：`tessera-client` 从 `UsageReported` live event 和 replay trace record 更新 UI-neutral `ClientStatus`，TUI 仍只负责渲染。
 - [x] cancel intent foundation：`/cancel` 可生成 UI-neutral `ClientIntent::CancelTask`，TUI Ctrl-C 在有 running task 时分发取消意图，CLI bridge 用 core cancellation token 取消活跃 TUI run。
-- [x] pause/resume intent foundation：`/pause` 和 `/resume-task <task_id>` 生成 UI-neutral `ClientIntent`，TUI 可透传 runtime-facing intent；真实 provider stream 挂起、后台恢复和 checkpoint resume 仍后置。
+- [x] pause/resume intent foundation：`/pause` 和 `/resume-task <task_id>` 生成 UI-neutral `ClientIntent`，TUI 可透传 runtime-facing intent；真实 provider stream 挂起、后台恢复和非 chat checkpoint resume 仍后置。
 - [x] TUI 只订阅 core 事件，不直接依赖 provider SDK 或 SQLite internals。
 
 ### GUI Preparation
@@ -189,7 +189,7 @@
 39. [x] Run cancellation controls：core `RunCancellationToken`、CLI controls-aware helper、client `/cancel` intent、TUI Ctrl-C cancel intent 已接入。
 40. [x] CLI REPL active run cancellation：REPL prompt 执行期间并发读取输入行，`/cancel` 会取消 active token 并写入 `task_cancelled` trace；其他运行中输入会缓冲到当前 run 后处理。
 41. [x] CLI bare entrypoint：`tessera` 无子命令时复用 `chat` 交互路径，默认使用 mock provider 进入 REPL；安装后启动路径缩短到单个命令。
-42. [x] CLI pause/resume discovery：CLI help/list-commands 和 REPL parser 已识别 `/pause [task_id]`、`/resume-task <task_id>`；idle pause/resume-task 仍是 metadata-only，active pause 已接入 core pause token。
+42. [x] CLI pause/resume discovery：CLI help/list-commands 和 REPL parser 已识别 `/pause [task_id]`、`/resume-task <task_id>`；idle pause 仍是 metadata-only，active pause 和 CLI chat-only resume 已接入 core checkpoint path。
 
 ## 4. v0.2 Checklist
 
@@ -229,14 +229,15 @@
 - [x] Agent profile schema foundation：`tessera-protocol` 定义 `AgentProfile` / `AgentProfileId`，`tessera-core` 提供只读 `AgentRegistry` list/find；不启动 agent loop、不激活 skill、不执行 tool。
 - [ ] Single agent loop。
 - [ ] Skill runtime v1。
-- [x] Pause / resume foundation：`task_paused` / `task_resumed` trace metadata、`ClientIntent::PauseTask` / `ResumeTask`、TUI pass-through 和 GUI typed metadata-only handling 已完成；真实 provider stream suspend、background task persistence 和 checkpoint resume 仍后置。
+- [x] Pause / resume foundation：`task_paused` / `task_resumed` trace metadata、`ClientIntent::PauseTask` / `ResumeTask`、TUI pass-through 和 GUI typed metadata-only handling 已完成；真实 provider stream suspend、background task persistence 和非 chat checkpoint resume 仍后置。
 - [x] Suspended/background run resume design：设计已选择 cooperative pause checkpoint + resume envelope 路线，明确不冻结 provider socket；见 `docs/superpowers/specs/2026-05-18-suspended-background-resume-design.md`。
 - [x] Paused task reader projection：`RuntimeReader::list_tasks` 会从 JSONL trace 投影 `task_paused` 为 `Paused`、`task_resumed` 为 `Running`，供只读 runtime APIs 观察暂停/恢复状态；不实现 provider suspension。
 - [x] Core pause signal foundation：`RunPauseToken` 可通过 `RunControls` 请求 core 协作式写入 `task_paused` 并收束当前 trace，不把暂停投影成 cancellation；不写 resume envelope，不实现 provider socket suspension。
-- [x] CLI/TUI active pause wiring：交互式 CLI active `/pause` 和 TUI `PauseTask` runtime handler 已接入 `RunPauseToken`，可记录 `task_paused`；`/resume-task` 仍保持 metadata-only。
+- [x] CLI/TUI active pause wiring：交互式 CLI active `/pause` 和 TUI `PauseTask` runtime handler 已接入 `RunPauseToken`，可记录 `task_paused`；TUI `/resume-task` 仍保持 metadata-only。
 - [x] Chat pause checkpoint envelope：`TaskPauseCheckpoint` / `ResumeMode::FromTraceProjection` / `task_pause_checkpoint_created` 已接入 protocol 和 core pause path，暂停时先写 trace-projection envelope 再写 `task_paused`；不执行 `/resume-task`。
 - [x] Runtime pause checkpoint projection：`RuntimeReader::list_pause_checkpoints` 可从 JSONL trace 重建每个 paused task 的最新 `TaskPauseCheckpoint` 摘要，供后续 chat-only resume 使用；不执行 `/resume-task`，不冻结 provider socket，不做 checkpoint restore。
-- [ ] Suspended/background run resume implementation：chat resume execution、background reattach、checkpoint restore 分阶段实现。
+- [x] Chat-only task resume execution：CLI `/resume-task <task_id>` 可加载 pause checkpoint、从 trace projection 重建 provider-neutral history、启动新的 core chat run，并通过 core `RuntimeTaskResumer` 在原 trace 追加 `task_resumed`；不实现 background reattach、provider socket freezing、workspace checkpoint restore 或非 chat task resume。
+- [ ] Suspended/background run resume implementation：background reattach、checkpoint restore、非 chat task resume 分阶段实现。
 - [x] Context handle projection：`ContextWorkbench::projection` 输出只读 context reference + budget summary，`tessera-client` 投影 `ClientContextHandle` 和 context handle summary，GUI bindings 已生成；不读取 source 内容、不构建 prompt、不写 context trace event。
 - [ ] Persistent sub-agent sessions。
 - [ ] Structured handoff。
