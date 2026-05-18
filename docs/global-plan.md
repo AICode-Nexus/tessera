@@ -230,7 +230,8 @@
 - [ ] Single agent loop。
 - [ ] Skill runtime v1。
 - [x] Pause / resume foundation：`task_paused` / `task_resumed` trace metadata、`ClientIntent::PauseTask` / `ResumeTask`、TUI pass-through 和 GUI typed metadata-only handling 已完成；真实 provider stream suspend、background task persistence 和 checkpoint resume 仍后置。
-- [ ] Suspended/background run resume：真实 provider stream 挂起、后台任务持久化、checkpoint restore 和跨进程恢复。
+- [x] Suspended/background run resume design：设计已选择 cooperative pause checkpoint + resume envelope 路线，明确不冻结 provider socket；见 `docs/superpowers/specs/2026-05-18-suspended-background-resume-design.md`。
+- [ ] Suspended/background run resume implementation：paused task index、core pause signal、chat resume envelope、background reattach、checkpoint restore 分阶段实现。
 - [x] Context handle projection：`ContextWorkbench::projection` 输出只读 context reference + budget summary，`tessera-client` 投影 `ClientContextHandle` 和 context handle summary，GUI bindings 已生成；不读取 source 内容、不构建 prompt、不写 context trace event。
 - [ ] Persistent sub-agent sessions。
 - [ ] Structured handoff。
