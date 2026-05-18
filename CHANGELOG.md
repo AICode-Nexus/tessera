@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added a read-only `RuntimeHttpApi` foundation that wraps `RuntimeReader` event pages as JSON and SSE frames without starting an HTTP server, binding ports, or owning runtime execution.
 - Added provider-neutral diagnostics metadata with `diagnostics_reported` events and a `DiagnosticsReporter` helper for LSP-style ranges without starting LSP servers, compilers, or file reads.
 - Added memory proposal UI foundations with provider-neutral memory proposal events, client pending/applied/rejected projection, `/remember` and `/forget` intents, TUI status rendering, and typed GUI bridge handling without long-term memory writes.
+- Added provider-neutral `AgentProfile` metadata and a read-only `AgentRegistry` foundation without implementing an agent runtime, tool execution, or skill activation.
 - Added an interactive `tessera chat` CLI REPL with `/help`, `/new`, `/profiles`, `/profile <id>`, `/status`, `/export`, and `/quit`, reusing the shared client projection and core event stream without tool or shell execution.
 - Added `tessera init` for a secret-safe local config template plus interactive `/sessions` and `/resume <trace_id>` commands backed by read-only runtime trace summaries and client projection replay.
 - Added provider-neutral chat history plumbing so CLI `/resume` follow-up prompts continue with restored user/assistant transcript while tracing only the new user turn.
@@ -59,6 +60,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added a REPL `/cancel` command that reports when no cancellable run is active, reserving the command for future async run cancellation.
 - Added provider-neutral run cancellation controls in `tessera-core`, controls-aware CLI chat helpers, and shared client/TUI cancel intents so active provider streams can be interrupted without adding tool execution.
 - Added active-run `/cancel` in the interactive CLI REPL by reading input concurrently with provider streaming and routing cancellation through `RunCancellationToken`.
+- Added a bare `tessera` default entrypoint that launches the interactive mock REPL, keeping `tessera chat ...` for explicit and script-friendly workflows.
 
 ## [v0.1.0] - 2026-05-15
 

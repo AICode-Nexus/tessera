@@ -89,6 +89,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - RunEvent。
 - NormalizedError。
 - provider-neutral extension metadata 类型。
+- SkillManifest / AgentProfile / ToolDescriptor 等只读 metadata schema。
 
 允许依赖：
 
@@ -118,6 +119,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - Trace 写入协调。
 - Task/Window 的最小运行时语义。
 - v0.1 reserved type 的行为边界。
+- Skill / agent / tool metadata 的只读 registry foundation。
 
 允许依赖：
 
@@ -135,6 +137,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - API key 明文处理。
 - shell/file/git/http tool 执行。
 - MCP runtime。
+- skill runtime。
 - agent loop 实现。
 
 ### providers

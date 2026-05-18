@@ -320,7 +320,7 @@ v0.1 不实现 agent runtime，但必须从第一天保证 agent 能平滑接入
 - `ToolRepairReport` metadata：tool-call repair 只能记录 provider-neutral 摘要，不能把 provider 原始 reasoning 或 raw text 写进 trace。
 - `SandboxDecision` metadata：workspace path guardrail 必须先写入 provider-neutral trace，再进入后续真实 sandbox/tool runtime。
 - `OsSandboxProfile` metadata：core 可以规划 read-only / workspace-write / network-required / denied profile，但不启动 OS sandbox、不执行工具、不打开网络。
-- `AgentProfile` schema 占位：模型、角色、工具权限、记忆范围、step limit 显式配置。
+- `AgentProfile` schema foundation：模型、角色、工具权限、记忆范围、context scope 和 step limit 显式配置；core 只提供只读 registry，不启动 agent loop。
 - `MemoryProposal` metadata：proposal 可以进入 UI review，但长期 memory runtime 和真实写入必须等待 scope schema、policy 和 trace 边界，避免默认全局污染。
 - `Skill` manifest 兼容 `SKILL.md` frontmatter，后续再扩展 `skill.toml`；v0.2 只读 registry 不执行 skill runtime。
 

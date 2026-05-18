@@ -1,17 +1,17 @@
 use tessera_protocol::{
-    ApprovalId, ApprovalStatus, ArtifactId, ContextBudget, ContextId, ContextPlacement,
-    ContextReference, ContextSource, ContextSourceKind, CostEstimate, Diagnostic, DiagnosticRange,
-    DiagnosticReport, DiagnosticReportId, DiagnosticSeverity, EventFrame, ItemId, MemoryProposal,
-    MemoryProposalId, MemoryProposalStatus, ModelProfileId, NoProgressAction, NoProgressLoop,
-    NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
-    OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
-    ProviderId, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent, SandboxDecision,
-    SandboxDecisionId, SandboxDecisionKind, SkillEntrypoint, SkillEntrypointFormat, SkillId,
-    SkillManifest, SkillPolicy, SkillRequirements, SkillSource, SkillSourceKind, SnapshotId,
-    SnapshotKind, TaskId, ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch,
-    ToolDispatchId, ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind,
-    ToolRepairReport, ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
-    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    AgentProfile, AgentProfileId, ApprovalId, ApprovalStatus, ArtifactId, ContextBudget, ContextId,
+    ContextPlacement, ContextReference, ContextSource, ContextSourceKind, CostEstimate, Diagnostic,
+    DiagnosticRange, DiagnosticReport, DiagnosticReportId, DiagnosticSeverity, EventFrame, ItemId,
+    MemoryProposal, MemoryProposalId, MemoryProposalStatus, ModelProfileId, NoProgressAction,
+    NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork,
+    OsSandboxProfile, OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome,
+    ProviderCapability, ProviderId, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent,
+    SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillEntrypoint,
+    SkillEntrypointFormat, SkillId, SkillManifest, SkillPolicy, SkillRequirements, SkillSource,
+    SkillSourceKind, SnapshotId, SnapshotKind, TaskId, ToolApproval, ToolCallId, ToolCallRequest,
+    ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission, ToolPolicyDecision,
+    ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolResultId, ToolResultStatus,
+    ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 
 #[test]
@@ -191,6 +191,34 @@ fn skill_manifest_schema_is_read_only_and_skill_md_compatible() {
     assert_eq!(value["policy"]["write_files"], "deny");
     assert!(value.get("command").is_none());
     assert!(value.get("executable").is_none());
+}
+
+#[test]
+fn agent_profile_schema_declares_role_scope_and_limits_without_runtime_execution() {
+    let profile = AgentProfile {
+        id: AgentProfileId::from_static("agent_profile_reviewer"),
+        name: "Reviewer".to_string(),
+        role: "reviewer".to_string(),
+        model_profile: ModelProfileId::from_static("profile_fast"),
+        skills: vec![SkillId::from_static("skill_code_review")],
+        memory_scopes: vec!["workspace".to_string(), "project".to_string()],
+        context_scopes: vec!["thread".to_string(), "workspace_summary".to_string()],
+        tool_permissions: vec![ToolPermission::FilesystemRead, ToolPermission::Git],
+        max_steps: 8,
+        metadata: None,
+    };
+
+    let value = serde_json::to_value(&profile).unwrap();
+
+    assert_eq!(value["id"], "agent_profile_reviewer");
+    assert_eq!(value["role"], "reviewer");
+    assert_eq!(value["model_profile"], "profile_fast");
+    assert_eq!(value["skills"][0], "skill_code_review");
+    assert_eq!(value["tool_permissions"][0], "filesystem_read");
+    assert_eq!(value["max_steps"], 8);
+    assert!(value.get("command").is_none());
+    assert!(value.get("executable").is_none());
+    assert!(value.get("shell").is_none());
 }
 
 #[test]

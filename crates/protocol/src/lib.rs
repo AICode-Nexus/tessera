@@ -80,6 +80,7 @@ id_type!(SnapshotId, "snapshot");
 id_type!(ContextId, "context");
 id_type!(DiagnosticReportId, "diagnostics");
 id_type!(MemoryProposalId, "memory_proposal");
+id_type!(AgentProfileId, "agent_profile");
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
@@ -434,6 +435,24 @@ pub struct SkillManifest {
     pub entrypoint: SkillEntrypoint,
     pub requirements: SkillRequirements,
     pub policy: SkillPolicy,
+    pub metadata: Option<ExtensionMap>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AgentProfile {
+    pub id: AgentProfileId,
+    pub name: String,
+    pub role: String,
+    pub model_profile: ModelProfileId,
+    #[serde(default)]
+    pub skills: Vec<SkillId>,
+    #[serde(default)]
+    pub memory_scopes: Vec<String>,
+    #[serde(default)]
+    pub context_scopes: Vec<String>,
+    #[serde(default)]
+    pub tool_permissions: Vec<ToolPermission>,
+    pub max_steps: u32,
     pub metadata: Option<ExtensionMap>,
 }
 
