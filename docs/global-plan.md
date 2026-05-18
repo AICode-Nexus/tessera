@@ -235,6 +235,7 @@
 - [x] Core pause signal foundation：`RunPauseToken` 可通过 `RunControls` 请求 core 协作式写入 `task_paused` 并收束当前 trace，不把暂停投影成 cancellation；不写 resume envelope，不实现 provider socket suspension。
 - [x] CLI/TUI active pause wiring：交互式 CLI active `/pause` 和 TUI `PauseTask` runtime handler 已接入 `RunPauseToken`，可记录 `task_paused`；`/resume-task` 仍保持 metadata-only。
 - [x] Chat pause checkpoint envelope：`TaskPauseCheckpoint` / `ResumeMode::FromTraceProjection` / `task_pause_checkpoint_created` 已接入 protocol 和 core pause path，暂停时先写 trace-projection envelope 再写 `task_paused`；不执行 `/resume-task`。
+- [x] Runtime pause checkpoint projection：`RuntimeReader::list_pause_checkpoints` 可从 JSONL trace 重建每个 paused task 的最新 `TaskPauseCheckpoint` 摘要，供后续 chat-only resume 使用；不执行 `/resume-task`，不冻结 provider socket，不做 checkpoint restore。
 - [ ] Suspended/background run resume implementation：chat resume execution、background reattach、checkpoint restore 分阶段实现。
 - [x] Context handle projection：`ContextWorkbench::projection` 输出只读 context reference + budget summary，`tessera-client` 投影 `ClientContextHandle` 和 context handle summary，GUI bindings 已生成；不读取 source 内容、不构建 prompt、不写 context trace event。
 - [ ] Persistent sub-agent sessions。
