@@ -14,14 +14,15 @@ use tessera_core::{
 use tessera_protocol::{
     AgentProfile, AgentProfileId, ArtifactId, ArtifactKind, ContextBudget, ContextId,
     ContextPlacement, ContextReference, ContextSource, ContextSourceKind, Diagnostic,
-    DiagnosticRange, DiagnosticSeverity, ErrorSource, EventFrame, ItemId, ModelProfileId,
-    NoProgressAction, NoProgressSignalKind, NormalizedError, OsSandboxFilesystem, OsSandboxMode,
-    OsSandboxNetwork, OsSandboxShell, PolicyOutcome, ProviderCapability, ProviderId, RouteStrategy,
-    RunEvent, SandboxDecisionKind, SkillEntrypoint, SkillEntrypointFormat, SkillId, SkillManifest,
-    SkillPolicy, SkillRequirements, SkillSource, SkillSourceKind, SnapshotId, SnapshotKind, TaskId,
-    ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId,
+    DiagnosticRange, DiagnosticSeverity, ErrorSource, EventFrame, EventRange, ItemId,
+    ModelProfileId, NoProgressAction, NoProgressSignalKind, NormalizedError, OsSandboxFilesystem,
+    OsSandboxMode, OsSandboxNetwork, OsSandboxShell, PolicyOutcome, ProviderCapability, ProviderId,
+    ResumeMode, RouteStrategy, RunEvent, SandboxDecisionKind, SkillEntrypoint,
+    SkillEntrypointFormat, SkillId, SkillManifest, SkillPolicy, SkillRequirements, SkillSource,
+    SkillSourceKind, SnapshotId, SnapshotKind, TaskId, TaskPauseCheckpoint, TaskPauseCheckpointId,
+    ThreadId, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId,
     ToolPermission, ToolRepairKind, ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect,
-    WorkspaceCheckpoint, WorkspaceScope,
+    TurnId, WorkspaceCheckpoint, WorkspaceScope,
 };
 use tessera_providers::{
     mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderMessage,
@@ -865,6 +866,68 @@ fn runtime_reader_lists_snapshot_checkpoints_from_trace_without_restoring() {
         Some("tessera://snapshots/snapshot_runtime")
     );
     assert_eq!(snapshots[0].summary.as_deref(), Some("before patch"));
+}
+
+#[test]
+fn runtime_reader_lists_latest_pause_checkpoints_from_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = TraceStore::open(temp.path()).unwrap();
+    let trace_id = "trace_reader_pause_checkpoint";
+    let task_id = TaskId::from_static("task_reader_pause_checkpoint");
+    let thread_id = ThreadId::from_static("thread_reader_pause_checkpoint");
+    let turn_id = TurnId::from_static("turn_reader_pause_checkpoint");
+
+    for (seq, checkpoint_id, last_seq, reason) in [
+        (3, "pause_checkpoint_old", 2, "old pause"),
+        (7, "pause_checkpoint_new", 6, "new pause"),
+    ] {
+        let checkpoint = TaskPauseCheckpoint {
+            checkpoint_id: TaskPauseCheckpointId::from_static(checkpoint_id),
+            task_id: task_id.clone(),
+            trace_id: trace_id.to_string(),
+            last_seq,
+            thread_id: Some(thread_id.clone()),
+            turn_id: Some(turn_id.clone()),
+            provider_id: ProviderId::from_static("mock"),
+            profile_id: ModelProfileId::from_static("mock-default"),
+            model: "mock-chat".to_string(),
+            resume_mode: ResumeMode::FromTraceProjection,
+            workspace_snapshot_id: None,
+            transcript_event_range: Some(EventRange {
+                start_seq: 1,
+                end_seq: last_seq,
+            }),
+            context_handle_ids: vec![ContextId::from_static("context_reader_pause_checkpoint")],
+            reason: Some(reason.to_string()),
+        };
+
+        store
+            .append(
+                &EventFrame::new(
+                    trace_id,
+                    seq,
+                    RunEvent::TaskPauseCheckpointCreated { checkpoint },
+                )
+                .with_thread_id(thread_id.clone())
+                .with_turn_id(turn_id.clone())
+                .with_task_id(task_id.clone()),
+            )
+            .unwrap();
+    }
+
+    let reader = RuntimeReader::new(store);
+    let checkpoints = reader.list_pause_checkpoints(trace_id).unwrap();
+
+    assert_eq!(checkpoints.len(), 1);
+    assert_eq!(checkpoints[0].task_id, task_id);
+    assert_eq!(
+        checkpoints[0].checkpoint_id,
+        TaskPauseCheckpointId::from_static("pause_checkpoint_new")
+    );
+    assert_eq!(checkpoints[0].event_seq, 7);
+    assert_eq!(checkpoints[0].last_seq, 6);
+    assert_eq!(checkpoints[0].resume_mode, ResumeMode::FromTraceProjection);
+    assert_eq!(checkpoints[0].reason.as_deref(), Some("new pause"));
 }
 
 #[test]

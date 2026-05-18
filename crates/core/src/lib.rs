@@ -1598,6 +1598,49 @@ impl RuntimeSnapshotSummary {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimePauseCheckpointSummary {
+    pub checkpoint_id: TaskPauseCheckpointId,
+    pub task_id: TaskId,
+    pub trace_id: String,
+    pub event_seq: u64,
+    pub last_seq: u64,
+    pub thread_id: Option<ThreadId>,
+    pub turn_id: Option<TurnId>,
+    pub provider_id: ProviderId,
+    pub profile_id: ModelProfileId,
+    pub model: String,
+    pub resume_mode: ResumeMode,
+    pub workspace_snapshot_id: Option<SnapshotId>,
+    pub transcript_event_range: Option<EventRange>,
+    pub context_handle_ids: Vec<ContextId>,
+    pub reason: Option<String>,
+    pub created_at: Option<Timestamp>,
+}
+
+impl RuntimePauseCheckpointSummary {
+    fn from_checkpoint(record: &TraceRecord, checkpoint: TaskPauseCheckpoint) -> Self {
+        Self {
+            checkpoint_id: checkpoint.checkpoint_id,
+            task_id: checkpoint.task_id,
+            trace_id: checkpoint.trace_id,
+            event_seq: record.seq,
+            last_seq: checkpoint.last_seq,
+            thread_id: checkpoint.thread_id,
+            turn_id: checkpoint.turn_id,
+            provider_id: checkpoint.provider_id,
+            profile_id: checkpoint.profile_id,
+            model: checkpoint.model,
+            resume_mode: checkpoint.resume_mode,
+            workspace_snapshot_id: checkpoint.workspace_snapshot_id,
+            transcript_event_range: checkpoint.transcript_event_range,
+            context_handle_ids: checkpoint.context_handle_ids,
+            reason: checkpoint.reason,
+            created_at: Some(record.timestamp.clone()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuntimeSessionSummary {
     pub trace_id: String,
     pub event_count: usize,
@@ -1707,6 +1750,19 @@ impl RuntimeReader {
             apply_snapshot_record(&mut snapshots, &record);
         }
         Ok(snapshots)
+    }
+
+    pub fn list_pause_checkpoints(
+        &self,
+        trace_id: &str,
+    ) -> Result<Vec<RuntimePauseCheckpointSummary>> {
+        let records = self.store.read_trace_records(trace_id)?;
+        let mut checkpoints = Vec::new();
+        for record in records {
+            apply_pause_checkpoint_record(&mut checkpoints, &record)?;
+        }
+        checkpoints.sort_by_key(|checkpoint| checkpoint.event_seq);
+        Ok(checkpoints)
     }
 }
 
@@ -2031,6 +2087,34 @@ fn trace_record_snapshot_id(record: &TraceRecord) -> Option<SnapshotId> {
         .and_then(|checkpoint| checkpoint.get("id"))
         .and_then(|value| value.as_str())
         .map(SnapshotId::from)
+}
+
+fn apply_pause_checkpoint_record(
+    checkpoints: &mut Vec<RuntimePauseCheckpointSummary>,
+    record: &TraceRecord,
+) -> Result<()> {
+    if record.event_kind != "task_pause_checkpoint_created" {
+        return Ok(());
+    }
+
+    let Some(checkpoint_payload) = record.payload.get("checkpoint") else {
+        return Ok(());
+    };
+    let checkpoint: TaskPauseCheckpoint = serde_json::from_value(checkpoint_payload.clone())?;
+    let summary = RuntimePauseCheckpointSummary::from_checkpoint(record, checkpoint);
+
+    if let Some(index) = checkpoints
+        .iter()
+        .position(|checkpoint| checkpoint.task_id == summary.task_id)
+    {
+        if checkpoints[index].event_seq <= summary.event_seq {
+            checkpoints[index] = summary;
+        }
+        return Ok(());
+    }
+
+    checkpoints.push(summary);
+    Ok(())
 }
 
 impl<'a> ReplayRunner<'a> {
