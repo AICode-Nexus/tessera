@@ -14,6 +14,8 @@ It includes a `DiagnosticsReporter` helper that wraps LSP-style diagnostics into
 
 It includes a read-only `SkillRegistry` for listing and finding `SkillManifest` metadata. It does not activate skills, execute workflows, or bypass future tool/policy boundaries.
 
+It includes a read-only `AgentRegistry` for listing and finding `AgentProfile` metadata. It does not start agent loops, activate skills, execute tools, or bypass future policy/sandbox boundaries.
+
 It includes a read-only `ToolRegistry` for listing and finding `ToolDescriptor` metadata. It does not execute tools, dispatch tool calls, or bypass future policy/sandbox boundaries.
 
 It includes a metadata-only `McpToolAdapter` for converting MCP tool specs and arguments into Tessera `ToolDescriptor` and `ToolCallRequest` values. It does not connect to MCP servers, execute tools, or treat MCP annotations as trusted permission grants.

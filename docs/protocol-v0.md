@@ -54,6 +54,7 @@ pub struct SnapshotId(String);
 pub struct ContextId(String);
 pub struct DiagnosticReportId(String);
 pub struct MemoryProposalId(String);
+pub struct AgentProfileId(String);
 ```
 
 ID 生成策略：
@@ -507,6 +508,27 @@ pub struct SkillPolicy {
 ```
 
 `SkillManifest` 不包含 command、executable 或 script 字段。后续 skill 激活、工具调用和步骤执行必须通过 core/tool/policy/trace 边界，不得由 registry 直接执行。
+
+### Agent Profile Schema
+
+Agent profile v0.5 foundation 只描述可执行 agent 的静态 metadata，不启动 agent loop、不激活 skill、不执行工具。它用于让未来 single-agent loop 在进入 runtime 前先拥有 provider-neutral 的角色、模型、scope 和 step limit 表达。
+
+```rust
+pub struct AgentProfile {
+    pub id: AgentProfileId,
+    pub name: String,
+    pub role: String,
+    pub model_profile: ModelProfileId,
+    pub skills: Vec<SkillId>,
+    pub memory_scopes: Vec<String>,
+    pub context_scopes: Vec<String>,
+    pub tool_permissions: Vec<ToolPermission>,
+    pub max_steps: u32,
+    pub metadata: Option<ExtensionMap>,
+}
+```
+
+`AgentProfile` 不包含 command、executable、shell、provider-private handle 或 runtime state。后续 agent step、skill activation、tool request、handoff 和 completion 必须通过 core/protocol/trace 的标准事件表达。
 
 ## 9. Tool Descriptor / Policy / Dispatch / Repair Schema
 

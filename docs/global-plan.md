@@ -220,6 +220,7 @@
 
 ## 6. v0.5+ Checklist
 
+- [x] Agent profile schema foundation：`tessera-protocol` 定义 `AgentProfile` / `AgentProfileId`，`tessera-core` 提供只读 `AgentRegistry` list/find；不启动 agent loop、不激活 skill、不执行 tool。
 - [ ] Single agent loop。
 - [ ] Skill runtime v1。
 - [ ] Pause / resume。

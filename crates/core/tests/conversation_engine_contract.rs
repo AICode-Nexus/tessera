@@ -3,23 +3,25 @@ use futures::stream;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tessera_core::{
-    ContextWorkbench, ConversationEngine, ConversationRequest, CoreError, DiagnosticsReporter,
-    EventSinkAction, McpToolAdapter, McpToolAnnotations, McpToolSpec, ModelRouteRequest,
-    ModelRouter, NoProgressDetector, NoProgressObservation, OrderedToolResultBuffer,
-    OsSandboxPlanner, PolicyGate, ReplayRunner, RunCancellationToken, RunControls,
-    RuntimeEventQuery, RuntimeHttpApi, RuntimeHttpEventRequest, RuntimeReader, SkillRegistry,
-    ToolRegistry, ToolRepairTelemetry, WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
+    AgentRegistry, ContextWorkbench, ConversationEngine, ConversationRequest, CoreError,
+    DiagnosticsReporter, EventSinkAction, McpToolAdapter, McpToolAnnotations, McpToolSpec,
+    ModelRouteRequest, ModelRouter, NoProgressDetector, NoProgressObservation,
+    OrderedToolResultBuffer, OsSandboxPlanner, PolicyGate, ReplayRunner, RunCancellationToken,
+    RunControls, RuntimeEventQuery, RuntimeHttpApi, RuntimeHttpEventRequest, RuntimeReader,
+    SkillRegistry, ToolRegistry, ToolRepairTelemetry, WorkspaceCheckpointPlanner,
+    WorkspaceGuardrailChecker,
 };
 use tessera_protocol::{
-    ArtifactId, ArtifactKind, ContextBudget, ContextId, ContextPlacement, ContextReference,
-    ContextSource, ContextSourceKind, Diagnostic, DiagnosticRange, DiagnosticSeverity, ErrorSource,
-    EventFrame, ItemId, ModelProfileId, NoProgressAction, NoProgressSignalKind, NormalizedError,
-    OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxShell, PolicyOutcome,
-    ProviderCapability, ProviderId, RouteStrategy, RunEvent, SandboxDecisionKind, SkillEntrypoint,
-    SkillEntrypointFormat, SkillId, SkillManifest, SkillPolicy, SkillRequirements, SkillSource,
-    SkillSourceKind, SnapshotId, SnapshotKind, TaskId, ToolCallId, ToolCallRequest, ToolDescriptor,
-    ToolDispatch, ToolDispatchId, ToolId, ToolPermission, ToolRepairKind, ToolResult, ToolResultId,
-    ToolResultStatus, ToolSideEffect, WorkspaceCheckpoint, WorkspaceScope,
+    AgentProfile, AgentProfileId, ArtifactId, ArtifactKind, ContextBudget, ContextId,
+    ContextPlacement, ContextReference, ContextSource, ContextSourceKind, Diagnostic,
+    DiagnosticRange, DiagnosticSeverity, ErrorSource, EventFrame, ItemId, ModelProfileId,
+    NoProgressAction, NoProgressSignalKind, NormalizedError, OsSandboxFilesystem, OsSandboxMode,
+    OsSandboxNetwork, OsSandboxShell, PolicyOutcome, ProviderCapability, ProviderId, RouteStrategy,
+    RunEvent, SandboxDecisionKind, SkillEntrypoint, SkillEntrypointFormat, SkillId, SkillManifest,
+    SkillPolicy, SkillRequirements, SkillSource, SkillSourceKind, SnapshotId, SnapshotKind, TaskId,
+    ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId,
+    ToolPermission, ToolRepairKind, ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect,
+    WorkspaceCheckpoint, WorkspaceScope,
 };
 use tessera_providers::{
     mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderMessage,
@@ -273,6 +275,31 @@ fn skill_registry_lists_and_finds_manifests_without_runtime_activation() {
 
     assert_eq!(registry.list_skills(), vec![manifest.clone()]);
     assert_eq!(registry.find_skill(&manifest.id), Some(&manifest));
+}
+
+#[test]
+fn agent_registry_lists_and_finds_profiles_without_agent_runtime() {
+    let profile = AgentProfile {
+        id: AgentProfileId::from_static("agent_profile_reviewer"),
+        name: "Reviewer".to_string(),
+        role: "reviewer".to_string(),
+        model_profile: ModelProfileId::from_static("profile_fast"),
+        skills: vec![SkillId::from_static("skill_code_review")],
+        memory_scopes: vec!["workspace".to_string()],
+        context_scopes: vec!["thread".to_string()],
+        tool_permissions: vec![ToolPermission::FilesystemRead, ToolPermission::Git],
+        max_steps: 8,
+        metadata: None,
+    };
+    let registry = AgentRegistry::from_profiles([profile.clone()]);
+
+    assert_eq!(registry.list_agents(), vec![profile.clone()]);
+    assert_eq!(registry.find_agent(&profile.id), Some(&profile));
+    assert_eq!(registry.list_agents()[0].max_steps, 8);
+    assert_eq!(
+        registry.list_agents()[0].tool_permissions,
+        vec![ToolPermission::FilesystemRead, ToolPermission::Git]
+    );
 }
 
 #[test]

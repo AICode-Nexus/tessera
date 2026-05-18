@@ -5,17 +5,17 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tessera_protocol::{
-    ArtifactId, ArtifactKind, ContextBudget, ContextId, ContextPlacement, ContextReference,
-    Diagnostic, DiagnosticReport, DiagnosticReportId, EventFrame, ExtensionMap, ItemId,
-    ModelProfileId, NoProgressAction, NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem,
-    OsSandboxMode, OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId, OsSandboxShell,
-    PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, RouteDecision,
-    RouteDecisionId, RouteStrategy, RunEvent, SandboxDecision, SandboxDecisionId,
-    SandboxDecisionKind, SkillId, SkillManifest, SnapshotId, SnapshotKind, TaskId, TaskKind,
-    TaskStatus, ThreadId, Timestamp, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId,
-    ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult,
-    ToolSideEffect, TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail,
-    WorkspaceScope,
+    AgentProfile, AgentProfileId, ArtifactId, ArtifactKind, ContextBudget, ContextId,
+    ContextPlacement, ContextReference, Diagnostic, DiagnosticReport, DiagnosticReportId,
+    EventFrame, ExtensionMap, ItemId, ModelProfileId, NoProgressAction, NoProgressLoop,
+    NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
+    OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
+    ProviderId, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent, SandboxDecision,
+    SandboxDecisionId, SandboxDecisionKind, SkillId, SkillManifest, SnapshotId, SnapshotKind,
+    TaskId, TaskKind, TaskStatus, ThreadId, Timestamp, ToolCallRequest, ToolDescriptor,
+    ToolDispatch, ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind,
+    ToolRepairReport, ToolResult, ToolSideEffect, TraceRecord, TurnId, WorkspaceAccess,
+    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderMessage, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -257,6 +257,11 @@ pub struct SkillRegistry {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AgentRegistry {
+    profiles: Vec<AgentProfile>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ToolRegistry {
     descriptors: Vec<ToolDescriptor>,
 }
@@ -441,6 +446,27 @@ impl SkillRegistry {
         self.manifests
             .iter()
             .find(|manifest| &manifest.id == skill_id)
+    }
+}
+
+impl AgentRegistry {
+    pub fn from_profiles<I>(profiles: I) -> Self
+    where
+        I: IntoIterator<Item = AgentProfile>,
+    {
+        Self {
+            profiles: profiles.into_iter().collect(),
+        }
+    }
+
+    pub fn list_agents(&self) -> Vec<AgentProfile> {
+        self.profiles.clone()
+    }
+
+    pub fn find_agent(&self, profile_id: &AgentProfileId) -> Option<&AgentProfile> {
+        self.profiles
+            .iter()
+            .find(|profile| &profile.id == profile_id)
     }
 }
 
