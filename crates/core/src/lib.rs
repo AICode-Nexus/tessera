@@ -1766,6 +1766,26 @@ fn apply_task_record(tasks: &mut Vec<RuntimeTaskSummary>, record: &TraceRecord) 
                 .and_then(|value| value.as_str())
                 .map(str::to_string);
         }
+        "task_paused" => {
+            let Some(task_id) = trace_record_task_id(record) else {
+                return;
+            };
+            let task = task_mut_or_insert(tasks, &task_id);
+            task.status = TaskStatus::Paused;
+            task.update_scope(record.thread_id.clone(), record.turn_id.clone());
+        }
+        "task_resumed" => {
+            let Some(task_id) = trace_record_task_id(record) else {
+                return;
+            };
+            let task = task_mut_or_insert(tasks, &task_id);
+            task.status = TaskStatus::Running;
+            if task.started_at.is_none() {
+                task.started_at = Some(record.timestamp.clone());
+            }
+            task.finished_at = None;
+            task.update_scope(record.thread_id.clone(), record.turn_id.clone());
+        }
         _ => {}
     }
 }

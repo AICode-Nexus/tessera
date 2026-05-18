@@ -1453,6 +1453,86 @@ async fn runtime_reader_lists_task_registry_from_trace() {
 }
 
 #[test]
+fn runtime_reader_projects_paused_and_resumed_task_records() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = TraceStore::open(temp.path()).unwrap();
+    let paused_task_id = TaskId::from_static("task_reader_paused");
+    let resumed_task_id = TaskId::from_static("task_reader_resumed");
+
+    for (index, event) in [
+        RunEvent::TaskCreated {
+            task_id: paused_task_id.clone(),
+            kind: tessera_protocol::TaskKind::Chat,
+        },
+        RunEvent::TaskStarted {
+            task_id: paused_task_id.clone(),
+        },
+        RunEvent::TaskPaused {
+            task_id: paused_task_id.clone(),
+            reason: Some("user paused run".to_string()),
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        store
+            .append(&EventFrame::new(
+                "trace_reader_paused_task",
+                (index + 1) as u64,
+                event,
+            ))
+            .unwrap();
+    }
+
+    for (index, event) in [
+        RunEvent::TaskCreated {
+            task_id: resumed_task_id.clone(),
+            kind: tessera_protocol::TaskKind::Chat,
+        },
+        RunEvent::TaskStarted {
+            task_id: resumed_task_id.clone(),
+        },
+        RunEvent::TaskPaused {
+            task_id: resumed_task_id.clone(),
+            reason: Some("background suspended".to_string()),
+        },
+        RunEvent::TaskResumed {
+            task_id: resumed_task_id.clone(),
+            reason: Some("operator reattached".to_string()),
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        store
+            .append(&EventFrame::new(
+                "trace_reader_resumed_task",
+                (index + 1) as u64,
+                event,
+            ))
+            .unwrap();
+    }
+
+    let reader = RuntimeReader::new(store);
+    let paused_tasks = reader.list_tasks("trace_reader_paused_task").unwrap();
+    let resumed_tasks = reader.list_tasks("trace_reader_resumed_task").unwrap();
+
+    assert_eq!(paused_tasks.len(), 1);
+    assert_eq!(paused_tasks[0].task_id, paused_task_id);
+    assert_eq!(paused_tasks[0].status, tessera_protocol::TaskStatus::Paused);
+    assert!(paused_tasks[0].finished_at.is_none());
+
+    assert_eq!(resumed_tasks.len(), 1);
+    assert_eq!(resumed_tasks[0].task_id, resumed_task_id);
+    assert_eq!(
+        resumed_tasks[0].status,
+        tessera_protocol::TaskStatus::Running
+    );
+    assert!(resumed_tasks[0].started_at.is_some());
+    assert!(resumed_tasks[0].finished_at.is_none());
+}
+
+#[test]
 fn runtime_reader_lists_artifact_handles_from_trace() {
     let temp = tempfile::tempdir().unwrap();
     let mut store = TraceStore::open(temp.path()).unwrap();
