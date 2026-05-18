@@ -60,6 +60,7 @@ id_type!(ThreadId, "thread");
 id_type!(TurnId, "turn");
 id_type!(ItemId, "item");
 id_type!(TaskId, "task");
+id_type!(TaskPauseCheckpointId, "task_pause_checkpoint");
 id_type!(ArtifactId, "artifact");
 id_type!(EventId, "evt");
 id_type!(ProviderId, "provider");
@@ -239,6 +240,41 @@ pub struct Task {
     pub created_at: Timestamp,
     pub started_at: Option<Timestamp>,
     pub completed_at: Option<Timestamp>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct EventRange {
+    pub start_seq: u64,
+    pub end_seq: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ResumeMode {
+    BeforeProviderRequest,
+    AfterCompletedProviderTurn,
+    FromTraceProjection,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct TaskPauseCheckpoint {
+    pub checkpoint_id: TaskPauseCheckpointId,
+    pub task_id: TaskId,
+    pub trace_id: String,
+    pub last_seq: u64,
+    pub thread_id: Option<ThreadId>,
+    pub turn_id: Option<TurnId>,
+    pub provider_id: ProviderId,
+    pub profile_id: ModelProfileId,
+    pub model: String,
+    pub resume_mode: ResumeMode,
+    pub workspace_snapshot_id: Option<SnapshotId>,
+    pub transcript_event_range: Option<EventRange>,
+    pub context_handle_ids: Vec<ContextId>,
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -884,6 +920,9 @@ pub enum RunEvent {
         task_id: TaskId,
         reason: Option<String>,
     },
+    TaskPauseCheckpointCreated {
+        checkpoint: TaskPauseCheckpoint,
+    },
     NoProgressLoopDetected {
         task_id: TaskId,
         signal: NoProgressLoop,
@@ -966,6 +1005,7 @@ impl RunEvent {
             Self::TaskCancelled { .. } => "task_cancelled",
             Self::TaskPaused { .. } => "task_paused",
             Self::TaskResumed { .. } => "task_resumed",
+            Self::TaskPauseCheckpointCreated { .. } => "task_pause_checkpoint_created",
             Self::NoProgressLoopDetected { .. } => "no_progress_loop_detected",
             Self::DiagnosticsReported { .. } => "diagnostics_reported",
             Self::MemoryWriteProposed { .. } => "memory_write_proposed",
@@ -1009,6 +1049,7 @@ impl RunEvent {
             | Self::TaskPaused { task_id, .. }
             | Self::TaskResumed { task_id, .. }
             | Self::NoProgressLoopDetected { task_id, .. } => Some(task_id.clone()),
+            Self::TaskPauseCheckpointCreated { checkpoint } => Some(checkpoint.task_id.clone()),
             _ => None,
         }
     }
@@ -1094,6 +1135,9 @@ impl RunEvent {
             }
             Self::TaskPaused { task_id, reason } | Self::TaskResumed { task_id, reason } => {
                 json!({ "task_id": task_id, "reason": reason })
+            }
+            Self::TaskPauseCheckpointCreated { checkpoint } => {
+                json!({ "checkpoint": checkpoint })
             }
             Self::NoProgressLoopDetected { task_id, signal } => {
                 json!({ "task_id": task_id, "signal": signal })

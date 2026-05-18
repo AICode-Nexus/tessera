@@ -98,6 +98,7 @@ task_started
 task_completed
 task_failed
 task_cancelled
+task_pause_checkpoint_created
 task_paused
 task_resumed
 no_progress_loop_detected
@@ -120,6 +121,8 @@ tool_call_denied
 error
 done
 ```
+
+`task_pause_checkpoint_created` payload 必须包含 `checkpoint`，其中 `checkpoint.task_id`、`trace_id`、`last_seq`、`provider_id`、`profile_id`、`model`、`resume_mode` 为必填。当前实现只使用 `resume_mode: "from_trace_projection"`，表示未来 resume 可基于 JSONL trace projection 继续，而不是恢复 provider socket。
 
 `task_paused` 和 `task_resumed` payload 必须包含 `task_id`，可选包含 `reason`。它们只表示 provider-neutral lifecycle metadata，供 replay、TUI、GUI 和 future runtime API 投影使用；不得被解释为真实 provider stream 已挂起、后台任务已持久化或 checkpoint 已恢复。
 

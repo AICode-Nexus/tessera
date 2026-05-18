@@ -8,10 +8,11 @@ use tessera_protocol::{
     ProviderCapability, ProviderId, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent,
     SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillEntrypoint,
     SkillEntrypointFormat, SkillId, SkillManifest, SkillPolicy, SkillRequirements, SkillSource,
-    SkillSourceKind, SnapshotId, SnapshotKind, TaskId, ToolApproval, ToolCallId, ToolCallRequest,
-    ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission, ToolPolicyDecision,
-    ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolResultId, ToolResultStatus,
-    ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    SkillSourceKind, SnapshotId, SnapshotKind, TaskId, TaskPauseCheckpoint, TaskPauseCheckpointId,
+    ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId,
+    ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
+    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
+    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 
 #[test]
@@ -174,6 +175,64 @@ fn task_pause_resume_events_are_traceable_without_runtime_suspension() {
     assert_eq!(resumed.task_id(), Some(task_id.clone()));
     assert_eq!(paused.payload()["reason"], "user requested pause");
     assert_eq!(resumed.payload()["reason"], "user requested resume");
+}
+
+#[test]
+fn task_pause_checkpoint_event_records_trace_resume_envelope_without_secrets() {
+    let task_id = TaskId::from_static("task_pause_checkpoint");
+    let checkpoint = TaskPauseCheckpoint {
+        checkpoint_id: TaskPauseCheckpointId::from_static("pause_checkpoint_chat"),
+        task_id: task_id.clone(),
+        trace_id: "trace_pause_checkpoint".to_string(),
+        last_seq: 8,
+        thread_id: Some(tessera_protocol::ThreadId::from_static("thread_pause")),
+        turn_id: Some(tessera_protocol::TurnId::from_static("turn_pause")),
+        provider_id: ProviderId::from_static("mock"),
+        profile_id: ModelProfileId::from_static("mock-default"),
+        model: "mock-chat".to_string(),
+        resume_mode: tessera_protocol::ResumeMode::FromTraceProjection,
+        workspace_snapshot_id: None,
+        transcript_event_range: Some(tessera_protocol::EventRange {
+            start_seq: 1,
+            end_seq: 8,
+        }),
+        context_handle_ids: vec![ContextId::from_static("context_pause")],
+        reason: Some("user requested pause".to_string()),
+    };
+    let event = RunEvent::TaskPauseCheckpointCreated {
+        checkpoint: checkpoint.clone(),
+    };
+
+    assert_eq!(event.kind(), "task_pause_checkpoint_created");
+    assert_eq!(event.task_id(), Some(task_id));
+
+    let payload = event.payload();
+    assert_eq!(
+        payload["checkpoint"]["checkpoint_id"],
+        checkpoint.checkpoint_id.to_string()
+    );
+    assert_eq!(
+        payload["checkpoint"]["resume_mode"],
+        "from_trace_projection"
+    );
+    assert_eq!(payload["checkpoint"]["last_seq"], 8);
+    assert_eq!(payload["checkpoint"]["provider_id"], "mock");
+    assert_eq!(payload["checkpoint"]["profile_id"], "mock-default");
+    assert_eq!(
+        payload["checkpoint"]["transcript_event_range"]["start_seq"],
+        1
+    );
+    assert_eq!(
+        payload["checkpoint"]["transcript_event_range"]["end_seq"],
+        8
+    );
+
+    let encoded = serde_json::to_string(&payload).unwrap();
+    assert!(!encoded.contains("authorization"));
+    assert!(!encoded.contains("cookie"));
+    assert!(!encoded.contains("api_key"));
+    assert!(!encoded.contains("provider_private"));
+    assert!(!encoded.contains("socket"));
 }
 
 #[test]
