@@ -7,9 +7,10 @@ use tessera_protocol::{
     ToolSideEffect,
 };
 use tessera_tui::{
-    apply_client_intent_locally, apply_live_event, chat_window_lines, draw_terminal_frame,
-    handle_terminal_input, live_client_event_channel, map_key_event, status_line, ChatMessageRole,
-    ChatViewState, ClientIntent, LiveClientEvent, TerminalAction, TerminalInput,
+    apply_client_intent_locally, apply_live_event, apply_runtime_control_intent, chat_window_lines,
+    draw_terminal_frame, handle_terminal_input, live_client_event_channel, map_key_event,
+    status_line, ChatMessageRole, ChatViewState, ClientIntent, LiveClientEvent, TerminalAction,
+    TerminalInput,
 };
 
 fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
@@ -508,6 +509,33 @@ fn pause_command_dispatches_runtime_intent_from_tui_state() {
         TerminalAction::Dispatch(intent.clone())
     );
     assert!(!apply_client_intent_locally(&mut state, &intent));
+}
+
+#[test]
+fn runtime_control_intent_invokes_pause_handler_from_tui_state() {
+    let mut state = ChatViewState::new("mock-default");
+    let task_id = TaskId::from_static("task_tui_pause_handler");
+    let mut paused_task_id = None;
+
+    let handled = apply_runtime_control_intent(
+        &mut state,
+        ClientIntent::PauseTask {
+            task_id: Some(task_id.clone()),
+        },
+        &mut |_| Err("cancel should not run".to_string()),
+        &mut |task_id| {
+            paused_task_id = task_id;
+            Ok("pause requested".to_string())
+        },
+    );
+
+    assert!(handled);
+    assert_eq!(paused_task_id, Some(task_id));
+    assert!(state
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content == "pause requested"));
 }
 
 #[test]
