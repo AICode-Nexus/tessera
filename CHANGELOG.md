@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added workspace checkpoint schema with provider-neutral `snapshot_created` trace events and read-only `RuntimeReader::list_snapshots` projection, without restore/revert execution.
 - Added an initial context workbench schema and pure in-memory budget projection for stable prefix, append-only transcript, and volatile scratch references without loading file contents.
 - Added UI-neutral context handle projection with `ContextWorkbench::projection`, client context handle DTOs and status summary, and generated GUI TypeScript bindings without reading source content, building prompts, or writing context trace events.
+- Added TUI rendering for projected context handle summaries and GUI TypeScript fixture/build coverage for generated context handle DTOs.
 - Added the first Tauri GUI shell spike with a tested `tessera-gui-bridge`, typed mock/replay commands, bounded GUI event backpressure, and a React/Vite shell that renders shared `ClientSnapshot` projection without provider or storage access.
 - Added `tessera-gui-bindings` to generate GUI TypeScript DTOs from Rust `protocol` / `client` / `gui-bridge` types, plus a contract test that keeps `apps/gui-tauri/src/generated/bindings.ts` in sync.
 - Added a deterministic GUI smoke test for the Tauri shell covering mock/replay load, prompt submission, cancellation, new-thread reset, and toolbar action accessibility names.
