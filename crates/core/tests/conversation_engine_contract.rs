@@ -1218,6 +1218,7 @@ async fn conversation_engine_cancellation_token_interrupts_stalled_provider_stre
     let events = outcome.store.list_events(&outcome.trace_id).unwrap();
     assert!(events.contains(&"provider_request_started".to_string()));
     assert!(events.contains(&"task_cancelled".to_string()));
+    assert!(!events.contains(&"task_pause_checkpoint_created".to_string()));
     assert!(!events.contains(&"task_completed".to_string()));
     assert_eq!(events.last().map(String::as_str), Some("done"));
 
@@ -1266,12 +1267,58 @@ async fn conversation_engine_pause_token_records_paused_task_without_cancelling(
 
     let events = outcome.store.list_events(&outcome.trace_id).unwrap();
     assert!(events.contains(&"provider_request_started".to_string()));
+    assert!(events.contains(&"task_pause_checkpoint_created".to_string()));
     assert!(events.contains(&"task_paused".to_string()));
     assert!(!events.contains(&"task_cancelled".to_string()));
     assert!(!events.contains(&"task_completed".to_string()));
     assert_eq!(events.last().map(String::as_str), Some("done"));
 
     let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let checkpoint_record = records
+        .iter()
+        .find(|record| record.event_kind == "task_pause_checkpoint_created")
+        .unwrap();
+    let pause_record = records
+        .iter()
+        .find(|record| record.event_kind == "task_paused")
+        .unwrap();
+    assert!(checkpoint_record.seq < pause_record.seq);
+    assert_eq!(
+        checkpoint_record.payload["checkpoint"]["trace_id"],
+        "trace_external_pause"
+    );
+    assert_eq!(
+        checkpoint_record.payload["checkpoint"]["task_id"],
+        pause_record.payload["task_id"]
+    );
+    assert_eq!(
+        checkpoint_record.payload["checkpoint"]["resume_mode"],
+        "from_trace_projection"
+    );
+    assert_eq!(
+        checkpoint_record.payload["checkpoint"]["provider_id"],
+        "hanging"
+    );
+    assert_eq!(
+        checkpoint_record.payload["checkpoint"]["profile_id"],
+        "hanging"
+    );
+    assert_eq!(
+        checkpoint_record.payload["checkpoint"]["model"],
+        "hanging-model"
+    );
+    assert_eq!(
+        checkpoint_record.payload["checkpoint"]["last_seq"],
+        checkpoint_record.seq - 1
+    );
+    assert_eq!(
+        checkpoint_record.payload["checkpoint"]["transcript_event_range"]["start_seq"],
+        1
+    );
+    assert_eq!(
+        checkpoint_record.payload["checkpoint"]["transcript_event_range"]["end_seq"],
+        checkpoint_record.seq - 1
+    );
     let pause_reason = records
         .iter()
         .find(|record| record.event_kind == "task_paused")

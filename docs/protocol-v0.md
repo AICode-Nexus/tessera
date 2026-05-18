@@ -226,6 +226,42 @@ pub enum TaskStatus {
 
 `Paused` 表示 provider-neutral lifecycle metadata，可用于 UI 和 trace replay 展示任务暂挂状态。当前 foundation 不承诺真实 provider HTTP stream 被挂起、后台任务被持久化，或后续可从 checkpoint 恢复执行。
 
+### 4.4.1 Task Pause Checkpoint
+
+Task pause checkpoint 是 provider-neutral resume envelope metadata。它只描述未来 chat resume 可以从 trace projection 继续，不包含 provider 私有 socket、HTTP headers、API key、cookie、authorization 或 execution handle。
+
+```rust
+pub enum ResumeMode {
+    BeforeProviderRequest,
+    AfterCompletedProviderTurn,
+    FromTraceProjection,
+}
+
+pub struct EventRange {
+    pub start_seq: u64,
+    pub end_seq: u64,
+}
+
+pub struct TaskPauseCheckpoint {
+    pub checkpoint_id: TaskPauseCheckpointId,
+    pub task_id: TaskId,
+    pub trace_id: String,
+    pub last_seq: u64,
+    pub thread_id: Option<ThreadId>,
+    pub turn_id: Option<TurnId>,
+    pub provider_id: ProviderId,
+    pub profile_id: ModelProfileId,
+    pub model: String,
+    pub resume_mode: ResumeMode,
+    pub workspace_snapshot_id: Option<SnapshotId>,
+    pub transcript_event_range: Option<EventRange>,
+    pub context_handle_ids: Vec<ContextId>,
+    pub reason: Option<String>,
+}
+```
+
+当前 core pause path 只写 `ResumeMode::FromTraceProjection`，并且不执行 `/resume-task`、不重连后台 runtime、不恢复 workspace checkpoint。
+
 ### 4.5 Artifact
 
 Artifact 是大输出或外部化资源引用。v0.1 主要用于 trace、export、large provider metadata 或后续 tool output 的预留。
@@ -339,6 +375,7 @@ pub enum RunEvent {
     TaskCompleted { task_id: TaskId },
     TaskFailed { task_id: TaskId, error: NormalizedError },
     TaskCancelled { task_id: TaskId, reason: Option<String> },
+    TaskPauseCheckpointCreated { checkpoint: TaskPauseCheckpoint },
     TaskPaused { task_id: TaskId, reason: Option<String> },
     TaskResumed { task_id: TaskId, reason: Option<String> },
 
@@ -369,7 +406,7 @@ pub enum RunEvent {
 }
 ```
 
-`TaskPaused` 和 `TaskResumed` 只记录 lifecycle metadata。它们可以被 client/TUI/GUI 投影为 `Paused` / `Running` 状态，但 provider stream suspension、background persistence、checkpoint restore 和 agent resume runtime 仍是后续能力。
+`TaskPauseCheckpointCreated` 记录 trace-safe resume envelope metadata，当前只支持 chat trace projection resume mode。`TaskPaused` 和 `TaskResumed` 只记录 lifecycle metadata。它们可以被 client/TUI/GUI 投影为 `Paused` / `Running` 状态，但 provider stream suspension、background persistence、checkpoint restore 和 agent resume runtime 仍是后续能力。
 
 仍只预留、不执行的事件：
 

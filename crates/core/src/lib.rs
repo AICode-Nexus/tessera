@@ -7,15 +7,15 @@ use std::time::Duration;
 use tessera_protocol::{
     AgentProfile, AgentProfileId, ArtifactId, ArtifactKind, ContextBudget, ContextId,
     ContextPlacement, ContextReference, Diagnostic, DiagnosticReport, DiagnosticReportId,
-    EventFrame, ExtensionMap, ItemId, ModelProfileId, NoProgressAction, NoProgressLoop,
+    EventFrame, EventRange, ExtensionMap, ItemId, ModelProfileId, NoProgressAction, NoProgressLoop,
     NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
     OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
-    ProviderId, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent, SandboxDecision,
-    SandboxDecisionId, SandboxDecisionKind, SkillId, SkillManifest, SnapshotId, SnapshotKind,
-    TaskId, TaskKind, TaskStatus, ThreadId, Timestamp, ToolCallRequest, ToolDescriptor,
-    ToolDispatch, ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind,
-    ToolRepairReport, ToolResult, ToolSideEffect, TraceRecord, TurnId, WorkspaceAccess,
-    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    ProviderId, ResumeMode, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent,
+    SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillId, SkillManifest, SnapshotId,
+    SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus,
+    ThreadId, Timestamp, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId, ToolPermission,
+    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolSideEffect,
+    TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderMessage, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -1342,6 +1342,9 @@ struct RunContext {
     thread_id: ThreadId,
     turn_id: TurnId,
     task_id: TaskId,
+    provider_id: ProviderId,
+    profile_id: ModelProfileId,
+    model: String,
     seq: u64,
 }
 
@@ -2098,6 +2101,9 @@ where
             thread_id: ThreadId::new(),
             turn_id: TurnId::new(),
             task_id: TaskId::new(),
+            provider_id: request.provider_id.clone(),
+            profile_id: request.profile_id.clone(),
+            model: request.model.clone(),
             seq: 1,
         };
         let user_item_id = ItemId::new();
@@ -2200,6 +2206,8 @@ where
         });
         let selected_profile = route_decision.selected_profile.clone();
         let selected_model = route_decision.selected_model.clone();
+        context.profile_id = selected_profile.clone();
+        context.model = selected_model.clone();
 
         append_event!(RunEvent::ProviderCapabilityReported {
             provider_id: request.provider_id.clone(),
@@ -2425,7 +2433,32 @@ where
         F: FnMut(&EventFrame) -> R,
         R: Into<EventSinkAction>,
     {
+        let last_seq = context.seq.saturating_sub(1);
         let task_id = context.task_id.clone();
+        let checkpoint = TaskPauseCheckpoint {
+            checkpoint_id: TaskPauseCheckpointId::new(),
+            task_id: task_id.clone(),
+            trace_id: context.trace_id.clone(),
+            last_seq,
+            thread_id: Some(context.thread_id.clone()),
+            turn_id: Some(context.turn_id.clone()),
+            provider_id: context.provider_id.clone(),
+            profile_id: context.profile_id.clone(),
+            model: context.model.clone(),
+            resume_mode: ResumeMode::FromTraceProjection,
+            workspace_snapshot_id: None,
+            transcript_event_range: Some(EventRange {
+                start_seq: 1,
+                end_seq: last_seq,
+            }),
+            context_handle_ids: Vec::new(),
+            reason: Some(reason.clone()),
+        };
+        let _ = self.append_contextual(
+            context,
+            RunEvent::TaskPauseCheckpointCreated { checkpoint },
+            event_sink,
+        )?;
         let _ = self.append_contextual(
             context,
             RunEvent::TaskPaused {
