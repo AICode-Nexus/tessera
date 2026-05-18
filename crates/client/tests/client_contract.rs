@@ -302,6 +302,55 @@ fn client_snapshot_cancel_command_targets_latest_running_task() {
 }
 
 #[test]
+fn client_snapshot_maps_pause_resume_commands_to_ui_neutral_intents() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let running_task_id = TaskId::from_static("task_running_pause");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_pause_intent",
+        1,
+        RunEvent::TaskCreated {
+            task_id: running_task_id.clone(),
+            kind: TaskKind::Chat,
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_pause_intent",
+        2,
+        RunEvent::TaskStarted {
+            task_id: running_task_id.clone(),
+        },
+    ));
+
+    snapshot.draft_input = "/pause".to_string();
+    assert_eq!(
+        snapshot.submit_input(),
+        Some(ClientIntent::PauseTask {
+            task_id: Some(running_task_id)
+        })
+    );
+
+    snapshot.draft_input = "/pause task_explicit".to_string();
+    assert_eq!(
+        snapshot.submit_input(),
+        Some(ClientIntent::PauseTask {
+            task_id: Some(TaskId::from_static("task_explicit"))
+        })
+    );
+
+    snapshot.draft_input = "/resume-task task_paused".to_string();
+    assert_eq!(
+        snapshot.submit_input(),
+        Some(ClientIntent::ResumeTask {
+            task_id: TaskId::from_static("task_paused")
+        })
+    );
+
+    snapshot.draft_input = "/resume-task".to_string();
+    assert_eq!(snapshot.submit_input(), None);
+}
+
+#[test]
 fn client_snapshot_projects_pending_and_resolved_tool_approvals() {
     let mut snapshot = ClientSnapshot::new("mock-default");
     let approval_id = ApprovalId::from_static("approval_write_readme");
@@ -755,6 +804,68 @@ fn client_snapshot_updates_task_registry_from_replayed_failed_and_cancelled_task
         Some("client stopped")
     );
     assert_eq!(snapshot.status.task_summary, "task cancelled");
+}
+
+#[test]
+fn client_snapshot_projects_paused_and_resumed_tasks() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let task_id = TaskId::from_static("task_pause_projection");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_task_pause_live",
+        1,
+        RunEvent::TaskCreated {
+            task_id: task_id.clone(),
+            kind: TaskKind::Chat,
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_task_pause_live",
+        2,
+        RunEvent::TaskStarted {
+            task_id: task_id.clone(),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_task_pause_live",
+        3,
+        RunEvent::TaskPaused {
+            task_id: task_id.clone(),
+            reason: Some("user requested pause".to_string()),
+        },
+    ));
+
+    assert_eq!(snapshot.tasks[0].status, TaskStatus::Paused);
+    assert_eq!(snapshot.status.task_summary, "task paused");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_task_pause_live",
+        4,
+        RunEvent::TaskResumed {
+            task_id: task_id.clone(),
+            reason: Some("user requested resume".to_string()),
+        },
+    ));
+
+    assert_eq!(snapshot.tasks[0].status, TaskStatus::Running);
+    assert_eq!(snapshot.status.task_summary, "task running");
+
+    let mut replayed = ClientSnapshot::new("mock-default");
+    replayed.apply_trace_record(
+        &EventFrame::new(
+            "trace_task_pause_replay",
+            1,
+            RunEvent::TaskPaused {
+                task_id: task_id.clone(),
+                reason: Some("trace replay pause".to_string()),
+            },
+        )
+        .to_trace_record(),
+    );
+
+    assert_eq!(replayed.tasks[0].task_id, task_id);
+    assert_eq!(replayed.tasks[0].status, TaskStatus::Paused);
+    assert_eq!(replayed.status.task_summary, "task paused");
 }
 
 #[test]

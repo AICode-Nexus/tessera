@@ -23,6 +23,10 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 
 ";
 
+const TRACE_EVENT_KIND_DECL: &str = "\
+export type TraceEventKind = \"thread_created\" | \"turn_started\" | \"user_message_recorded\" | \"provider_request_started\" | \"assistant_message_started\" | \"assistant_delta\" | \"assistant_reasoning_delta\" | \"assistant_message_completed\" | \"usage_reported\" | \"provider_capability_reported\" | \"route_decision_recorded\" | \"provider_request_completed\" | \"turn_completed\" | \"task_created\" | \"task_started\" | \"task_completed\" | \"task_failed\" | \"task_cancelled\" | \"task_paused\" | \"task_resumed\" | \"no_progress_loop_detected\" | \"diagnostics_reported\" | \"memory_write_proposed\" | \"memory_write_applied\" | \"memory_write_rejected\" | \"artifact_created\" | \"snapshot_created\" | \"tool_call_requested\" | \"tool_policy_decision_recorded\" | \"sandbox_decision_recorded\" | \"os_sandbox_profile_selected\" | \"tool_dispatch_started\" | \"tool_dispatch_completed\" | \"tool_result\" | \"tool_repair_reported\" | \"tool_call_approved\" | \"tool_call_denied\" | \"error\" | \"done\";
+";
+
 pub fn generate_bindings() -> String {
     let cfg = Config::new().with_large_int("number");
     let mut output = String::from(HEADER);
@@ -63,6 +67,8 @@ pub fn generate_bindings() -> String {
     push_decl::<Timestamp>(&mut output, &cfg);
     push_decl::<ToolCallId>(&mut output, &cfg);
     push_decl::<ToolId>(&mut output, &cfg);
+    output.push_str(TRACE_EVENT_KIND_DECL);
+    output.push_str("\n\n");
     push_decl::<TraceRecord>(&mut output, &cfg);
     push_decl::<TurnId>(&mut output, &cfg);
 

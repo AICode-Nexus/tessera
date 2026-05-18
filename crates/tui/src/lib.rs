@@ -191,6 +191,8 @@ pub fn apply_client_intent_locally(state: &mut ChatViewState, intent: &ClientInt
         ClientIntent::SwitchProfile { .. } => true,
         ClientIntent::SubmitPrompt { .. }
         | ClientIntent::CancelTask { .. }
+        | ClientIntent::PauseTask { .. }
+        | ClientIntent::ResumeTask { .. }
         | ClientIntent::ApproveToolCall { .. }
         | ClientIntent::DenyToolCall { .. }
         | ClientIntent::AcceptMemoryProposal { .. }
@@ -335,6 +337,8 @@ where
                 | ClientIntent::NewThread
                 | ClientIntent::SaveThread
                 | ClientIntent::ExportThread
+                | ClientIntent::PauseTask { .. }
+                | ClientIntent::ResumeTask { .. }
                 | ClientIntent::ApproveToolCall { .. }
                 | ClientIntent::DenyToolCall { .. }
                 | ClientIntent::AcceptMemoryProposal { .. }

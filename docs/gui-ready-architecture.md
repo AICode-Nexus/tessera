@@ -104,13 +104,13 @@ terminal key / GUI action
 
 当前 `tessera-client` 已经承接 TUI 和未来 GUI 共享的 client model：
 
-- 用户输入转成 `ClientIntent`，其中 profile switch、prompt submit、approval approve/deny、memory proposal accept/reject 使用同一套 UI-neutral intent。
+- 用户输入转成 `ClientIntent`，其中 profile switch、prompt submit、cancel、pause/resume、approval approve/deny、memory proposal accept/reject 使用同一套 UI-neutral intent。
 - core event / trace record 转成 `ClientProjection` 消息列表。
 - provider/profile/reasoning/cache/cost/task state/artifact state 进入 `ClientStatus` 投影。
 
 后续应抽出的 UI-neutral 能力：
 
-- `ClientIntent`：`SubmitPrompt`、`SwitchProfile`、`NewThread`、`SaveThread`、`ExportThread`、`CancelTask`、`ApproveToolCall`、`DenyToolCall`、`AcceptMemoryProposal`、`RejectMemoryProposal`。
+- `ClientIntent`：`SubmitPrompt`、`SwitchProfile`、`NewThread`、`SaveThread`、`ExportThread`、`CancelTask`、`PauseTask`、`ResumeTask`、`ApproveToolCall`、`DenyToolCall`、`AcceptMemoryProposal`、`RejectMemoryProposal`。
 - `ClientStatus`：profile、model、reasoning、cache、cost、task state、approval summary、memory proposal summary。
 - `ClientMessage`：role、content、reasoning、streaming、trace refs。
 - `ClientTask`：task id、kind、status、started/completed/finished、cancel reason、error summary，已由 task registry 初版补齐。
@@ -210,7 +210,7 @@ AI 修改 GUI 时优先做小任务：
 - v0.1：live event bridge 已让 core/CLI/TUI 消费同一套 `EventFrame` 流，并保证 GUI 后续复用同一契约。
 - v0.1：cancellation / timeout / backpressure 已进入 core/CLI/TUI 基础语义。
 - v0.1：已抽出 `tessera-client` crate，包含 `ClientIntent`、`ClientStatus`、`ClientProjection` 和 `ClientSnapshot`。
-- v0.2：已新增 Tauri GUI shell spike，验证 toolkit、布局、IPC、mock/replay submit/cancel/replay 路径和 bounded GUI event buffer；完整 runtime API / live provider GUI path 仍后置。
+- v0.2：已新增 Tauri GUI shell spike，验证 toolkit、布局、IPC、mock/replay submit/cancel/pause/resume/replay 路径和 bounded GUI event buffer；完整 runtime API / live provider GUI path 仍后置。
 
 Tauri spike 验收标准：
 

@@ -76,6 +76,38 @@ fn gui_bridge_cancel_task_is_typed_but_does_not_execute_runtime_work() {
 }
 
 #[test]
+fn gui_bridge_pause_resume_task_intents_are_typed_but_do_not_execute_runtime_work() {
+    let mut bridge = GuiBridge::new(8);
+
+    let paused = bridge
+        .submit_client_intent(ClientIntent::PauseTask {
+            task_id: Some(TaskId::from_static("task_gui_pause")),
+        })
+        .unwrap();
+    let resumed = bridge
+        .submit_client_intent(ClientIntent::ResumeTask {
+            task_id: TaskId::from_static("task_gui_pause"),
+        })
+        .unwrap();
+
+    assert!(paused.accepted);
+    assert!(paused.notice.as_deref().unwrap().contains("typed"));
+    assert!(paused
+        .notice
+        .as_deref()
+        .unwrap()
+        .contains("no runtime execution"));
+    assert!(resumed.accepted);
+    assert!(resumed.notice.as_deref().unwrap().contains("typed"));
+    assert!(resumed
+        .notice
+        .as_deref()
+        .unwrap()
+        .contains("no runtime execution"));
+    assert_eq!(bridge.drain_events().len(), 2);
+}
+
+#[test]
 fn bounded_gui_event_buffer_returns_backpressure_instead_of_growing_unbounded() {
     let mut buffer = BoundedGuiEventBuffer::new(1);
 

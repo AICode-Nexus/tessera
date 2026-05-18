@@ -472,6 +472,45 @@ fn terminal_interrupt_cancels_running_task_and_quits_when_idle() {
 }
 
 #[test]
+fn pause_command_dispatches_runtime_intent_from_tui_state() {
+    let mut state = ChatViewState::new("mock-default");
+    let task_id = TaskId::from_static("task_tui_pause");
+
+    apply_live_event(
+        &mut state,
+        LiveClientEvent::Frame(Box::new(EventFrame::new(
+            "trace_tui_pause",
+            1,
+            RunEvent::TaskCreated {
+                task_id: task_id.clone(),
+                kind: TaskKind::Chat,
+            },
+        ))),
+    );
+    apply_live_event(
+        &mut state,
+        LiveClientEvent::Frame(Box::new(EventFrame::new(
+            "trace_tui_pause",
+            2,
+            RunEvent::TaskStarted {
+                task_id: task_id.clone(),
+            },
+        ))),
+    );
+
+    state.set_input("/pause");
+
+    let intent = ClientIntent::PauseTask {
+        task_id: Some(task_id),
+    };
+    assert_eq!(
+        handle_terminal_input(&mut state, TerminalInput::Submit),
+        TerminalAction::Dispatch(intent.clone())
+    );
+    assert!(!apply_client_intent_locally(&mut state, &intent));
+}
+
+#[test]
 fn profile_switch_cycles_available_profiles_as_client_intents() {
     let mut state =
         ChatViewState::with_profiles("mock-default", ["mock-default", "offline", "local-llm"]);

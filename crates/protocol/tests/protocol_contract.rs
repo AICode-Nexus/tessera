@@ -157,6 +157,26 @@ fn no_progress_loop_event_records_stop_without_route_escalation() {
 }
 
 #[test]
+fn task_pause_resume_events_are_traceable_without_runtime_suspension() {
+    let task_id = TaskId::from_static("task_pause_resume");
+    let paused = RunEvent::TaskPaused {
+        task_id: task_id.clone(),
+        reason: Some("user requested pause".to_string()),
+    };
+    let resumed = RunEvent::TaskResumed {
+        task_id: task_id.clone(),
+        reason: Some("user requested resume".to_string()),
+    };
+
+    assert_eq!(paused.kind(), "task_paused");
+    assert_eq!(resumed.kind(), "task_resumed");
+    assert_eq!(paused.task_id(), Some(task_id.clone()));
+    assert_eq!(resumed.task_id(), Some(task_id.clone()));
+    assert_eq!(paused.payload()["reason"], "user requested pause");
+    assert_eq!(resumed.payload()["reason"], "user requested resume");
+}
+
+#[test]
 fn skill_manifest_schema_is_read_only_and_skill_md_compatible() {
     let manifest = SkillManifest {
         id: SkillId::from_static("skill_code_review"),

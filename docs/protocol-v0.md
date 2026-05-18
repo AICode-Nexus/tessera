@@ -224,6 +224,8 @@ pub enum TaskStatus {
 }
 ```
 
+`Paused` 表示 provider-neutral lifecycle metadata，可用于 UI 和 trace replay 展示任务暂挂状态。当前 foundation 不承诺真实 provider HTTP stream 被挂起、后台任务被持久化，或后续可从 checkpoint 恢复执行。
+
 ### 4.5 Artifact
 
 Artifact 是大输出或外部化资源引用。v0.1 主要用于 trace、export、large provider metadata 或后续 tool output 的预留。
@@ -337,6 +339,8 @@ pub enum RunEvent {
     TaskCompleted { task_id: TaskId },
     TaskFailed { task_id: TaskId, error: NormalizedError },
     TaskCancelled { task_id: TaskId, reason: Option<String> },
+    TaskPaused { task_id: TaskId, reason: Option<String> },
+    TaskResumed { task_id: TaskId, reason: Option<String> },
 
     NoProgressLoopDetected {
         task_id: TaskId,
@@ -364,6 +368,8 @@ pub enum RunEvent {
     Done,
 }
 ```
+
+`TaskPaused` 和 `TaskResumed` 只记录 lifecycle metadata。它们可以被 client/TUI/GUI 投影为 `Paused` / `Running` 状态，但 provider stream suspension、background persistence、checkpoint restore 和 agent resume runtime 仍是后续能力。
 
 仍只预留、不执行的事件：
 

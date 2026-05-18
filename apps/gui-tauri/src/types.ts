@@ -14,6 +14,7 @@ export type {
   GuiRuntimeMode,
   GuiShellState,
   JsonValue,
+  TraceEventKind,
   TraceRecord,
 } from './generated/bindings'
 

@@ -20,6 +20,10 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("context_handles"));
     assert!(bindings.contains("submit_prompt"));
     assert!(bindings.contains("cancel_task"));
+    assert!(bindings.contains("pause_task"));
+    assert!(bindings.contains("resume_task"));
+    assert!(bindings.contains("task_paused"));
+    assert!(bindings.contains("task_resumed"));
     assert!(bindings.contains("approve_tool_call"));
     assert!(bindings.contains("deny_tool_call"));
     assert!(bindings.contains("accept_memory_proposal"));

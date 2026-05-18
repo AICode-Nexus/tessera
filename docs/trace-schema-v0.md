@@ -98,6 +98,8 @@ task_started
 task_completed
 task_failed
 task_cancelled
+task_paused
+task_resumed
 no_progress_loop_detected
 diagnostics_reported
 memory_write_proposed
@@ -118,6 +120,8 @@ tool_call_denied
 error
 done
 ```
+
+`task_paused` 和 `task_resumed` payload 必须包含 `task_id`，可选包含 `reason`。它们只表示 provider-neutral lifecycle metadata，供 replay、TUI、GUI 和 future runtime API 投影使用；不得被解释为真实 provider stream 已挂起、后台任务已持久化或 checkpoint 已恢复。
 
 仍只保留命名，不触发功能：
 
