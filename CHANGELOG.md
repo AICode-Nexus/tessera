@@ -40,13 +40,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added memory proposal UI foundations with provider-neutral memory proposal events, client pending/applied/rejected projection, `/remember` and `/forget` intents, TUI status rendering, and typed GUI bridge handling without long-term memory writes.
 - Added provider-neutral `AgentProfile` metadata and a read-only `AgentRegistry` foundation without implementing an agent runtime, tool execution, or skill activation.
 - Added pause/resume foundation metadata with provider-neutral `task_paused` / `task_resumed` events, shared `/pause` and `/resume-task` client intents, TUI pass-through, GUI metadata-only notices, and TypeScript bindings without implementing suspended provider execution.
-- Added CLI discovery and parsing for `/pause [task_id]` and `/resume-task <task_id>` as metadata-only REPL commands without provider stream suspension or runtime resume.
+- Added CLI discovery and parsing for `/pause [task_id]` and `/resume-task <task_id>` without provider stream suspension; chat-only task resume execution is now layered on the checkpoint path.
 - Added a suspended/background resume design that chooses cooperative pause checkpoints and resume envelopes over provider socket freezing.
 - Added `RuntimeReader::list_tasks` projection for `task_paused` / `task_resumed` trace records so read-only runtime APIs can surface paused and resumed task state without implementing provider suspension.
 - Added a core-owned `RunPauseToken` control path that cooperatively records `task_paused` and ends the current trace without treating pause as cancellation, while leaving resume envelopes and provider suspension unimplemented.
-- Added active `/pause` wiring in the CLI REPL and TUI runtime handler path so active chat runs can request the core pause token while `/resume-task` remains metadata-only.
+- Added active `/pause` wiring in the CLI REPL and TUI runtime handler path so active chat runs can request the core pause token; TUI `/resume-task` remains metadata-only while CLI chat resume uses trace checkpoints.
 - Added provider-neutral chat pause checkpoint metadata with `task_pause_checkpoint_created` trace events before `task_paused`, using `from_trace_projection` resume mode without implementing resume execution.
 - Added read-only `RuntimeReader::list_pause_checkpoints` projection for the latest pause checkpoint per task, without implementing `/resume-task` execution or provider suspension.
+- Added chat-only CLI `/resume-task <task_id>` execution from pause checkpoints, using trace projection to start a new core chat run and append `task_resumed` without background reattach or workspace restore.
 - Added an interactive `tessera chat` CLI REPL with `/help`, `/new`, `/profiles`, `/profile <id>`, `/status`, `/export`, and `/quit`, reusing the shared client projection and core event stream without tool or shell execution.
 - Added `tessera init` for a secret-safe local config template plus interactive `/sessions` and `/resume <trace_id>` commands backed by read-only runtime trace summaries and client projection replay.
 - Added provider-neutral chat history plumbing so CLI `/resume` follow-up prompts continue with restored user/assistant transcript while tracing only the new user turn.

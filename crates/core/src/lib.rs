@@ -1656,6 +1656,10 @@ pub struct RuntimeReader {
     store: TraceStore,
 }
 
+pub struct RuntimeTaskResumer {
+    store: TraceStore,
+}
+
 pub struct RuntimeHttpApi {
     reader: RuntimeReader,
 }
@@ -1763,6 +1767,70 @@ impl RuntimeReader {
         }
         checkpoints.sort_by_key(|checkpoint| checkpoint.event_seq);
         Ok(checkpoints)
+    }
+
+    pub fn find_pause_checkpoint(
+        &self,
+        task_id: &TaskId,
+    ) -> Result<Option<RuntimePauseCheckpointSummary>> {
+        let mut latest = None;
+        for trace_id in self.store.list_trace_ids()? {
+            for checkpoint in self.list_pause_checkpoints(&trace_id)? {
+                if checkpoint.task_id != *task_id {
+                    continue;
+                }
+
+                let should_replace =
+                    latest
+                        .as_ref()
+                        .is_none_or(|existing: &RuntimePauseCheckpointSummary| {
+                            pause_checkpoint_sort_key(&checkpoint)
+                                > pause_checkpoint_sort_key(existing)
+                        });
+                if should_replace {
+                    latest = Some(checkpoint);
+                }
+            }
+        }
+        Ok(latest)
+    }
+}
+
+impl RuntimeTaskResumer {
+    pub fn new(store: TraceStore) -> Self {
+        Self { store }
+    }
+
+    pub fn mark_task_resumed(
+        &mut self,
+        checkpoint: &RuntimePauseCheckpointSummary,
+        reason: Option<String>,
+    ) -> Result<()> {
+        let records = self.store.read_trace_records(&checkpoint.trace_id)?;
+        let next_seq = records
+            .iter()
+            .map(|record| record.seq)
+            .max()
+            .unwrap_or_default()
+            + 1;
+        let mut frame = EventFrame::new(
+            checkpoint.trace_id.clone(),
+            next_seq,
+            RunEvent::TaskResumed {
+                task_id: checkpoint.task_id.clone(),
+                reason,
+            },
+        )
+        .with_task_id(checkpoint.task_id.clone());
+        if let Some(thread_id) = checkpoint.thread_id.clone() {
+            frame = frame.with_thread_id(thread_id);
+        }
+        if let Some(turn_id) = checkpoint.turn_id.clone() {
+            frame = frame.with_turn_id(turn_id);
+        }
+
+        self.store.append(&frame)?;
+        Ok(())
     }
 }
 
@@ -2115,6 +2183,18 @@ fn apply_pause_checkpoint_record(
 
     checkpoints.push(summary);
     Ok(())
+}
+
+fn pause_checkpoint_sort_key(checkpoint: &RuntimePauseCheckpointSummary) -> (&str, &str, u64) {
+    (
+        checkpoint
+            .created_at
+            .as_ref()
+            .map(Timestamp::as_str)
+            .unwrap_or(""),
+        checkpoint.trace_id.as_str(),
+        checkpoint.event_seq,
+    )
 }
 
 impl<'a> ReplayRunner<'a> {

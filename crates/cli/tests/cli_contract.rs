@@ -1,6 +1,6 @@
 use std::{
     collections::VecDeque,
-    io::{self, Read, Write},
+    io::{self, Cursor, Read, Write},
     time::Duration,
 };
 
@@ -12,8 +12,11 @@ use tessera_cli::{
     write_config_template, CliReplCommand, CliReplSession, DoctorReport,
 };
 use tessera_config::{ProviderProfile, TesseraConfig};
-use tessera_core::{EventSinkAction, RunCancellationToken, RunControls};
-use tessera_protocol::RunEvent;
+use tessera_core::{
+    EventSinkAction, RunCancellationToken, RunControls, RunPauseToken, RuntimeReader,
+};
+use tessera_protocol::{RunEvent, TaskStatus};
+use tessera_storage::TraceStore;
 
 struct DelayedLineReader {
     lines: VecDeque<(Duration, String)>,
@@ -977,6 +980,90 @@ async fn repl_pause_interrupts_active_run_and_records_paused_trace() {
     assert!(event_kinds.contains(&"task_paused"));
     assert!(!event_kinds.contains(&"task_cancelled"));
     assert!(!event_kinds.contains(&"task_completed"));
+}
+
+#[tokio::test]
+async fn repl_resume_task_runs_chat_from_pause_checkpoint() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("test pause before resume");
+    let mut paused_task_id = None;
+    let paused = run_chat_with_config_and_controls_and_events(
+        temp.path(),
+        &config,
+        "offline",
+        "hello paused task",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: None,
+            pause_token: Some(pause_token),
+        },
+        |frame| {
+            if let RunEvent::TaskPaused { task_id, .. } = &frame.event {
+                paused_task_id = Some(task_id.clone());
+            }
+            EventSinkAction::Continue
+        },
+    )
+    .await
+    .unwrap();
+    let paused_task_id = paused_task_id.unwrap();
+    let input = format!("/resume-task {paused_task_id}\n/quit\n");
+    let mut output = Vec::new();
+
+    let snapshot = run_chat_repl_with_io_and_resume(
+        temp.path().to_path_buf(),
+        config,
+        "offline".to_string(),
+        None,
+        Cursor::new(input.into_bytes()),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(stdout.contains(&format!(
+        "resuming task {paused_task_id} from trace {}",
+        paused.trace_id
+    )));
+    assert!(!stdout.contains("metadata-only CLI intent"));
+    assert!(stdout.contains("assistant> mock response to: Continue the paused task"));
+    assert!(stdout.contains("history messages: 2"));
+    assert!(snapshot
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content == "hello paused task"));
+    assert!(snapshot
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content.contains("mock response")));
+
+    let event_page = list_events(temp.path(), &paused.trace_id, None, None).unwrap();
+    let event_kinds = event_page
+        .records
+        .iter()
+        .map(|record| record.event_kind.as_str())
+        .collect::<Vec<_>>();
+    assert!(event_kinds.contains(&"task_resumed"));
+
+    let reader = RuntimeReader::new(TraceStore::open(temp.path()).unwrap());
+    let tasks = reader.list_tasks(&paused.trace_id).unwrap();
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].task_id, paused_task_id);
+    assert_eq!(tasks[0].status, TaskStatus::Running);
 }
 
 #[test]

@@ -12,9 +12,11 @@ use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
     ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction, ReplayRunner,
     ReplaySummary, RunCancellationToken, RunControls, RunPauseToken, RuntimeEventQuery,
-    RuntimeReader, RuntimeSessionSummary,
+    RuntimePauseCheckpointSummary, RuntimeReader, RuntimeSessionSummary, RuntimeTaskResumer,
 };
-use tessera_protocol::{EventFrame, ModelProfileId, ProviderId, RunEvent, TraceRecord};
+use tessera_protocol::{
+    EventFrame, ModelProfileId, ProviderId, ResumeMode, RunEvent, TaskId, TraceRecord,
+};
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
     ChatProvider, ProviderMessage,
@@ -997,68 +999,84 @@ where
         }
 
         if let Some(command) = parse_repl_command(user_input) {
-            if matches!(command, CliReplCommand::Paste) {
-                writeln!(output, "paste mode; end with /send or /cancel")?;
-                let mut pasted = String::new();
-                let mut should_quit = false;
-                loop {
-                    write!(output, "paste> ")?;
-                    output.flush()?;
+            match command {
+                CliReplCommand::Paste => {
+                    writeln!(output, "paste mode; end with /send or /cancel")?;
+                    let mut pasted = String::new();
+                    let mut should_quit = false;
+                    loop {
+                        write!(output, "paste> ")?;
+                        output.flush()?;
 
-                    let Some(line) = next_repl_line(&mut input_lines, &mut pending_lines).await?
-                    else {
-                        should_quit = true;
-                        break;
-                    };
-                    let pasted_line = line.trim_end_matches(['\r', '\n']);
-                    match pasted_line {
-                        "/send" => {
-                            if pasted.trim().is_empty() {
-                                writeln!(output, "paste is empty; nothing sent")?;
-                            } else {
-                                run_repl_prompt_and_write(
-                                    &data_dir,
-                                    &config,
-                                    &mut session,
-                                    pasted,
-                                    &mut output,
-                                    &mut input_lines,
-                                    &mut pending_lines,
-                                )
-                                .await?;
-                            }
+                        let Some(line) =
+                            next_repl_line(&mut input_lines, &mut pending_lines).await?
+                        else {
+                            should_quit = true;
                             break;
-                        }
-                        "/cancel" => {
-                            writeln!(output, "paste cancelled")?;
-                            break;
-                        }
-                        _ => {
-                            if !pasted.is_empty() {
-                                pasted.push('\n');
+                        };
+                        let pasted_line = line.trim_end_matches(['\r', '\n']);
+                        match pasted_line {
+                            "/send" => {
+                                if pasted.trim().is_empty() {
+                                    writeln!(output, "paste is empty; nothing sent")?;
+                                } else {
+                                    run_repl_prompt_and_write(
+                                        &data_dir,
+                                        &config,
+                                        &mut session,
+                                        pasted,
+                                        &mut output,
+                                        &mut input_lines,
+                                        &mut pending_lines,
+                                    )
+                                    .await?;
+                                }
+                                break;
                             }
-                            pasted.push_str(pasted_line);
+                            "/cancel" => {
+                                writeln!(output, "paste cancelled")?;
+                                break;
+                            }
+                            _ => {
+                                if !pasted.is_empty() {
+                                    pasted.push('\n');
+                                }
+                                pasted.push_str(pasted_line);
+                            }
                         }
                     }
-                }
-                if should_quit {
-                    break;
-                }
-                continue;
-            }
-
-            match session.handle_command_with_data_dir(&data_dir, &config, command) {
-                Ok(outcome) => {
-                    for line in outcome.lines {
-                        writeln!(output, "{line}")?;
-                    }
-                    if outcome.should_quit {
+                    if should_quit {
                         break;
                     }
                 }
-                Err(error) => {
-                    writeln!(output, "error: {error}")?;
+                CliReplCommand::ResumeTask(task_id) => {
+                    if let Err(error) = resume_repl_task_and_write(
+                        &data_dir,
+                        &config,
+                        &mut session,
+                        &task_id,
+                        &mut output,
+                        &mut input_lines,
+                        &mut pending_lines,
+                    )
+                    .await
+                    {
+                        writeln!(output, "error: {error}")?;
+                    }
                 }
+                other => match session.handle_command_with_data_dir(&data_dir, &config, other) {
+                    Ok(outcome) => {
+                        for line in outcome.lines {
+                            writeln!(output, "{line}")?;
+                        }
+                        if outcome.should_quit {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        writeln!(output, "error: {error}")?;
+                    }
+                },
             }
             continue;
         }
@@ -1078,6 +1096,110 @@ where
     Ok(session.snapshot)
 }
 
+async fn resume_repl_task_and_write<W>(
+    data_dir: &Path,
+    config: &TesseraConfig,
+    session: &mut CliReplSession,
+    task_id: &str,
+    output: &mut W,
+    input_lines: &mut ReplLineReceiver,
+    pending_lines: &mut VecDeque<String>,
+) -> Result<()>
+where
+    W: Write,
+{
+    let checkpoint = load_pause_checkpoint_for_task(data_dir, task_id)?;
+    if checkpoint.resume_mode != ResumeMode::FromTraceProjection {
+        return Err(anyhow::anyhow!(
+            "unsupported resume mode for task {task_id}: {:?}",
+            checkpoint.resume_mode
+        ));
+    }
+    project_checkpoint_trace_into_session(data_dir, session, &checkpoint)?;
+
+    let provider_id = checkpoint.provider_id.to_string();
+    let resume_config = config_for_resume_checkpoint(config, &checkpoint)?;
+    session.snapshot.status.active_profile = provider_id;
+    writeln!(
+        output,
+        "resuming task {} from trace {} via checkpoint {}",
+        checkpoint.task_id, checkpoint.trace_id, checkpoint.checkpoint_id
+    )?;
+    let outcome = run_repl_prompt_and_write(
+        data_dir,
+        &resume_config,
+        session,
+        resume_task_prompt(&checkpoint.task_id),
+        output,
+        input_lines,
+        pending_lines,
+    )
+    .await?;
+
+    let mut resumer = RuntimeTaskResumer::new(TraceStore::open(data_dir)?);
+    resumer.mark_task_resumed(
+        &checkpoint,
+        Some(format!("chat resume started in trace {}", outcome.trace_id)),
+    )?;
+    Ok(())
+}
+
+fn load_pause_checkpoint_for_task(
+    data_dir: &Path,
+    task_id: &str,
+) -> Result<RuntimePauseCheckpointSummary> {
+    let task_id = TaskId::from(task_id);
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    reader
+        .find_pause_checkpoint(&task_id)?
+        .ok_or_else(|| anyhow::anyhow!("pause checkpoint not found for task: {task_id}"))
+}
+
+fn project_checkpoint_trace_into_session(
+    data_dir: &Path,
+    session: &mut CliReplSession,
+    checkpoint: &RuntimePauseCheckpointSummary,
+) -> Result<()> {
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    let page = reader.list_events(RuntimeEventQuery::new(checkpoint.trace_id.as_str()))?;
+    let records = page
+        .records
+        .iter()
+        .filter(|record| record.seq <= checkpoint.last_seq)
+        .collect::<Vec<_>>();
+    if records.is_empty() {
+        return Err(anyhow::anyhow!(
+            "pause checkpoint has no trace records to project: {}",
+            checkpoint.checkpoint_id
+        ));
+    }
+
+    session.snapshot.start_new_thread();
+    for record in records {
+        session.snapshot.apply_trace_record(record);
+    }
+    Ok(())
+}
+
+fn config_for_resume_checkpoint(
+    config: &TesseraConfig,
+    checkpoint: &RuntimePauseCheckpointSummary,
+) -> Result<TesseraConfig> {
+    let provider_id = checkpoint.provider_id.to_string();
+    let mut resume_config = config.clone();
+    let profile = resume_config
+        .providers
+        .iter_mut()
+        .find(|profile| profile.id == provider_id)
+        .ok_or_else(|| anyhow::anyhow!("provider profile not found: {provider_id}"))?;
+    profile.default_model = checkpoint.model.clone();
+    Ok(resume_config)
+}
+
+fn resume_task_prompt(task_id: &TaskId) -> String {
+    format!("Continue the paused task {task_id} from the saved trace projection.")
+}
+
 async fn run_repl_prompt_and_write<W>(
     data_dir: &Path,
     config: &TesseraConfig,
@@ -1086,7 +1208,7 @@ async fn run_repl_prompt_and_write<W>(
     output: &mut W,
     input_lines: &mut ReplLineReceiver,
     pending_lines: &mut VecDeque<String>,
-) -> Result<()>
+) -> Result<ConversationOutcome>
 where
     W: Write,
 {
@@ -1123,9 +1245,9 @@ where
                     write!(output, "{delta}")?;
                     output.flush()?;
                 }
-                result?;
+                let outcome = result?;
                 writeln!(output)?;
-                return Ok(());
+                return Ok(outcome);
             }
             maybe_delta = delta_rx.recv() => {
                 if let Some(delta) = maybe_delta {
@@ -1205,7 +1327,7 @@ pub fn chat_command_lines() -> Vec<&'static str> {
         "  /clear             clear the current visible thread",
         "  /cancel            cancel active paste/run when available",
         "  /pause [task_id]   pause active run when available; otherwise record metadata-only intent",
-        "  /resume-task <task_id> record a metadata-only resume intent",
+        "  /resume-task <task_id> resume a paused chat task from its trace checkpoint",
         "  /paste             enter multiline prompt mode",
         "  /profiles          list configured provider profiles",
         "  /profile <id>      switch active provider profile",
