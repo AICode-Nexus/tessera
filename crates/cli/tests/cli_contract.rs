@@ -129,6 +129,8 @@ fn chat_list_commands_prints_repl_commands_without_runtime_config() {
     assert!(stdout.contains("commands:"));
     assert!(stdout.contains("/help"));
     assert!(stdout.contains("/cancel"));
+    assert!(stdout.contains("/pause [task_id]"));
+    assert!(stdout.contains("/resume-task <task_id>"));
     assert!(stdout.contains("/clear"));
     assert!(stdout.contains("/paste"));
     assert!(stdout.contains("/profiles"));
@@ -515,6 +517,20 @@ fn repl_parser_recognizes_local_slash_commands() {
     assert_eq!(parse_repl_command("/new"), Some(CliReplCommand::NewThread));
     assert_eq!(parse_repl_command("/clear"), Some(CliReplCommand::Clear));
     assert_eq!(parse_repl_command("/cancel"), Some(CliReplCommand::Cancel));
+    assert_eq!(
+        parse_repl_command("/pause"),
+        Some(CliReplCommand::PauseTask(None))
+    );
+    assert_eq!(
+        parse_repl_command("/pause task_cli_pause"),
+        Some(CliReplCommand::PauseTask(Some(
+            "task_cli_pause".to_string()
+        )))
+    );
+    assert_eq!(
+        parse_repl_command("/resume-task task_cli_pause"),
+        Some(CliReplCommand::ResumeTask("task_cli_pause".to_string()))
+    );
     assert_eq!(parse_repl_command("/paste"), Some(CliReplCommand::Paste));
     assert_eq!(
         parse_repl_command("/profiles"),
@@ -545,6 +561,32 @@ fn repl_parser_recognizes_local_slash_commands() {
         parse_repl_command("/resume trace_123"),
         Some(CliReplCommand::ResumeSession("trace_123".to_string()))
     );
+}
+
+#[test]
+fn repl_session_accepts_pause_resume_commands_without_runtime_execution() {
+    let config = TesseraConfig::default_with_mock();
+    let mut session = CliReplSession::new(&config, "mock").unwrap();
+
+    let pause = session
+        .handle_command(
+            &config,
+            CliReplCommand::PauseTask(Some("task_cli_pause".to_string())),
+        )
+        .unwrap();
+    let resume = session
+        .handle_command(
+            &config,
+            CliReplCommand::ResumeTask("task_cli_pause".to_string()),
+        )
+        .unwrap();
+
+    assert!(!pause.should_quit);
+    assert!(pause.lines.join("\n").contains("metadata-only"));
+    assert!(pause.lines.join("\n").contains("no runtime execution"));
+    assert!(!resume.should_quit);
+    assert!(resume.lines.join("\n").contains("metadata-only"));
+    assert!(resume.lines.join("\n").contains("no runtime execution"));
 }
 
 #[test]

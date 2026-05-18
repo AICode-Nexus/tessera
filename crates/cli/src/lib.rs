@@ -203,6 +203,8 @@ pub enum CliReplCommand {
     NewThread,
     Clear,
     Cancel,
+    PauseTask(Option<String>),
+    ResumeTask(String),
     Paste,
     Profiles,
     SwitchProfile(String),
@@ -268,6 +270,17 @@ impl CliReplSession {
             CliReplCommand::Cancel => Ok(CliReplCommandOutcome::continue_with([
                 "no active run to cancel",
             ])),
+            CliReplCommand::PauseTask(task_id) => {
+                let task_label = task_id.unwrap_or_else(|| "latest running task".to_string());
+                Ok(CliReplCommandOutcome::continue_with([format!(
+                    "pause requested for {task_label} as metadata-only CLI intent; no runtime execution was invoked"
+                )]))
+            }
+            CliReplCommand::ResumeTask(task_id) => {
+                Ok(CliReplCommandOutcome::continue_with([format!(
+                    "resume requested for {task_id} as metadata-only CLI intent; no runtime execution was invoked"
+                )]))
+            }
             CliReplCommand::Paste => Ok(CliReplCommandOutcome::continue_with([
                 "/paste is only available in the interactive REPL".to_string(),
             ])),
@@ -415,6 +428,12 @@ pub fn parse_repl_command(input: &str) -> Option<CliReplCommand> {
         "/new" => CliReplCommand::NewThread,
         "/clear" => CliReplCommand::Clear,
         "/cancel" => CliReplCommand::Cancel,
+        "/pause" => CliReplCommand::PauseTask(if argument.is_empty() {
+            None
+        } else {
+            Some(argument.to_string())
+        }),
+        "/resume-task" if !argument.is_empty() => CliReplCommand::ResumeTask(argument.to_string()),
         "/paste" => CliReplCommand::Paste,
         "/profiles" => CliReplCommand::Profiles,
         "/profile" if !argument.is_empty() => CliReplCommand::SwitchProfile(argument.to_string()),
@@ -1171,6 +1190,8 @@ pub fn chat_command_lines() -> Vec<&'static str> {
         "  /new               start a fresh visible thread",
         "  /clear             clear the current visible thread",
         "  /cancel            cancel active paste/run when available",
+        "  /pause [task_id]   record a metadata-only pause intent",
+        "  /resume-task <task_id> record a metadata-only resume intent",
         "  /paste             enter multiline prompt mode",
         "  /profiles          list configured provider profiles",
         "  /profile <id>      switch active provider profile",

@@ -90,6 +90,7 @@
 - [x] CLI numbered session resume：`sessions` / `/sessions` 文本输出带 1-based 编号，`/resume <number>` 和 `chat --resume <number>` 可按当前 session 排序恢复 trace。
 - [x] CLI REPL multiline input：`/paste` 进入多行 prompt 收集，`/send` 提交到原有 core/provider/chat path，`/cancel` 丢弃本地 buffer。
 - [x] CLI REPL active cancel：普通 REPL 下 `/cancel` 在 provider run 活跃时通过 `RunCancellationToken` 取消运行并记录 `task_cancelled`，无活跃 run 时报告 no active run。
+- [x] CLI pause/resume discovery：`/help`、`/commands`、`chat --list-commands` 展示 `/pause [task_id]` 和 `/resume-task <task_id>`，REPL parser 可识别并返回 metadata-only 结果；不实现 provider stream suspension 或 runtime resume。
 - [x] CLI bare entrypoint：裸 `tessera` 默认进入 mock 交互式 REPL；`tessera chat ...` 保留为显式脚本和配置入口。
 - [x] CLI run cancellation controls：config-routed chat helpers 可传入 `RunControls` / `RunCancellationToken`，预取消不会发起 provider request，后续异步 REPL 可复用同一通道。
 - [x] `tessera config validate`：顶层配置自检命令，可输出文本或 `--json`，检查 provider shape、重复 profile id、data_dir resolution 和 secret env 是否存在，不打开 storage、不输出真实 secret。
@@ -188,6 +189,7 @@
 39. [x] Run cancellation controls：core `RunCancellationToken`、CLI controls-aware helper、client `/cancel` intent、TUI Ctrl-C cancel intent 已接入。
 40. [x] CLI REPL active run cancellation：REPL prompt 执行期间并发读取输入行，`/cancel` 会取消 active token 并写入 `task_cancelled` trace；其他运行中输入会缓冲到当前 run 后处理。
 41. [x] CLI bare entrypoint：`tessera` 无子命令时复用 `chat` 交互路径，默认使用 mock provider 进入 REPL；安装后启动路径缩短到单个命令。
+42. [x] CLI pause/resume discovery：CLI help/list-commands 和 REPL parser 已识别 `/pause [task_id]`、`/resume-task <task_id>`；当前只返回 metadata-only 结果，不挂起 provider stream。
 
 ## 4. v0.2 Checklist
 
