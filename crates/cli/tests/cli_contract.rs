@@ -930,6 +930,55 @@ async fn repl_cancel_interrupts_active_run_and_records_cancelled_trace() {
     assert!(!event_kinds.contains(&"task_completed"));
 }
 
+#[tokio::test]
+async fn repl_pause_interrupts_active_run_and_records_paused_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-slow".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let mut output = Vec::new();
+
+    let snapshot = run_chat_repl_with_io_and_resume(
+        temp.path().to_path_buf(),
+        config,
+        "offline".to_string(),
+        None,
+        DelayedLineReader::new([
+            (Duration::ZERO, "pause this slow run\n"),
+            (Duration::from_millis(20), "/pause\n"),
+            (Duration::ZERO, "/quit\n"),
+        ]),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(stdout.contains("pause requested"));
+    assert!(!stdout.contains("metadata-only CLI intent"));
+    assert_eq!(snapshot.status.task_summary, "task paused");
+
+    let sessions = list_sessions(temp.path()).unwrap();
+    assert_eq!(sessions.len(), 1);
+    let event_page = list_events(temp.path(), &sessions[0].trace_id, None, None).unwrap();
+    let event_kinds = event_page
+        .records
+        .iter()
+        .map(|record| record.event_kind.as_str())
+        .collect::<Vec<_>>();
+    assert!(event_kinds.contains(&"provider_request_started"));
+    assert!(event_kinds.contains(&"task_paused"));
+    assert!(!event_kinds.contains(&"task_cancelled"));
+    assert!(!event_kinds.contains(&"task_completed"));
+}
+
 #[test]
 fn init_config_template_writes_secret_safe_profiles_and_respects_force() {
     let temp = tempfile::tempdir().unwrap();

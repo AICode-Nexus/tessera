@@ -11,8 +11,8 @@ use tessera_client::{ClientMessage, ClientMessageRole, ClientSnapshot};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
     ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction, ReplayRunner,
-    ReplaySummary, RunCancellationToken, RunControls, RuntimeEventQuery, RuntimeReader,
-    RuntimeSessionSummary,
+    ReplaySummary, RunCancellationToken, RunControls, RunPauseToken, RuntimeEventQuery,
+    RuntimeReader, RuntimeSessionSummary,
 };
 use tessera_protocol::{EventFrame, ModelProfileId, ProviderId, RunEvent, TraceRecord};
 use tessera_providers::{
@@ -1094,10 +1094,11 @@ where
     output.flush()?;
 
     let cancellation_token = RunCancellationToken::new();
+    let pause_token = RunPauseToken::new();
     let controls = RunControls {
         event_timeout: None,
         cancellation_token: Some(cancellation_token.clone()),
-        pause_token: None,
+        pause_token: Some(pause_token.clone()),
     };
     let (delta_tx, mut delta_rx) = mpsc::unbounded_channel::<String>();
     let run = run_repl_prompt_with_writer_and_controls(
@@ -1113,6 +1114,7 @@ where
     tokio::pin!(run);
     let mut input_closed = false;
     let mut cancel_announced = false;
+    let mut pause_announced = false;
 
     loop {
         tokio::select! {
@@ -1134,14 +1136,25 @@ where
             maybe_line = input_lines.recv(), if !input_closed => {
                 match maybe_line {
                     Some(Ok(line)) => {
-                        if pending_lines.is_empty()
-                            && matches!(parse_repl_command(line.trim()), Some(CliReplCommand::Cancel))
-                        {
-                            cancellation_token.cancel("cli repl cancel requested");
-                            if !cancel_announced {
-                                writeln!(output, "\ncancel requested")?;
-                                output.flush()?;
-                                cancel_announced = true;
+                        if pending_lines.is_empty() {
+                            match parse_repl_command(line.trim()) {
+                                Some(CliReplCommand::Cancel) => {
+                                    cancellation_token.cancel("cli repl cancel requested");
+                                    if !cancel_announced {
+                                        writeln!(output, "\ncancel requested")?;
+                                        output.flush()?;
+                                        cancel_announced = true;
+                                    }
+                                }
+                                Some(CliReplCommand::PauseTask(_)) => {
+                                    pause_token.pause("cli repl pause requested");
+                                    if !pause_announced {
+                                        writeln!(output, "\npause requested")?;
+                                        output.flush()?;
+                                        pause_announced = true;
+                                    }
+                                }
+                                _ => pending_lines.push_back(line),
                             }
                         } else {
                             pending_lines.push_back(line);
@@ -1191,7 +1204,7 @@ pub fn chat_command_lines() -> Vec<&'static str> {
         "  /new               start a fresh visible thread",
         "  /clear             clear the current visible thread",
         "  /cancel            cancel active paste/run when available",
-        "  /pause [task_id]   record a metadata-only pause intent",
+        "  /pause [task_id]   pause active run when available; otherwise record metadata-only intent",
         "  /resume-task <task_id> record a metadata-only resume intent",
         "  /paste             enter multiline prompt mode",
         "  /profiles          list configured provider profiles",
@@ -1474,28 +1487,39 @@ pub async fn run_tui_with_config(
     let state = build_tui_state_with_config(&config, &provider_id)?;
     let active_cancellation_token: Arc<Mutex<Option<RunCancellationToken>>> =
         Arc::new(Mutex::new(None));
+    let active_pause_token: Arc<Mutex<Option<RunPauseToken>>> = Arc::new(Mutex::new(None));
     let submit_cancellation_token = Arc::clone(&active_cancellation_token);
+    let submit_pause_token = Arc::clone(&active_pause_token);
     let cancel_cancellation_token = Arc::clone(&active_cancellation_token);
+    let pause_pause_token = Arc::clone(&active_pause_token);
 
-    tessera_tui::run_terminal_chat_with_cancel_handler(
+    tessera_tui::run_terminal_chat_with_runtime_handlers(
         state,
         move |selected_provider_id, prompt, live_events| {
             let data_dir = data_dir.clone();
             let config = config.clone();
             let active_cancellation_token = Arc::clone(&submit_cancellation_token);
+            let active_pause_token = Arc::clone(&submit_pause_token);
             async move {
                 let cancellation_token = RunCancellationToken::new();
+                let pause_token = RunPauseToken::new();
                 {
                     let mut active = active_cancellation_token
                         .lock()
                         .map_err(|_| "active cancellation token lock poisoned".to_string())?;
                     *active = Some(cancellation_token.clone());
                 }
+                {
+                    let mut active = active_pause_token
+                        .lock()
+                        .map_err(|_| "active pause token lock poisoned".to_string())?;
+                    *active = Some(pause_token.clone());
+                }
 
                 let controls = RunControls {
                     event_timeout: None,
                     cancellation_token: Some(cancellation_token.clone()),
-                    pause_token: None,
+                    pause_token: Some(pause_token.clone()),
                 };
                 let result = run_chat_with_config_and_controls_and_events(
                     data_dir,
@@ -1531,6 +1555,15 @@ pub async fn run_tui_with_config(
                 {
                     *active = None;
                 }
+                let mut active = active_pause_token
+                    .lock()
+                    .map_err(|_| "active pause token lock poisoned".to_string())?;
+                if active
+                    .as_ref()
+                    .is_some_and(|current| current.is_same_handle(&pause_token))
+                {
+                    *active = None;
+                }
 
                 result
             }
@@ -1546,6 +1579,19 @@ pub async fn run_tui_with_config(
                     Ok("cancel requested".to_string())
                 }
                 None => Err("no active run to cancel".to_string()),
+            }
+        },
+        move |_task_id| {
+            let token = pause_pause_token
+                .lock()
+                .map_err(|_| "active pause token lock poisoned".to_string())?
+                .clone();
+            match token {
+                Some(token) => {
+                    token.pause("tui pause requested");
+                    Ok("pause requested".to_string())
+                }
+                None => Err("no active run to pause".to_string()),
             }
         },
     )

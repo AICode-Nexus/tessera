@@ -200,6 +200,35 @@ pub fn apply_client_intent_locally(state: &mut ChatViewState, intent: &ClientInt
     }
 }
 
+pub fn apply_runtime_control_intent<C, P>(
+    state: &mut ChatViewState,
+    intent: ClientIntent,
+    cancel_task: &mut C,
+    pause_task: &mut P,
+) -> bool
+where
+    C: FnMut(Option<TaskId>) -> Result<String, String>,
+    P: FnMut(Option<TaskId>) -> Result<String, String>,
+{
+    match intent {
+        ClientIntent::CancelTask { task_id } => {
+            match cancel_task(task_id) {
+                Ok(message) => apply_live_event(state, LiveClientEvent::Notice(message)),
+                Err(error) => apply_live_event(state, LiveClientEvent::Error(error)),
+            }
+            true
+        }
+        ClientIntent::PauseTask { task_id } => {
+            match pause_task(task_id) {
+                Ok(message) => apply_live_event(state, LiveClientEvent::Notice(message)),
+                Err(error) => apply_live_event(state, LiveClientEvent::Error(error)),
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
 pub fn map_key_event(event: KeyEvent) -> Option<TerminalInput> {
     match event.code {
         KeyCode::Enter => Some(TerminalInput::Submit),
@@ -266,14 +295,38 @@ where
     Fut: Future<Output = Result<(), String>> + Send + 'static,
     C: FnMut(Option<TaskId>) -> Result<String, String>,
 {
+    run_terminal_chat_with_runtime_handlers(initial_state, submit_prompt, cancel_task, |_| {
+        Err("no active run to pause".to_string())
+    })
+    .await
+}
+
+pub async fn run_terminal_chat_with_runtime_handlers<F, Fut, C, P>(
+    initial_state: ChatViewState,
+    submit_prompt: F,
+    cancel_task: C,
+    pause_task: P,
+) -> io::Result<ChatViewState>
+where
+    F: FnMut(String, String, LiveClientEventSender) -> Fut,
+    Fut: Future<Output = Result<(), String>> + Send + 'static,
+    C: FnMut(Option<TaskId>) -> Result<String, String>,
+    P: FnMut(Option<TaskId>) -> Result<String, String>,
+{
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result =
-        run_terminal_chat_loop(&mut terminal, initial_state, submit_prompt, cancel_task).await;
+    let result = run_terminal_chat_loop(
+        &mut terminal,
+        initial_state,
+        submit_prompt,
+        cancel_task,
+        pause_task,
+    )
+    .await;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -287,6 +340,7 @@ async fn run_terminal_chat_loop<B, F, Fut>(
     mut state: ChatViewState,
     mut submit_prompt: F,
     mut cancel_task: impl FnMut(Option<TaskId>) -> Result<String, String>,
+    mut pause_task: impl FnMut(Option<TaskId>) -> Result<String, String>,
 ) -> io::Result<ChatViewState>
 where
     B: ratatui::backend::Backend,
@@ -329,15 +383,19 @@ where
                         }
                     });
                 }
-                ClientIntent::CancelTask { task_id } => match cancel_task(task_id) {
-                    Ok(message) => apply_live_event(&mut state, LiveClientEvent::Notice(message)),
-                    Err(error) => apply_live_event(&mut state, LiveClientEvent::Error(error)),
-                },
+                ClientIntent::CancelTask { .. } | ClientIntent::PauseTask { .. } => {
+                    let handled = apply_runtime_control_intent(
+                        &mut state,
+                        intent,
+                        &mut cancel_task,
+                        &mut pause_task,
+                    );
+                    debug_assert!(handled);
+                }
                 ClientIntent::SwitchProfile { .. }
                 | ClientIntent::NewThread
                 | ClientIntent::SaveThread
                 | ClientIntent::ExportThread
-                | ClientIntent::PauseTask { .. }
                 | ClientIntent::ResumeTask { .. }
                 | ClientIntent::ApproveToolCall { .. }
                 | ClientIntent::DenyToolCall { .. }
