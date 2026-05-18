@@ -17,6 +17,7 @@ const snapshot: ClientSnapshot = {
     cache_summary: 'cache 8/12 (66%)',
     cost_summary: 'CNY 0.0000',
     context_summary: 'ctx 12/4000 (0%)',
+    context_handles_summary: 'context 1 handles / 42/1024 tokens',
     telemetry: {
       input_tokens: 12,
       output_tokens: 8,
@@ -53,6 +54,18 @@ const snapshot: ClientSnapshot = {
   artifacts: [],
   approvals: [],
   memory_proposals: [],
+  context_handles: [
+    {
+      context_id: 'context_architecture',
+      source_kind: 'file',
+      source_uri: 'docs/technical-architecture.md',
+      label: 'architecture',
+      placement: 'stable_prefix',
+      estimated_tokens: 42,
+      pinned: true,
+      summary: 'architecture contract',
+    },
+  ],
   draft_input: '',
 }
 

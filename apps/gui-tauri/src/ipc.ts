@@ -108,9 +108,14 @@ function submitFallbackIntent(intent: ClientIntent): GuiCommandOutcome {
     if (intent === 'new_thread') {
       fallbackSnapshot = {
         ...fallbackSnapshot,
+        status: {
+          ...fallbackSnapshot.status,
+          context_handles_summary: 'context 0 handles / 0/0 tokens',
+        },
         projection: { ...fallbackSnapshot.projection, messages: [] },
         tasks: [],
         artifacts: [],
+        context_handles: [],
         draft_input: '',
       }
       return accepted('Started a new GUI projection thread.')
@@ -205,6 +210,7 @@ function createFallbackSnapshot(): ClientSnapshot {
       cache_summary: 'cache 0/0',
       cost_summary: 'CNY 0.0000',
       context_summary: 'ctx 0 tokens',
+      context_handles_summary: 'context 0 handles / 0/0 tokens',
       telemetry: {
         input_tokens: 0,
         output_tokens: 0,
@@ -242,6 +248,7 @@ function createFallbackSnapshot(): ClientSnapshot {
     artifacts: [],
     approvals: [],
     memory_proposals: [],
+    context_handles: [],
     draft_input: '',
   }
 }

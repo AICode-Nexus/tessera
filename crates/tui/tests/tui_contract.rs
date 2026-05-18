@@ -1,5 +1,7 @@
+use tessera_client::ClientContextBudgetSummary;
 use tessera_protocol::{
-    ApprovalId, ArtifactId, ArtifactKind, CostEstimate, EventFrame, ItemId, MemoryProposal,
+    ApprovalId, ArtifactId, ArtifactKind, ContextId, ContextPlacement, ContextReference,
+    ContextSource, ContextSourceKind, CostEstimate, EventFrame, ItemId, MemoryProposal,
     MemoryProposalId, MemoryProposalStatus, PolicyDecisionId, PolicyOutcome, ProviderCapability,
     ProviderId, RunEvent, TaskId, TaskKind, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
     ToolSideEffect,
@@ -166,6 +168,61 @@ fn tui_status_line_renders_live_artifact_summary() {
         .collect::<String>();
 
     assert!(rendered.contains("artifacts 1"));
+}
+
+#[test]
+fn tui_status_line_renders_context_handle_summary() {
+    let mut state = ChatViewState::new("mock-default");
+
+    state.set_context_handles(
+        [
+            ContextReference {
+                id: ContextId::from_static("context_architecture"),
+                source: ContextSource {
+                    kind: ContextSourceKind::File,
+                    uri: Some("docs/technical-architecture.md".to_string()),
+                    label: Some("architecture".to_string()),
+                },
+                placement: ContextPlacement::StablePrefix,
+                estimated_tokens: 100,
+                pinned: true,
+                summary: Some("architecture contract".to_string()),
+                metadata: None,
+            },
+            ContextReference {
+                id: ContextId::from_static("context_trace"),
+                source: ContextSource {
+                    kind: ContextSourceKind::Trace,
+                    uri: Some("trace://trace_mock".to_string()),
+                    label: Some("transcript".to_string()),
+                },
+                placement: ContextPlacement::AppendOnlyTranscript,
+                estimated_tokens: 50,
+                pinned: false,
+                summary: None,
+                metadata: None,
+            },
+        ],
+        ClientContextBudgetSummary {
+            max_tokens: 200,
+            reserved_output_tokens: 40,
+            available_tokens: 160,
+            used_tokens: 150,
+            remaining_tokens: 10,
+            stable_prefix_tokens: 100,
+            append_only_transcript_tokens: 50,
+            volatile_scratch_tokens: 0,
+            over_budget: false,
+        },
+    );
+
+    let rendered = status_line(&state)
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+
+    assert!(rendered.contains("context 2 handles / 150/160 tokens"));
 }
 
 #[test]
