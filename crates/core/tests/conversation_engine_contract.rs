@@ -7,8 +7,8 @@ use tessera_core::{
     DiagnosticsReporter, EventSinkAction, McpToolAdapter, McpToolAnnotations, McpToolSpec,
     ModelRouteRequest, ModelRouter, NoProgressDetector, NoProgressObservation,
     OrderedToolResultBuffer, OsSandboxPlanner, PolicyGate, ReplayRunner, RunCancellationToken,
-    RunControls, RuntimeEventQuery, RuntimeHttpApi, RuntimeHttpEventRequest, RuntimeReader,
-    SkillRegistry, ToolRegistry, ToolRepairTelemetry, WorkspaceCheckpointPlanner,
+    RunControls, RunPauseToken, RuntimeEventQuery, RuntimeHttpApi, RuntimeHttpEventRequest,
+    RuntimeReader, SkillRegistry, ToolRegistry, ToolRepairTelemetry, WorkspaceCheckpointPlanner,
     WorkspaceGuardrailChecker,
 };
 use tessera_protocol::{
@@ -1168,6 +1168,7 @@ async fn conversation_engine_records_timeout_when_provider_stalls() {
             RunControls {
                 event_timeout: Some(Duration::from_millis(5)),
                 cancellation_token: None,
+                pause_token: None,
             },
             |_| {},
         )
@@ -1207,6 +1208,7 @@ async fn conversation_engine_cancellation_token_interrupts_stalled_provider_stre
             RunControls {
                 event_timeout: None,
                 cancellation_token: Some(cancellation_token),
+                pause_token: None,
             },
             |_| {},
         )
@@ -1226,6 +1228,56 @@ async fn conversation_engine_cancellation_token_interrupts_stalled_provider_stre
         .and_then(|record| record.payload.get("reason"))
         .and_then(|reason| reason.as_str());
     assert_eq!(cancel_reason, Some("external cancel requested"));
+}
+
+#[tokio::test]
+async fn conversation_engine_pause_token_records_paused_task_without_cancelling() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(HangingProvider, store);
+    let pause_token = RunPauseToken::new();
+    let pause_from_task = pause_token.clone();
+    let request = ConversationRequest {
+        trace_id: "trace_external_pause".to_string(),
+        provider_id: ProviderId::from_static("hanging"),
+        profile_id: ModelProfileId::from_static("hanging"),
+        model: "hanging-model".to_string(),
+        prompt: "hello external pause".to_string(),
+        history: Vec::new(),
+    };
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        pause_from_task.pause("external pause requested");
+    });
+
+    let outcome = engine
+        .run_chat_with_controls_and_event_sink(
+            request,
+            RunControls {
+                event_timeout: None,
+                cancellation_token: None,
+                pause_token: Some(pause_token),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+    let events = outcome.store.list_events(&outcome.trace_id).unwrap();
+    assert!(events.contains(&"provider_request_started".to_string()));
+    assert!(events.contains(&"task_paused".to_string()));
+    assert!(!events.contains(&"task_cancelled".to_string()));
+    assert!(!events.contains(&"task_completed".to_string()));
+    assert_eq!(events.last().map(String::as_str), Some("done"));
+
+    let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let pause_reason = records
+        .iter()
+        .find(|record| record.event_kind == "task_paused")
+        .and_then(|record| record.payload.get("reason"))
+        .and_then(|reason| reason.as_str());
+    assert_eq!(pause_reason, Some("external pause requested"));
 }
 
 #[tokio::test]
