@@ -59,22 +59,26 @@ PATH="$HOME/.cargo/bin:$PATH" cargo fmt --all -- --check
 Run the current mock path:
 
 ```bash
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- doctor
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- doctor --json
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- init --config ./tessera.toml
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- profiles
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --list-commands
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --provider mock --prompt "hello"
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --provider mock --prompt "hello" --json
-printf 'hello from stdin\n' | PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --provider mock --stdin
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --provider mock --file prompt.md
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- sessions
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- transcript <trace_id>
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- replay <trace_id>
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- events <trace_id> --limit 20
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --provider mock
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- tui --provider mock
+PATH="$HOME/.cargo/bin:$PATH" cargo install --path crates/cli --force
+tessera
+tessera doctor
+tessera doctor --json
+tessera init --config ./tessera.toml
+tessera profiles
+tessera chat --list-commands
+tessera chat --provider mock --prompt "hello"
+tessera chat --provider mock --prompt "hello" --json
+printf 'hello from stdin\n' | tessera chat --provider mock --stdin
+tessera chat --provider mock --file prompt.md
+tessera sessions
+tessera transcript <trace_id>
+tessera replay <trace_id>
+tessera events <trace_id> --limit 20
+tessera chat --provider mock
+tessera tui --provider mock
 ```
+
+For source-tree development without installing, prefix the same CLI arguments with `PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli --`. The bare `tessera` command launches the default mock interactive REPL, while `tessera chat ...` keeps the explicit script-friendly command surface.
 
 Run with an explicit config profile:
 
@@ -88,31 +92,31 @@ default_model = "mock-chat"
 ```
 
 ```bash
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- doctor --config ./tessera.toml
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- doctor --config ./tessera.toml --json
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --list-commands
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --prompt "hello"
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --prompt "hello" --json
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- config validate --config ./tessera.toml
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- config validate --config ./tessera.toml --json
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- profiles --config ./tessera.toml
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- profiles --config ./tessera.toml --json
-cat prompt.md | PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --stdin
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --file prompt.md
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- sessions --config ./tessera.toml
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- sessions --config ./tessera.toml --json
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- transcript <trace_id> --config ./tessera.toml
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- transcript <trace_id> --config ./tessera.toml --json
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- replay <trace_id> --config ./tessera.toml
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- replay <trace_id> --config ./tessera.toml --json
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- events <trace_id> --config ./tessera.toml --since 0 --limit 20
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- events <trace_id> --config ./tessera.toml --since 0 --limit 20 --json
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --resume <trace_id>
-PATH="$HOME/.cargo/bin:$PATH" cargo run -p tessera-cli -- chat --config ./tessera.toml --provider offline --continue
+tessera doctor --config ./tessera.toml
+tessera doctor --config ./tessera.toml --json
+tessera chat --list-commands
+tessera chat --config ./tessera.toml --provider offline --prompt "hello"
+tessera chat --config ./tessera.toml --provider offline --prompt "hello" --json
+tessera config validate --config ./tessera.toml
+tessera config validate --config ./tessera.toml --json
+tessera profiles --config ./tessera.toml
+tessera profiles --config ./tessera.toml --json
+cat prompt.md | tessera chat --config ./tessera.toml --provider offline --stdin
+tessera chat --config ./tessera.toml --provider offline --file prompt.md
+tessera sessions --config ./tessera.toml
+tessera sessions --config ./tessera.toml --json
+tessera transcript <trace_id> --config ./tessera.toml
+tessera transcript <trace_id> --config ./tessera.toml --json
+tessera replay <trace_id> --config ./tessera.toml
+tessera replay <trace_id> --config ./tessera.toml --json
+tessera events <trace_id> --config ./tessera.toml --since 0 --limit 20
+tessera events <trace_id> --config ./tessera.toml --since 0 --limit 20 --json
+tessera chat --config ./tessera.toml --provider offline
+tessera chat --config ./tessera.toml --provider offline --resume <trace_id>
+tessera chat --config ./tessera.toml --provider offline --continue
 ```
 
-Use `chat --stdin` to pipe a prompt into one-shot chat, or `chat --file <path>` to read a prompt from a UTF-8 file. Add `--json` to a one-shot chat command to emit `trace_id` and `assistant_text` for scripts. Use `tessera doctor` to inspect resolved runtime health, trace writability, SQLite index health, and provider profile IDs in a readable form. Use `tessera config validate` to check provider shape, duplicate IDs, resolved data dir, and configured secret env presence without touching storage or printing secret values. Use `tessera profiles` to inspect configured provider profiles without exposing secret values, `tessera sessions` to list numbered trace-backed sessions, `tessera transcript <trace_id>` to inspect one without entering the REPL, `tessera replay <trace_id>` to reconstruct a trace summary without provider access, and `tessera events <trace_id>` to page raw trace events with `--since` / `--limit`. In interactive `chat` mode, startup output shows the active profile, data dir, and configured profiles; use `/help`, `/commands`, `/new`, `/clear`, `/cancel`, `/paste`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id|#>`, `/doctor`, `/history`, `/status`, `/export`, and `/quit`. `/cancel` discards paste buffers in paste mode, cancels the active provider run while streaming, and reports when there is no active run to cancel. Use `chat --list-commands` to print that slash-command list without resolving config or starting the REPL. You can also start directly from a prior trace with `chat --resume <trace_id>` or resume the most recent trace with `chat --continue`; after checking `/sessions`, `chat --resume <number>` and REPL `/resume <number>` restore the numbered session from the same sorted list. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
+Use bare `tessera` to start the default interactive mock REPL. Use `chat --stdin` to pipe a prompt into one-shot chat, or `chat --file <path>` to read a prompt from a UTF-8 file. Add `--json` to a one-shot chat command to emit `trace_id` and `assistant_text` for scripts. Use `tessera doctor` to inspect resolved runtime health, trace writability, SQLite index health, and provider profile IDs in a readable form. Use `tessera config validate` to check provider shape, duplicate IDs, resolved data dir, and configured secret env presence without touching storage or printing secret values. Use `tessera profiles` to inspect configured provider profiles without exposing secret values, `tessera sessions` to list numbered trace-backed sessions, `tessera transcript <trace_id>` to inspect one without entering the REPL, `tessera replay <trace_id>` to reconstruct a trace summary without provider access, and `tessera events <trace_id>` to page raw trace events with `--since` / `--limit`. In interactive `chat` mode, startup output shows the active profile, data dir, and configured profiles; use `/help`, `/commands`, `/new`, `/clear`, `/cancel`, `/paste`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id|#>`, `/doctor`, `/history`, `/status`, `/export`, and `/quit`. `/cancel` discards paste buffers in paste mode, cancels the active provider run while streaming, and reports when there is no active run to cancel. Use `chat --list-commands` to print that slash-command list without resolving config or starting the REPL. You can also start directly from a prior trace with `chat --resume <trace_id>` or resume the most recent trace with `chat --continue`; after checking `/sessions`, `chat --resume <number>` and REPL `/resume <number>` restore the numbered session from the same sorted list. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
 
 Run the GUI shell spike:
 

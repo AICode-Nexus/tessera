@@ -60,6 +60,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added a REPL `/cancel` command that reports when no cancellable run is active, reserving the command for future async run cancellation.
 - Added provider-neutral run cancellation controls in `tessera-core`, controls-aware CLI chat helpers, and shared client/TUI cancel intents so active provider streams can be interrupted without adding tool execution.
 - Added active-run `/cancel` in the interactive CLI REPL by reading input concurrently with provider streaming and routing cancellation through `RunCancellationToken`.
+- Added a bare `tessera` default entrypoint that launches the interactive mock REPL, keeping `tessera chat ...` for explicit and script-friendly workflows.
 
 ## [v0.1.0] - 2026-05-15
 

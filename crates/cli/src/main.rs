@@ -8,7 +8,7 @@ use std::path::PathBuf;
 #[command(about = "AI-friendly local LLM workbench")]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -124,11 +124,11 @@ enum ConfigCommands {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Init { config, force } => {
+        Some(Commands::Init { config, force }) => {
             let path = tessera_cli::write_config_template(config, force)?;
             println!("wrote {}", path.display());
         }
-        Commands::Config { command } => match command {
+        Some(Commands::Config { command }) => match command {
             ConfigCommands::Validate {
                 json,
                 config,
@@ -149,11 +149,11 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         },
-        Commands::Doctor {
+        Some(Commands::Doctor {
             json,
             config,
             data_dir,
-        } => {
+        }) => {
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
             let report = tessera_cli::run_doctor_with_config(data_dir, &config)?;
@@ -165,11 +165,11 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Commands::Sessions {
+        Some(Commands::Sessions {
             json,
             config,
             data_dir,
-        } => {
+        }) => {
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
             let sessions = tessera_cli::list_sessions(data_dir)?;
@@ -181,7 +181,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Commands::Profiles { json, config } => {
+        Some(Commands::Profiles { json, config }) => {
             let config = tessera_cli::resolve_config(config)?;
             let profiles = tessera_cli::list_profiles(&config);
             if json {
@@ -192,12 +192,12 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Commands::Transcript {
+        Some(Commands::Transcript {
             trace_id,
             json,
             config,
             data_dir,
-        } => {
+        }) => {
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
             if json {
@@ -208,12 +208,12 @@ async fn main() -> anyhow::Result<()> {
                 print!("{markdown}");
             }
         }
-        Commands::Replay {
+        Some(Commands::Replay {
             trace_id,
             json,
             config,
             data_dir,
-        } => {
+        }) => {
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
             let replay = tessera_cli::replay_trace(data_dir, &trace_id)?;
@@ -223,14 +223,14 @@ async fn main() -> anyhow::Result<()> {
                 print!("{}", tessera_cli::format_replay_summary(&replay));
             }
         }
-        Commands::Events {
+        Some(Commands::Events {
             trace_id,
             json,
             since,
             limit,
             config,
             data_dir,
-        } => {
+        }) => {
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
             let page = tessera_cli::list_events(data_dir, &trace_id, since, limit)?;
@@ -242,7 +242,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Commands::Chat {
+        Some(Commands::Chat {
             provider,
             prompt,
             stdin,
@@ -253,74 +253,127 @@ async fn main() -> anyhow::Result<()> {
             resume,
             config,
             data_dir,
-        } => {
-            if list_commands {
-                for line in tessera_cli::chat_command_lines() {
-                    println!("{line}");
-                }
-                return Ok(());
-            }
-
-            let config = tessera_cli::resolve_config(config)?;
-            let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
-            let prompt_source_count =
-                usize::from(prompt.is_some()) + usize::from(stdin) + usize::from(file.is_some());
-            if prompt_source_count > 1 {
-                anyhow::bail!("--prompt, --stdin, and --file cannot be combined");
-            }
-            if continue_last && (prompt_source_count > 0 || resume.is_some()) {
-                anyhow::bail!(
-                    "--continue cannot be combined with --prompt, --stdin, --file, or --resume"
-                );
-            }
-            if resume.is_some() && prompt_source_count > 0 {
-                anyhow::bail!("--resume is only supported in interactive chat mode");
-            }
-
-            let prompt = if stdin {
-                let mut input = String::new();
-                std::io::stdin().read_to_string(&mut input)?;
-                Some(input.trim_end_matches(['\r', '\n']).to_string())
-            } else if let Some(path) = file {
-                let input = std::fs::read_to_string(path)?;
-                Some(input.trim_end_matches(['\r', '\n']).to_string())
-            } else {
-                prompt
-            };
-
-            if let Some(prompt) = prompt {
-                let outcome =
-                    tessera_cli::run_chat_with_config(data_dir, &config, &provider, prompt).await?;
-                if json {
-                    let output = tessera_cli::CliChatOutput::from(outcome);
-                    println!("{}", serde_json::to_string_pretty(&output)?);
-                } else {
-                    println!("{}", outcome.assistant_text);
-                }
-            } else {
-                if json {
-                    anyhow::bail!("--json is only supported with --prompt, --stdin, or --file");
-                }
-                let resume = if continue_last {
-                    Some(tessera_cli::latest_session_trace_id(&data_dir)?)
-                } else {
-                    resume
-                };
-                tessera_cli::run_chat_repl_with_config_and_resume(
-                    data_dir, config, provider, resume,
-                )
-                .await?;
-            }
+        }) => {
+            run_chat_command(ChatCommandOptions {
+                provider,
+                prompt,
+                stdin,
+                file,
+                json,
+                continue_last,
+                list_commands,
+                resume,
+                config,
+                data_dir,
+            })
+            .await?;
         }
-        Commands::Tui {
+        Some(Commands::Tui {
             provider,
             config,
             data_dir,
-        } => {
+        }) => {
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
             tessera_cli::run_tui_with_config(data_dir, config, provider).await?;
         }
+        None => {
+            run_chat_command(ChatCommandOptions::default_interactive()).await?;
+        }
+    }
+
+    Ok(())
+}
+
+struct ChatCommandOptions {
+    provider: String,
+    prompt: Option<String>,
+    stdin: bool,
+    file: Option<PathBuf>,
+    json: bool,
+    continue_last: bool,
+    list_commands: bool,
+    resume: Option<String>,
+    config: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
+}
+
+impl ChatCommandOptions {
+    fn default_interactive() -> Self {
+        Self {
+            provider: "mock".to_string(),
+            prompt: None,
+            stdin: false,
+            file: None,
+            json: false,
+            continue_last: false,
+            list_commands: false,
+            resume: None,
+            config: None,
+            data_dir: None,
+        }
+    }
+}
+
+async fn run_chat_command(options: ChatCommandOptions) -> anyhow::Result<()> {
+    if options.list_commands {
+        for line in tessera_cli::chat_command_lines() {
+            println!("{line}");
+        }
+        return Ok(());
+    }
+
+    let config = tessera_cli::resolve_config(options.config)?;
+    let data_dir = tessera_cli::resolve_data_dir_with_config(options.data_dir, &config)?;
+    let prompt_source_count = usize::from(options.prompt.is_some())
+        + usize::from(options.stdin)
+        + usize::from(options.file.is_some());
+    if prompt_source_count > 1 {
+        anyhow::bail!("--prompt, --stdin, and --file cannot be combined");
+    }
+    if options.continue_last && (prompt_source_count > 0 || options.resume.is_some()) {
+        anyhow::bail!("--continue cannot be combined with --prompt, --stdin, --file, or --resume");
+    }
+    if options.resume.is_some() && prompt_source_count > 0 {
+        anyhow::bail!("--resume is only supported in interactive chat mode");
+    }
+
+    let prompt = if options.stdin {
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input)?;
+        Some(input.trim_end_matches(['\r', '\n']).to_string())
+    } else if let Some(path) = options.file {
+        let input = std::fs::read_to_string(path)?;
+        Some(input.trim_end_matches(['\r', '\n']).to_string())
+    } else {
+        options.prompt
+    };
+
+    if let Some(prompt) = prompt {
+        let outcome =
+            tessera_cli::run_chat_with_config(data_dir, &config, &options.provider, prompt).await?;
+        if options.json {
+            let output = tessera_cli::CliChatOutput::from(outcome);
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            println!("{}", outcome.assistant_text);
+        }
+    } else {
+        if options.json {
+            anyhow::bail!("--json is only supported with --prompt, --stdin, or --file");
+        }
+        let resume = if options.continue_last {
+            Some(tessera_cli::latest_session_trace_id(&data_dir)?)
+        } else {
+            options.resume
+        };
+        tessera_cli::run_chat_repl_with_config_and_resume(
+            data_dir,
+            config,
+            options.provider,
+            resume,
+        )
+        .await?;
     }
 
     Ok(())
