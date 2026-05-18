@@ -1,9 +1,11 @@
 use tessera_client::{
-    ClientApprovalStatus, ClientIntent, ClientMemoryProposalStatus, ClientMessageRole,
+    ClientApprovalStatus, ClientContextBudgetSummary, ClientContextPlacement,
+    ClientContextSourceKind, ClientIntent, ClientMemoryProposalStatus, ClientMessageRole,
     ClientProjection, ClientSnapshot, ClientStatus,
 };
 use tessera_protocol::{
-    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, CostEstimate, ErrorSource, EventFrame,
+    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, ContextId, ContextPlacement,
+    ContextReference, ContextSource, ContextSourceKind, CostEstimate, ErrorSource, EventFrame,
     ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus, NormalizedError,
     PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, RunEvent, TaskId, TaskKind,
     TaskStatus, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
@@ -87,6 +89,97 @@ fn client_snapshot_keeps_status_intents_and_projection_toolkit_neutral() {
 
     let status = ClientStatus::with_profiles("mock-default", ["mock-default"]);
     assert_eq!(status.active_profile_position(), (1, 1));
+}
+
+#[test]
+fn client_snapshot_projects_context_handles_and_summary() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    snapshot.set_context_handles(
+        [
+            ContextReference {
+                id: ContextId::from_static("context_architecture"),
+                source: ContextSource {
+                    kind: ContextSourceKind::File,
+                    uri: Some("docs/technical-architecture.md".to_string()),
+                    label: Some("architecture".to_string()),
+                },
+                placement: ContextPlacement::StablePrefix,
+                estimated_tokens: 100,
+                pinned: true,
+                summary: Some("architecture contract".to_string()),
+                metadata: None,
+            },
+            ContextReference {
+                id: ContextId::from_static("context_trace"),
+                source: ContextSource {
+                    kind: ContextSourceKind::Trace,
+                    uri: Some("trace://trace_mock".to_string()),
+                    label: Some("transcript".to_string()),
+                },
+                placement: ContextPlacement::AppendOnlyTranscript,
+                estimated_tokens: 50,
+                pinned: false,
+                summary: None,
+                metadata: None,
+            },
+        ],
+        ClientContextBudgetSummary {
+            max_tokens: 200,
+            reserved_output_tokens: 40,
+            available_tokens: 160,
+            used_tokens: 150,
+            remaining_tokens: 10,
+            stable_prefix_tokens: 100,
+            append_only_transcript_tokens: 50,
+            volatile_scratch_tokens: 0,
+            over_budget: false,
+        },
+    );
+
+    assert_eq!(snapshot.context_handles.len(), 2);
+    assert_eq!(
+        snapshot.context_handles[0].context_id,
+        ContextId::from_static("context_architecture")
+    );
+    assert_eq!(
+        snapshot.context_handles[0].source_kind,
+        ClientContextSourceKind::File
+    );
+    assert_eq!(
+        snapshot.context_handles[0].source_uri.as_deref(),
+        Some("docs/technical-architecture.md")
+    );
+    assert_eq!(
+        snapshot.context_handles[0].label.as_deref(),
+        Some("architecture")
+    );
+    assert_eq!(
+        snapshot.context_handles[0].placement,
+        ClientContextPlacement::StablePrefix
+    );
+    assert_eq!(snapshot.context_handles[0].estimated_tokens, 100);
+    assert!(snapshot.context_handles[0].pinned);
+    assert_eq!(
+        snapshot.context_handles[0].summary.as_deref(),
+        Some("architecture contract")
+    );
+    assert_eq!(
+        snapshot.status.context_handles_summary,
+        "context 2 handles / 150/160 tokens"
+    );
+    assert!(!snapshot
+        .status
+        .context_handles_summary
+        .contains("over budget"));
+
+    snapshot.start_new_thread();
+
+    assert!(snapshot.context_handles.is_empty());
+    assert_eq!(
+        snapshot.status.context_handles_summary,
+        "context 0 handles / 0/0 tokens"
+    );
 }
 
 #[test]

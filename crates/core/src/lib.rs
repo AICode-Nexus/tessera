@@ -335,6 +335,12 @@ pub struct ContextBudgetSummary {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContextProjection {
+    pub references: Vec<ContextReference>,
+    pub summary: ContextBudgetSummary,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContextWorkbench {
     budget: ContextBudget,
     references: Vec<ContextReference>,
@@ -381,6 +387,13 @@ impl ContextWorkbench {
 
     pub fn list_references(&self) -> &[ContextReference] {
         &self.references
+    }
+
+    pub fn projection(&self) -> ContextProjection {
+        ContextProjection {
+            references: self.references.clone(),
+            summary: self.summary(),
+        }
     }
 
     pub fn summary(&self) -> ContextBudgetSummary {

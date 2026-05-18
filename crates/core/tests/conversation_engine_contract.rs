@@ -932,6 +932,54 @@ fn context_workbench_tracks_references_and_token_budget_without_loading_sources(
     assert!(!summary.over_budget);
 }
 
+#[test]
+fn context_workbench_projects_handles_without_loading_sources() {
+    let workbench = ContextWorkbench::from_references(
+        ContextBudget {
+            max_tokens: 200,
+            reserved_output_tokens: 40,
+        },
+        [
+            ContextReference {
+                id: ContextId::from_static("context_architecture"),
+                source: ContextSource {
+                    kind: ContextSourceKind::File,
+                    uri: Some("docs/technical-architecture.md".to_string()),
+                    label: Some("architecture".to_string()),
+                },
+                placement: ContextPlacement::StablePrefix,
+                estimated_tokens: 100,
+                pinned: true,
+                summary: Some("architecture contract".to_string()),
+                metadata: None,
+            },
+            ContextReference {
+                id: ContextId::from_static("context_trace"),
+                source: ContextSource {
+                    kind: ContextSourceKind::Trace,
+                    uri: Some("trace://trace_mock".to_string()),
+                    label: Some("transcript".to_string()),
+                },
+                placement: ContextPlacement::AppendOnlyTranscript,
+                estimated_tokens: 50,
+                pinned: false,
+                summary: None,
+                metadata: None,
+            },
+        ],
+    );
+
+    let projection = workbench.projection();
+
+    assert_eq!(projection.references.len(), 2);
+    assert_eq!(projection.summary.used_tokens, 150);
+    assert_eq!(projection.summary.available_tokens, 160);
+    assert_eq!(
+        projection.references[0].source.label.as_deref(),
+        Some("architecture")
+    );
+}
+
 #[tokio::test]
 async fn conversation_engine_drives_mock_provider_and_persists_trace() {
     let temp = tempfile::tempdir().unwrap();

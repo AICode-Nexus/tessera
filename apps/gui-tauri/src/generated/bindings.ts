@@ -15,6 +15,14 @@ export type ClientApprovalStatus = "pending" | "approved" | "denied";
 
 export type ClientArtifact = { artifact_id: ArtifactId, kind: ArtifactKind | null, thread_id: ThreadId | null, turn_id: TurnId | null, task_id: TaskId | null, item_id: ItemId | null, created_at: Timestamp | null, referenced_by_event_kinds: Array<string>, };
 
+export type ClientContextBudgetSummary = { max_tokens: number, reserved_output_tokens: number, available_tokens: number, used_tokens: number, remaining_tokens: number, stable_prefix_tokens: number, append_only_transcript_tokens: number, volatile_scratch_tokens: number, over_budget: boolean, };
+
+export type ClientContextHandle = { context_id: ContextId, source_kind: ClientContextSourceKind, source_uri: string | null, label: string | null, placement: ClientContextPlacement, estimated_tokens: number, pinned: boolean, summary: string | null, };
+
+export type ClientContextPlacement = "stable_prefix" | "append_only_transcript" | "volatile_scratch";
+
+export type ClientContextSourceKind = "file" | "directory" | "workspace" | "artifact" | "trace" | "inline" | "url";
+
 export type ClientIntent = { "submit_prompt": { profile_id: string, prompt: string, } } | { "switch_profile": { profile_id: string, } } | "new_thread" | "save_thread" | "export_thread" | { "cancel_task": { task_id: TaskId | null, } } | { "approve_tool_call": { approval_id: ApprovalId, } } | { "deny_tool_call": { approval_id: ApprovalId, } } | { "accept_memory_proposal": { proposal_id: MemoryProposalId, } } | { "reject_memory_proposal": { proposal_id: MemoryProposalId, } };
 
 export type ClientMemoryProposal = { proposal_id: MemoryProposalId, status: ClientMemoryProposalStatus, title: string, summary: string, source_item_id: ItemId | null, reason: string | null, };
@@ -27,13 +35,15 @@ export type ClientMessageRole = "system" | "user" | "assistant" | "reasoning";
 
 export type ClientProjection = { messages: Array<ClientMessage>, reasoning_visible: boolean, };
 
-export type ClientSnapshot = { status: ClientStatus, projection: ClientProjection, tasks: Array<ClientTask>, artifacts: Array<ClientArtifact>, approvals: Array<ClientApproval>, memory_proposals: Array<ClientMemoryProposal>, draft_input: string, };
+export type ClientSnapshot = { status: ClientStatus, projection: ClientProjection, tasks: Array<ClientTask>, artifacts: Array<ClientArtifact>, approvals: Array<ClientApproval>, memory_proposals: Array<ClientMemoryProposal>, context_handles: Array<ClientContextHandle>, draft_input: string, };
 
-export type ClientStatus = { active_profile: string, available_profiles: Array<string>, reasoning_visible: boolean, task_summary: string, artifact_summary: string, approval_summary: string, memory_summary: string, usage_summary: string, cache_summary: string, cost_summary: string, context_summary: string, telemetry: ClientTelemetrySummary, };
+export type ClientStatus = { active_profile: string, available_profiles: Array<string>, reasoning_visible: boolean, task_summary: string, artifact_summary: string, approval_summary: string, memory_summary: string, usage_summary: string, cache_summary: string, cost_summary: string, context_summary: string, context_handles_summary: string, telemetry: ClientTelemetrySummary, };
 
 export type ClientTask = { task_id: TaskId, kind: TaskKind | null, status: TaskStatus, thread_id: ThreadId | null, turn_id: TurnId | null, created_at: Timestamp | null, started_at: Timestamp | null, finished_at: Timestamp | null, cancel_reason: string | null, error_code: string | null, error_message: string | null, };
 
 export type ClientTelemetrySummary = { input_tokens: number, output_tokens: number, total_tokens: number, cache_read_tokens: number, cache_write_tokens: number, cache_miss_tokens: number, cache_total_tokens: number, latest_context_tokens: number | null, max_context_tokens: number | null, estimated_cost: number | null, cost_currency: string | null, cost_currency_mixed: boolean, };
+
+export type ContextId = string;
 
 export type EventId = string;
 

@@ -226,7 +226,7 @@
 - [ ] Single agent loop。
 - [ ] Skill runtime v1。
 - [ ] Pause / resume。
-- [ ] Context handle projection。
+- [x] Context handle projection：`ContextWorkbench::projection` 输出只读 context reference + budget summary，`tessera-client` 投影 `ClientContextHandle` 和 context handle summary，GUI bindings 已生成；不读取 source 内容、不构建 prompt、不写 context trace event。
 - [ ] Persistent sub-agent sessions。
 - [ ] Structured handoff。
 - [ ] Reviewer gate。

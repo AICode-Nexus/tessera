@@ -8,10 +8,16 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
 
     assert!(bindings.contains("export type ClientIntent"));
     assert!(bindings.contains("export type ClientApproval"));
+    assert!(bindings.contains("export type ClientContextBudgetSummary"));
+    assert!(bindings.contains("export type ClientContextHandle"));
+    assert!(bindings.contains("export type ClientContextPlacement"));
+    assert!(bindings.contains("export type ClientContextSourceKind"));
     assert!(bindings.contains("export type ClientMemoryProposal"));
     assert!(bindings.contains("export type ClientSnapshot"));
+    assert!(bindings.contains("export type ContextId"));
     assert!(bindings.contains("export type GuiCommandOutcome"));
     assert!(bindings.contains("export type GuiShellState"));
+    assert!(bindings.contains("context_handles"));
     assert!(bindings.contains("submit_prompt"));
     assert!(bindings.contains("cancel_task"));
     assert!(bindings.contains("approve_tool_call"));
