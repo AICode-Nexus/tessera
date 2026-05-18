@@ -126,10 +126,104 @@ impl fmt::Debug for RunCancellationToken {
     }
 }
 
+#[derive(Clone)]
+pub struct RunPauseToken {
+    inner: Arc<RunPauseState>,
+}
+
+struct RunPauseState {
+    reason: Mutex<Option<String>>,
+    notify: tokio::sync::Notify,
+}
+
+impl RunPauseToken {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(RunPauseState {
+                reason: Mutex::new(None),
+                notify: tokio::sync::Notify::new(),
+            }),
+        }
+    }
+
+    pub fn pause(&self, reason: impl Into<String>) {
+        let mut guard = self.inner.reason.lock().expect("pause mutex poisoned");
+        if guard.is_none() {
+            *guard = Some(reason.into());
+            self.inner.notify.notify_waiters();
+        }
+    }
+
+    pub fn pause_reason(&self) -> Option<String> {
+        self.inner
+            .reason
+            .lock()
+            .expect("pause mutex poisoned")
+            .clone()
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.pause_reason().is_some()
+    }
+
+    pub fn is_same_handle(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    async fn paused(&self) -> String {
+        loop {
+            if let Some(reason) = self.pause_reason() {
+                return reason;
+            }
+            self.inner.notify.notified().await;
+        }
+    }
+}
+
+impl Default for RunPauseToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for RunPauseToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RunPauseToken")
+            .field("is_paused", &self.is_paused())
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct RunControls {
     pub event_timeout: Option<Duration>,
     pub cancellation_token: Option<RunCancellationToken>,
+    pub pause_token: Option<RunPauseToken>,
+}
+
+enum RunControlSignal {
+    Cancelled(String),
+    Paused(String),
+}
+
+async fn next_run_control_signal(
+    cancellation_token: Option<&RunCancellationToken>,
+    pause_token: Option<&RunPauseToken>,
+) -> RunControlSignal {
+    match (cancellation_token, pause_token) {
+        (Some(cancellation_token), Some(pause_token)) => {
+            tokio::select! {
+                reason = cancellation_token.cancelled() => RunControlSignal::Cancelled(reason),
+                reason = pause_token.paused() => RunControlSignal::Paused(reason),
+            }
+        }
+        (Some(cancellation_token), None) => {
+            RunControlSignal::Cancelled(cancellation_token.cancelled().await)
+        }
+        (None, Some(pause_token)) => RunControlSignal::Paused(pause_token.paused().await),
+        (None, None) => std::future::pending().await,
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2013,6 +2107,7 @@ where
         let provider_messages = request.provider_messages();
         let prompt = request.prompt.clone();
         let cancellation_token = controls.cancellation_token.clone();
+        let pause_token = controls.pause_token.clone();
 
         macro_rules! append_event {
             ($event:expr) => {{
@@ -2057,6 +2152,15 @@ where
                 &mut event_sink,
             );
         }
+        if let Some(reason) = pause_token.as_ref().and_then(RunPauseToken::pause_reason) {
+            return self.finish_paused(
+                trace_id,
+                assistant_text,
+                &mut context,
+                reason,
+                &mut event_sink,
+            );
+        }
 
         let capability = match self.provider.capability().await {
             Ok(capability) => capability,
@@ -2070,6 +2174,15 @@ where
             .and_then(RunCancellationToken::cancellation_reason)
         {
             return self.finish_cancelled(
+                trace_id,
+                assistant_text,
+                &mut context,
+                reason,
+                &mut event_sink,
+            );
+        }
+        if let Some(reason) = pause_token.as_ref().and_then(RunPauseToken::pause_reason) {
+            return self.finish_paused(
                 trace_id,
                 assistant_text,
                 &mut context,
@@ -2133,18 +2246,40 @@ where
                     &mut event_sink,
                 );
             }
+            if let Some(reason) = pause_token.as_ref().and_then(RunPauseToken::pause_reason) {
+                return self.finish_paused(
+                    trace_id,
+                    assistant_text,
+                    &mut context,
+                    reason,
+                    &mut event_sink,
+                );
+            }
 
-            let next_event = match (controls.event_timeout, cancellation_token.as_ref()) {
-                (Some(timeout), Some(token)) => {
+            let next_event = match controls.event_timeout {
+                Some(timeout) => {
                     tokio::select! {
-                        reason = token.cancelled() => {
-                            return self.finish_cancelled(
-                                trace_id,
-                                assistant_text,
-                                &mut context,
-                                reason,
-                                &mut event_sink,
-                            );
+                        signal = next_run_control_signal(cancellation_token.as_ref(), pause_token.as_ref()) => {
+                            match signal {
+                                RunControlSignal::Cancelled(reason) => {
+                                    return self.finish_cancelled(
+                                        trace_id,
+                                        assistant_text,
+                                        &mut context,
+                                        reason,
+                                        &mut event_sink,
+                                    );
+                                }
+                                RunControlSignal::Paused(reason) => {
+                                    return self.finish_paused(
+                                        trace_id,
+                                        assistant_text,
+                                        &mut context,
+                                        reason,
+                                        &mut event_sink,
+                                    );
+                                }
+                            }
                         }
                         timed = tokio::time::timeout(timeout, stream.try_next()) => {
                             match timed {
@@ -2165,33 +2300,29 @@ where
                         }
                     }
                 }
-                (Some(timeout), None) => {
-                    match tokio::time::timeout(timeout, stream.try_next()).await {
-                        Ok(Ok(result)) => result,
-                        Ok(Err(error)) => {
-                            return self.finish_failed(&mut context, error, &mut event_sink);
-                        }
-                        Err(_) => {
-                            return self.finish_cancelled(
-                                trace_id,
-                                assistant_text,
-                                &mut context,
-                                format!("provider event timeout after {}ms", timeout.as_millis()),
-                                &mut event_sink,
-                            );
-                        }
-                    }
-                }
-                (None, Some(token)) => {
+                None if cancellation_token.is_some() || pause_token.is_some() => {
                     tokio::select! {
-                        reason = token.cancelled() => {
-                            return self.finish_cancelled(
-                                trace_id,
-                                assistant_text,
-                                &mut context,
-                                reason,
-                                &mut event_sink,
-                            );
+                        signal = next_run_control_signal(cancellation_token.as_ref(), pause_token.as_ref()) => {
+                            match signal {
+                                RunControlSignal::Cancelled(reason) => {
+                                    return self.finish_cancelled(
+                                        trace_id,
+                                        assistant_text,
+                                        &mut context,
+                                        reason,
+                                        &mut event_sink,
+                                    );
+                                }
+                                RunControlSignal::Paused(reason) => {
+                                    return self.finish_paused(
+                                        trace_id,
+                                        assistant_text,
+                                        &mut context,
+                                        reason,
+                                        &mut event_sink,
+                                    );
+                                }
+                            }
                         }
                         result = stream.try_next() => {
                             match result {
@@ -2203,7 +2334,7 @@ where
                         }
                     }
                 }
-                (None, None) => match stream.try_next().await {
+                None => match stream.try_next().await {
                     Ok(result) => result,
                     Err(error) => {
                         return self.finish_failed(&mut context, error, &mut event_sink);
@@ -2268,6 +2399,36 @@ where
         let _ = self.append_contextual(
             context,
             RunEvent::TaskCancelled {
+                task_id,
+                reason: Some(reason),
+            },
+            event_sink,
+        )?;
+        let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
+
+        Ok(ConversationOutcome {
+            trace_id,
+            assistant_text,
+            store: self.store,
+        })
+    }
+
+    fn finish_paused<F, R>(
+        mut self,
+        trace_id: String,
+        assistant_text: String,
+        context: &mut RunContext,
+        reason: String,
+        event_sink: &mut F,
+    ) -> Result<ConversationOutcome>
+    where
+        F: FnMut(&EventFrame) -> R,
+        R: Into<EventSinkAction>,
+    {
+        let task_id = context.task_id.clone();
+        let _ = self.append_contextual(
+            context,
+            RunEvent::TaskPaused {
                 task_id,
                 reason: Some(reason),
             },

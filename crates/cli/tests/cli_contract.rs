@@ -418,6 +418,7 @@ async fn config_routed_chat_honors_pre_cancelled_run_controls() {
         RunControls {
             event_timeout: None,
             cancellation_token: Some(cancellation_token),
+            pause_token: None,
         },
         |_| {},
     )

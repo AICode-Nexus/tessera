@@ -1097,6 +1097,7 @@ where
     let controls = RunControls {
         event_timeout: None,
         cancellation_token: Some(cancellation_token.clone()),
+        pause_token: None,
     };
     let (delta_tx, mut delta_rx) = mpsc::unbounded_channel::<String>();
     let run = run_repl_prompt_with_writer_and_controls(
@@ -1494,6 +1495,7 @@ pub async fn run_tui_with_config(
                 let controls = RunControls {
                     event_timeout: None,
                     cancellation_token: Some(cancellation_token.clone()),
+                    pause_token: None,
                 };
                 let result = run_chat_with_config_and_controls_and_events(
                     data_dir,
