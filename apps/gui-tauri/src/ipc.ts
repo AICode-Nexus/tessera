@@ -170,6 +170,38 @@ function submitFallbackIntent(intent: ClientIntent): GuiCommandOutcome {
     return accepted('Prompt projected with mock/replay events.')
   }
 
+  if ('cancel_task' in intent) {
+    appendSystemMessage('Cancel requested for mock/replay projection only.')
+    return accepted('Cancel recorded in mock/replay mode.')
+  }
+
+  if ('pause_task' in intent) {
+    const taskLabel = intent.pause_task.task_id ?? 'latest running task'
+    appendSystemMessage(
+      `Pause requested for ${taskLabel} as typed metadata; no runtime execution was invoked.`,
+    )
+    return accepted('Pause task intent accepted as typed metadata with no runtime execution.')
+  }
+
+  if ('resume_task' in intent) {
+    appendSystemMessage(
+      `Resume requested for ${intent.resume_task.task_id} as typed metadata; no runtime execution was invoked.`,
+    )
+    return accepted('Resume task intent accepted as typed metadata with no runtime execution.')
+  }
+
+  return accepted('Intent accepted by the browser fallback without runtime execution.')
+}
+
+function accepted(notice: string): GuiCommandOutcome {
+  return {
+    accepted: true,
+    notice,
+    snapshot: fallbackSnapshot,
+  }
+}
+
+function appendSystemMessage(content: string): void {
   fallbackSnapshot = {
     ...fallbackSnapshot,
     projection: {
@@ -178,21 +210,12 @@ function submitFallbackIntent(intent: ClientIntent): GuiCommandOutcome {
         ...fallbackSnapshot.projection.messages,
         {
           role: 'system',
-          content: 'Cancel requested for mock/replay projection only.',
+          content,
           item_id: null,
           streaming: false,
         },
       ],
     },
-  }
-  return accepted('Cancel recorded in mock/replay mode.')
-}
-
-function accepted(notice: string): GuiCommandOutcome {
-  return {
-    accepted: true,
-    notice,
-    snapshot: fallbackSnapshot,
   }
 }
 

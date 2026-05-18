@@ -38,7 +38,7 @@
 - [x] 强类型 ID：Thread、Turn、Item、Task、Artifact、Event、Provider、ModelProfile、Window、RouteDecision。
 - [x] Runtime object schema：Thread、Turn、Item、Task、Artifact。
 - [x] EventFrame 和 TraceRecord。
-- [x] RunEvent：assistant delta、reasoning delta、usage、provider capability、route decision、task lifecycle。
+- [x] RunEvent：assistant delta、reasoning delta、usage、provider capability、route decision、task lifecycle、pause/resume lifecycle metadata。
 - [x] CostEstimate、RouteDecision、ProviderCapability。
 - [x] Reserved event 命名规划进入文档。
 - [x] 为 trace replay 补充 fixture 兼容性测试。
@@ -121,6 +121,7 @@
 - [x] `/new`、`/save`、`/export` 基础入口：shared client slash-command intent、TUI local handling、markdown projection export。
 - [x] usage/cache/cost live status projection：`tessera-client` 从 `UsageReported` live event 和 replay trace record 更新 UI-neutral `ClientStatus`，TUI 仍只负责渲染。
 - [x] cancel intent foundation：`/cancel` 可生成 UI-neutral `ClientIntent::CancelTask`，TUI Ctrl-C 在有 running task 时分发取消意图，CLI bridge 用 core cancellation token 取消活跃 TUI run。
+- [x] pause/resume intent foundation：`/pause` 和 `/resume-task <task_id>` 生成 UI-neutral `ClientIntent`，TUI 只透传 runtime-facing intent；当前不实现真实 provider stream 挂起或后台恢复。
 - [x] TUI 只订阅 core 事件，不直接依赖 provider SDK 或 SQLite internals。
 
 ### GUI Preparation
@@ -129,6 +130,7 @@
 - [x] GUI 技术选型 ADR：默认产品 GUI 方向为 Tauri 2 + TypeScript/React/Vite；GUI 实现仍等待 `client` 边界。
 - [x] UI-neutral view model：`tessera-client` 已提供 `ClientIntent`、`ClientStatus`、`ClientProjection`、`ClientSnapshot`，TUI 已切换为复用该模型。
 - [x] GUI 技术选型 spike：已新增 `apps/gui-tauri` Tauri 2 + React/Vite shell 和 `tessera-gui-bridge`，只接 mock/replay 与 read-only projection。
+- [x] GUI pause/resume foundation：`tessera-gui-bridge` 接受 typed pause/resume intents 并返回 metadata-only notice，TypeScript bindings 暴露 `pause_task`、`resume_task`、`task_paused`、`task_resumed`；不新增 provider/runtime IPC 命令。
 - [~] Live event bridge：core/CLI/TUI 已共享同一套 `EventFrame` 流；future GUI 复用契约已明确，待 GUI shell spike 验证。
 
 ### Quality Gates
@@ -225,7 +227,8 @@
 - [x] Agent profile schema foundation：`tessera-protocol` 定义 `AgentProfile` / `AgentProfileId`，`tessera-core` 提供只读 `AgentRegistry` list/find；不启动 agent loop、不激活 skill、不执行 tool。
 - [ ] Single agent loop。
 - [ ] Skill runtime v1。
-- [ ] Pause / resume。
+- [x] Pause / resume foundation：`task_paused` / `task_resumed` trace metadata、`ClientIntent::PauseTask` / `ResumeTask`、TUI pass-through 和 GUI typed metadata-only handling 已完成；真实 provider stream suspend、background task persistence 和 checkpoint resume 仍后置。
+- [ ] Suspended/background run resume：真实 provider stream 挂起、后台任务持久化、checkpoint restore 和跨进程恢复。
 - [x] Context handle projection：`ContextWorkbench::projection` 输出只读 context reference + budget summary，`tessera-client` 投影 `ClientContextHandle` 和 context handle summary，GUI bindings 已生成；不读取 source 内容、不构建 prompt、不写 context trace event。
 - [ ] Persistent sub-agent sessions。
 - [ ] Structured handoff。

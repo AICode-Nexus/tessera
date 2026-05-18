@@ -876,6 +876,14 @@ pub enum RunEvent {
         task_id: TaskId,
         reason: Option<String>,
     },
+    TaskPaused {
+        task_id: TaskId,
+        reason: Option<String>,
+    },
+    TaskResumed {
+        task_id: TaskId,
+        reason: Option<String>,
+    },
     NoProgressLoopDetected {
         task_id: TaskId,
         signal: NoProgressLoop,
@@ -956,6 +964,8 @@ impl RunEvent {
             Self::TaskCompleted { .. } => "task_completed",
             Self::TaskFailed { .. } => "task_failed",
             Self::TaskCancelled { .. } => "task_cancelled",
+            Self::TaskPaused { .. } => "task_paused",
+            Self::TaskResumed { .. } => "task_resumed",
             Self::NoProgressLoopDetected { .. } => "no_progress_loop_detected",
             Self::DiagnosticsReported { .. } => "diagnostics_reported",
             Self::MemoryWriteProposed { .. } => "memory_write_proposed",
@@ -996,6 +1006,8 @@ impl RunEvent {
             | Self::TaskCompleted { task_id }
             | Self::TaskFailed { task_id, .. }
             | Self::TaskCancelled { task_id, .. }
+            | Self::TaskPaused { task_id, .. }
+            | Self::TaskResumed { task_id, .. }
             | Self::NoProgressLoopDetected { task_id, .. } => Some(task_id.clone()),
             _ => None,
         }
@@ -1078,6 +1090,9 @@ impl RunEvent {
                 json!({ "task_id": task_id, "error": error })
             }
             Self::TaskCancelled { task_id, reason } => {
+                json!({ "task_id": task_id, "reason": reason })
+            }
+            Self::TaskPaused { task_id, reason } | Self::TaskResumed { task_id, reason } => {
                 json!({ "task_id": task_id, "reason": reason })
             }
             Self::NoProgressLoopDetected { task_id, signal } => {

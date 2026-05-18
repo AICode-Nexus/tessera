@@ -23,7 +23,7 @@ export type ClientContextPlacement = "stable_prefix" | "append_only_transcript" 
 
 export type ClientContextSourceKind = "file" | "directory" | "workspace" | "artifact" | "trace" | "inline" | "url";
 
-export type ClientIntent = { "submit_prompt": { profile_id: string, prompt: string, } } | { "switch_profile": { profile_id: string, } } | "new_thread" | "save_thread" | "export_thread" | { "cancel_task": { task_id: TaskId | null, } } | { "approve_tool_call": { approval_id: ApprovalId, } } | { "deny_tool_call": { approval_id: ApprovalId, } } | { "accept_memory_proposal": { proposal_id: MemoryProposalId, } } | { "reject_memory_proposal": { proposal_id: MemoryProposalId, } };
+export type ClientIntent = { "submit_prompt": { profile_id: string, prompt: string, } } | { "switch_profile": { profile_id: string, } } | "new_thread" | "save_thread" | "export_thread" | { "cancel_task": { task_id: TaskId | null, } } | { "pause_task": { task_id: TaskId | null, } } | { "resume_task": { task_id: TaskId, } } | { "approve_tool_call": { approval_id: ApprovalId, } } | { "deny_tool_call": { approval_id: ApprovalId, } } | { "accept_memory_proposal": { proposal_id: MemoryProposalId, } } | { "reject_memory_proposal": { proposal_id: MemoryProposalId, } };
 
 export type ClientMemoryProposal = { proposal_id: MemoryProposalId, status: ClientMemoryProposalStatus, title: string, summary: string, source_item_id: ItemId | null, reason: string | null, };
 
@@ -74,6 +74,9 @@ export type Timestamp = string;
 export type ToolCallId = string;
 
 export type ToolId = string;
+
+export type TraceEventKind = "thread_created" | "turn_started" | "user_message_recorded" | "provider_request_started" | "assistant_message_started" | "assistant_delta" | "assistant_reasoning_delta" | "assistant_message_completed" | "usage_reported" | "provider_capability_reported" | "route_decision_recorded" | "provider_request_completed" | "turn_completed" | "task_created" | "task_started" | "task_completed" | "task_failed" | "task_cancelled" | "task_paused" | "task_resumed" | "no_progress_loop_detected" | "diagnostics_reported" | "memory_write_proposed" | "memory_write_applied" | "memory_write_rejected" | "artifact_created" | "snapshot_created" | "tool_call_requested" | "tool_policy_decision_recorded" | "sandbox_decision_recorded" | "os_sandbox_profile_selected" | "tool_dispatch_started" | "tool_dispatch_completed" | "tool_result" | "tool_repair_reported" | "tool_call_approved" | "tool_call_denied" | "error" | "done";
+
 
 export type TraceRecord = { schema_version: number, trace_id: string, seq: number, event_id: EventId, timestamp: Timestamp, thread_id: ThreadId | null, turn_id: TurnId | null, item_id: ItemId | null, task_id: TaskId | null, event_kind: string, payload: JsonValue, extension: { [key in string]: JsonValue } | null, artifact_refs: Array<ArtifactId>, };
 

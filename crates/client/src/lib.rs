@@ -20,6 +20,8 @@ pub enum ClientIntent {
     SaveThread,
     ExportThread,
     CancelTask { task_id: Option<TaskId> },
+    PauseTask { task_id: Option<TaskId> },
+    ResumeTask { task_id: TaskId },
     ApproveToolCall { approval_id: ApprovalId },
     DenyToolCall { approval_id: ApprovalId },
     AcceptMemoryProposal { proposal_id: MemoryProposalId },
@@ -865,6 +867,12 @@ impl ClientSnapshot {
             "/cancel" => Some(ClientIntent::CancelTask {
                 task_id: self.active_cancellable_task_id(),
             }),
+            "/pause" => Some(ClientIntent::PauseTask {
+                task_id: self.active_pausable_task_id(),
+            }),
+            "/resume-task" => None,
+            _ if prompt.starts_with("/pause ") => pause_intent(&prompt),
+            _ if prompt.starts_with("/resume-task ") => resume_intent(&prompt),
             _ if prompt.starts_with("/approve ") => approval_intent(&prompt, "/approve ", true),
             _ if prompt.starts_with("/deny ") => approval_intent(&prompt, "/deny ", false),
             _ if prompt.starts_with("/remember ") => memory_intent(&prompt, "/remember ", true),
@@ -881,6 +889,14 @@ impl ClientSnapshot {
     }
 
     pub fn active_cancellable_task_id(&self) -> Option<TaskId> {
+        self.tasks
+            .iter()
+            .rev()
+            .find(|task| task.status == TaskStatus::Running)
+            .map(|task| task.task_id.clone())
+    }
+
+    fn active_pausable_task_id(&self) -> Option<TaskId> {
         self.tasks
             .iter()
             .rev()
@@ -953,6 +969,27 @@ impl ClientSnapshot {
                 task.status = TaskStatus::Cancelled;
                 task.finished_at = Some(timestamp);
                 task.cancel_reason = reason.clone();
+                self.status.update_task_summary(&self.tasks);
+            }
+            RunEvent::TaskPaused { task_id, .. } => {
+                let thread_id = frame.thread_id.clone();
+                let turn_id = frame.turn_id.clone();
+                let task = self.task_mut_or_insert(task_id);
+                task.status = TaskStatus::Paused;
+                task.update_scope(thread_id, turn_id);
+                self.status.update_task_summary(&self.tasks);
+            }
+            RunEvent::TaskResumed { task_id, .. } => {
+                let thread_id = frame.thread_id.clone();
+                let turn_id = frame.turn_id.clone();
+                let timestamp = frame.timestamp.clone();
+                let task = self.task_mut_or_insert(task_id);
+                task.status = TaskStatus::Running;
+                if task.started_at.is_none() {
+                    task.started_at = Some(timestamp);
+                }
+                task.finished_at = None;
+                task.update_scope(thread_id, turn_id);
                 self.status.update_task_summary(&self.tasks);
             }
             RunEvent::ArtifactCreated { artifact_id, kind } => {
@@ -1085,6 +1122,28 @@ impl ClientSnapshot {
                     .get("reason")
                     .and_then(|value| value.as_str())
                     .map(str::to_string);
+                self.status.update_task_summary(&self.tasks);
+            }
+            "task_paused" => {
+                let Some(task_id) = trace_record_task_id(record) else {
+                    return;
+                };
+                let task = self.task_mut_or_insert(&task_id);
+                task.status = TaskStatus::Paused;
+                task.update_scope(record.thread_id.clone(), record.turn_id.clone());
+                self.status.update_task_summary(&self.tasks);
+            }
+            "task_resumed" => {
+                let Some(task_id) = trace_record_task_id(record) else {
+                    return;
+                };
+                let task = self.task_mut_or_insert(&task_id);
+                task.status = TaskStatus::Running;
+                if task.started_at.is_none() {
+                    task.started_at = Some(record.timestamp.clone());
+                }
+                task.finished_at = None;
+                task.update_scope(record.thread_id.clone(), record.turn_id.clone());
                 self.status.update_task_summary(&self.tasks);
             }
             "artifact_created" => {
@@ -1576,6 +1635,28 @@ fn memory_intent(prompt: &str, prefix: &str, accept: bool) -> Option<ClientInten
     } else {
         Some(ClientIntent::RejectMemoryProposal { proposal_id })
     }
+}
+
+fn pause_intent(prompt: &str) -> Option<ClientIntent> {
+    let task_id = prompt.strip_prefix("/pause ")?.trim();
+    if task_id.is_empty() {
+        return None;
+    }
+
+    Some(ClientIntent::PauseTask {
+        task_id: Some(TaskId::from(task_id)),
+    })
+}
+
+fn resume_intent(prompt: &str) -> Option<ClientIntent> {
+    let task_id = prompt.strip_prefix("/resume-task ")?.trim();
+    if task_id.is_empty() {
+        return None;
+    }
+
+    Some(ClientIntent::ResumeTask {
+        task_id: TaskId::from(task_id),
+    })
 }
 
 fn tool_permission_label(permission: &ToolPermission) -> &'static str {

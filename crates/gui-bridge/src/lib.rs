@@ -185,6 +185,26 @@ impl GuiBridge {
                 self.accept_with_notice("Export is available through the typed export command.")
             }
             ClientIntent::CancelTask { task_id } => self.cancel_task(task_id),
+            ClientIntent::PauseTask { task_id } => {
+                let task_label = task_id
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "latest running task".to_string());
+                self.snapshot.push_notice(format!(
+                    "Pause requested for {task_label} as typed metadata; no runtime execution was invoked."
+                ));
+                self.accept_with_notice(
+                    "Pause task intent accepted as typed metadata with no runtime execution.",
+                )
+            }
+            ClientIntent::ResumeTask { task_id } => {
+                self.snapshot.push_notice(format!(
+                    "Resume requested for {task_id} as typed metadata; no runtime execution was invoked."
+                ));
+                self.accept_with_notice(
+                    "Resume task intent accepted as typed metadata with no runtime execution.",
+                )
+            }
             ClientIntent::ApproveToolCall { .. } | ClientIntent::DenyToolCall { .. } => self
                 .accept_with_notice(
                 "Approval intents are typed but not connected to runtime execution in this spike.",
