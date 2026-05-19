@@ -52,6 +52,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added a CLI `/resume-task` provider-profile preflight so missing checkpoint providers fail before trace projection mutates the visible session.
 - Added CLI `/resume-task` missing-checkpoint coverage and a read-only `/resume-tasks` list for currently resumable paused trace checkpoints.
 - Added `/resume-task <number|#number>` support so CLI users can resume from the `/resume-tasks` list without copying full task ids.
+- Added a v0.1 manual testing guide for deterministic mock pause, checkpoint listing, numbered resume, trace inspection, and negative-path checks without live provider credentials.
 - Added an interactive `tessera chat` CLI REPL with `/help`, `/new`, `/profiles`, `/profile <id>`, `/status`, `/export`, and `/quit`, reusing the shared client projection and core event stream without tool or shell execution.
 - Added `tessera init` for a secret-safe local config template plus interactive `/sessions` and `/resume <trace_id>` commands backed by read-only runtime trace summaries and client projection replay.
 - Added provider-neutral chat history plumbing so CLI `/resume` follow-up prompts continue with restored user/assistant transcript while tracing only the new user turn.
