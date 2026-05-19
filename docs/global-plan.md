@@ -241,6 +241,7 @@
 - [x] Resume-task provider preflight：CLI `/resume-task <task_id>` 在投影旧 trace 前会确认 checkpoint provider profile 存在，缺失时只报错、不切换 active profile、不污染当前 session messages、不启动新 run。
 - [x] Resume-task list discovery：CLI `/resume-task <task_id>` 覆盖缺失 checkpoint 失败路径；`/resume-tasks` 只读列出当前仍为 `Paused`、支持 trace projection 且 provider profile 存在的可恢复 checkpoint，不投影旧 trace、不启动 runtime。
 - [x] Resume-task numbered selector：CLI `/resume-task <number|#number>` 可按 `/resume-tasks` 的当前只读排序选择可恢复 checkpoint，越界时只报错、不投影旧 trace、不启动 runtime。
+- [x] Manual test readiness：`docs/manual-testing-v0.1.md` 记录 mock-only pause → checkpoint list → numbered resume → trace inspection → negative path 的手测步骤，并用本地临时配置 smoke 验证；不需要真实 provider credential。
 - [ ] Suspended/background run resume implementation：background reattach、checkpoint restore、非 chat task resume 分阶段实现。
 - [x] Context handle projection：`ContextWorkbench::projection` 输出只读 context reference + budget summary，`tessera-client` 投影 `ClientContextHandle` 和 context handle summary，GUI bindings 已生成；不读取 source 内容、不构建 prompt、不写 context trace event。
 - [ ] Persistent sub-agent sessions。
