@@ -4,6 +4,8 @@ Date: 2026-05-19
 
 This guide is for local manual checks before trying a broader interactive session. It uses the deterministic mock provider only, so it must not require API keys, tokens, cookies, or live provider credentials.
 
+For real provider Chinese test prompts and expected observations, see [real-provider-test-questions-zh.md](real-provider-test-questions-zh.md).
+
 ## 1. Build
 
 Run from the repository root:
