@@ -491,6 +491,108 @@ async fn chat_command_path_rejects_unknown_provider_profile() {
 }
 
 #[test]
+fn agent_run_json_command_emits_trace_task_status_and_summary() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args([
+            "agent",
+            "run",
+            "--provider",
+            "mock",
+            "--goal",
+            "summarize",
+            "--json",
+            "--data-dir",
+        ])
+        .arg(temp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    assert!(payload["trace_id"]
+        .as_str()
+        .unwrap()
+        .starts_with("trace_mock_"));
+    assert!(payload["task_id"].as_str().unwrap().starts_with("task_"));
+    assert_eq!(payload["status"], "completed");
+    assert_eq!(payload["steps_completed"], 1);
+    assert!(payload["assistant_text"]
+        .as_str()
+        .unwrap()
+        .contains("mock response"));
+    assert_eq!(payload["summary"]["status"], "completed");
+    assert!(payload["summary"]["final_text"]
+        .as_str()
+        .unwrap()
+        .contains("mock response"));
+}
+
+#[test]
+fn agent_run_text_command_reports_task_trace_and_status() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args([
+            "agent",
+            "run",
+            "--provider",
+            "mock",
+            "--goal",
+            "summarize",
+            "--data-dir",
+        ])
+        .arg(temp.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("agent task "));
+    assert!(stdout.contains("trace "));
+    assert!(stdout.contains("status completed"));
+    assert!(stdout.contains("mock response"));
+}
+
+#[test]
+fn agent_run_requires_goal() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["agent", "run", "--provider", "mock", "--json", "--data-dir"])
+        .arg(temp.path())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("--goal <GOAL>"));
+}
+
+#[test]
+fn agent_run_unknown_provider_fails_before_trace_mutation() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args([
+            "agent",
+            "run",
+            "--provider",
+            "missing",
+            "--goal",
+            "summarize",
+            "--data-dir",
+        ])
+        .arg(temp.path())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("provider profile not found: missing"));
+    assert!(!temp.path().join("traces").exists());
+}
+
+#[test]
 fn tui_state_uses_configured_profiles_for_switching() {
     let config = TesseraConfig {
         data_dir: None,

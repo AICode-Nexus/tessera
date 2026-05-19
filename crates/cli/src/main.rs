@@ -84,6 +84,10 @@ enum Commands {
         #[arg(long)]
         data_dir: Option<PathBuf>,
     },
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommands,
+    },
     Chat {
         #[arg(long, default_value = "mock")]
         provider: String,
@@ -121,6 +125,22 @@ enum Commands {
 #[derive(Subcommand)]
 enum ConfigCommands {
     Validate {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum AgentCommands {
+    Run {
+        #[arg(long, default_value = "mock")]
+        provider: String,
+        #[arg(long)]
+        goal: String,
         #[arg(long)]
         json: bool,
         #[arg(long)]
@@ -268,6 +288,28 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        Some(Commands::Agent { command }) => match command {
+            AgentCommands::Run {
+                provider,
+                goal,
+                json,
+                config,
+                data_dir,
+            } => {
+                let config = tessera_cli::resolve_config(config)?;
+                let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
+                let outcome =
+                    tessera_cli::run_agent_with_config(data_dir, &config, &provider, goal).await?;
+                if json {
+                    let output = tessera_cli::CliAgentRunOutput::from(outcome);
+                    println!("{}", serde_json::to_string_pretty(&output)?);
+                } else {
+                    for line in tessera_cli::format_agent_run_lines(&outcome) {
+                        println!("{line}");
+                    }
+                }
+            }
+        },
         Some(Commands::Chat {
             provider,
             prompt,

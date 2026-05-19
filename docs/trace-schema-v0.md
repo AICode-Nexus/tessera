@@ -73,7 +73,7 @@ Provider capability、reasoning、cache、cost、route decision 等体验数据�
 
 Context workbench v0.2 的 `ContextReference` / `ContextBudget` 目前是 runtime schema，不是 trace event。后续 context add/remove、loader、compaction 或 handle read 进入 runtime 时必须新增标准 event，并避免把文件内容直接塞进 trace。
 
-Agent profile v0.5 foundation 的 `AgentProfile` 目前也是 runtime metadata schema，不是 trace event。后续 agent loop 真正启动时必须使用保留的 `agent_started` / `agent_completed` 等标准事件记录生命周期，不能把 agent runtime 状态藏在 profile metadata 中。
+Agent profile v0.5 foundation 的 `AgentProfile` 是 runtime metadata schema，不是 trace event。当前 no-tool single-agent loop 使用 `agent_run_started`、`agent_step_started`、`agent_step_completed` 和 `agent_run_completed` 记录生命周期，不能把 agent runtime 状态藏在 profile metadata 中。
 
 ## 4. Event Kind
 
@@ -101,6 +101,10 @@ task_cancelled
 task_pause_checkpoint_created
 task_paused
 task_resumed
+agent_run_started
+agent_step_started
+agent_step_completed
+agent_run_completed
 no_progress_loop_detected
 diagnostics_reported
 memory_write_proposed
@@ -126,6 +130,10 @@ done
 
 `task_paused` 和 `task_resumed` payload 必须包含 `task_id`，可选包含 `reason`。它们只表示 provider-neutral lifecycle metadata，供 replay、TUI、GUI 和 future runtime API 投影使用；不得被解释为真实 provider stream 已挂起、后台任务已持久化或 checkpoint 已恢复。
 
+`agent_run_started` payload 必须包含 `task_id`、`profile_id` 和 `objective`。`agent_step_started` payload 必须包含 `task_id` 和 `step_index`。`agent_step_completed` payload 必须包含 `summary`，其中 `summary.task_id`、`step_index`、`status`、`assistant_text` 和 `stop_reason` 使用 provider-neutral 字段。`agent_run_completed` payload 必须包含 `summary`，其中 `summary.task_id`、`profile_id`、`status`、`steps_completed`、`final_text`、`stop_reason` 和 `evidence_event_range` 描述最终结果和证据范围。
+
+这些 agent events 只表示 no-tool single-agent loop 生命周期。它们不得包含 provider-private raw response、hidden reasoning、tool output、shell command、file diff、secret、provider socket handle 或 background task handle。
+
 仍只保留命名，不触发功能：
 
 ```text
@@ -133,9 +141,7 @@ route_escalation_recorded
 skill_activated
 skill_step_started
 memory_recall
-agent_started
 agent_handoff
-agent_completed
 swarm_task_started
 swarm_agent_event
 swarm_task_completed

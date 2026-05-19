@@ -1,18 +1,19 @@
 use tessera_protocol::{
-    AgentProfile, AgentProfileId, ApprovalId, ApprovalStatus, ArtifactId, ContextBudget, ContextId,
-    ContextPlacement, ContextReference, ContextSource, ContextSourceKind, CostEstimate, Diagnostic,
-    DiagnosticRange, DiagnosticReport, DiagnosticReportId, DiagnosticSeverity, EventFrame, ItemId,
-    MemoryProposal, MemoryProposalId, MemoryProposalStatus, ModelProfileId, NoProgressAction,
-    NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork,
-    OsSandboxProfile, OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome,
-    ProviderCapability, ProviderId, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent,
-    SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillEntrypoint,
-    SkillEntrypointFormat, SkillId, SkillManifest, SkillPolicy, SkillRequirements, SkillSource,
-    SkillSourceKind, SnapshotId, SnapshotKind, TaskId, TaskPauseCheckpoint, TaskPauseCheckpointId,
-    ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId,
-    ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
-    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
-    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    AgentProfile, AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ApprovalId,
+    ApprovalStatus, ArtifactId, ContextBudget, ContextId, ContextPlacement, ContextReference,
+    ContextSource, ContextSourceKind, CostEstimate, Diagnostic, DiagnosticRange, DiagnosticReport,
+    DiagnosticReportId, DiagnosticSeverity, EventFrame, EventRange, ItemId, MemoryProposal,
+    MemoryProposalId, MemoryProposalStatus, ModelProfileId, NoProgressAction, NoProgressLoop,
+    NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
+    OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
+    ProviderId, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent, SandboxDecision,
+    SandboxDecisionId, SandboxDecisionKind, SkillEntrypoint, SkillEntrypointFormat, SkillId,
+    SkillManifest, SkillPolicy, SkillRequirements, SkillSource, SkillSourceKind, SnapshotId,
+    SnapshotKind, TaskId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, ToolApproval,
+    ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId,
+    ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult,
+    ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint,
+    WorkspaceGuardrail, WorkspaceScope,
 };
 
 #[test]
@@ -298,6 +299,63 @@ fn agent_profile_schema_declares_role_scope_and_limits_without_runtime_execution
     assert!(value.get("command").is_none());
     assert!(value.get("executable").is_none());
     assert!(value.get("shell").is_none());
+}
+
+#[test]
+fn agent_run_events_are_traceable_without_tool_execution() {
+    let task_id = TaskId::from_static("task_agent_run");
+    let profile_id = AgentProfileId::from_static("agent_profile_default");
+
+    let started = RunEvent::AgentRunStarted {
+        task_id: task_id.clone(),
+        profile_id: profile_id.clone(),
+        objective: "summarize the repo status".to_string(),
+    };
+    let step_summary = AgentStepSummary {
+        task_id: task_id.clone(),
+        step_index: 1,
+        status: AgentStepStatus::Completed,
+        assistant_text: "done".to_string(),
+        stop_reason: None,
+    };
+    let run_summary = AgentRunSummary {
+        task_id: task_id.clone(),
+        profile_id: profile_id.clone(),
+        status: TaskStatus::Completed,
+        steps_completed: 1,
+        final_text: "done".to_string(),
+        stop_reason: None,
+        evidence_event_range: Some(EventRange {
+            start_seq: 1,
+            end_seq: 7,
+        }),
+    };
+
+    assert_eq!(started.kind(), "agent_run_started");
+    assert_eq!(started.task_id(), Some(task_id.clone()));
+    assert_eq!(started.payload()["profile_id"], profile_id.to_string());
+    assert_eq!(
+        RunEvent::AgentStepStarted {
+            task_id: task_id.clone(),
+            step_index: 1,
+        }
+        .kind(),
+        "agent_step_started"
+    );
+    assert_eq!(
+        RunEvent::AgentStepCompleted {
+            summary: step_summary
+        }
+        .kind(),
+        "agent_step_completed"
+    );
+    assert_eq!(
+        RunEvent::AgentRunCompleted {
+            summary: run_summary
+        }
+        .kind(),
+        "agent_run_completed"
+    );
 }
 
 #[test]

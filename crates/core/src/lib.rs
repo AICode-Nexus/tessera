@@ -5,23 +5,26 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tessera_protocol::{
-    AgentProfile, AgentProfileId, ArtifactId, ArtifactKind, ContextBudget, ContextId,
-    ContextPlacement, ContextReference, Diagnostic, DiagnosticReport, DiagnosticReportId,
-    EventFrame, EventRange, ExtensionMap, ItemId, ModelProfileId, NoProgressAction, NoProgressLoop,
-    NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
-    OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
-    ProviderId, ResumeMode, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent,
-    SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillId, SkillManifest, SnapshotId,
-    SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus,
-    ThreadId, Timestamp, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId, ToolPermission,
-    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolSideEffect,
-    TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    AgentProfile, AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ArtifactId,
+    ArtifactKind, ContextBudget, ContextId, ContextPlacement, ContextReference, Diagnostic,
+    DiagnosticReport, DiagnosticReportId, EventFrame, EventRange, ExtensionMap, ItemId,
+    ModelProfileId, NoProgressAction, NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem,
+    OsSandboxMode, OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId, OsSandboxShell,
+    PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, ResumeMode, RouteDecision,
+    RouteDecisionId, RouteStrategy, RunEvent, SandboxDecision, SandboxDecisionId,
+    SandboxDecisionKind, SkillId, SkillManifest, SnapshotId, SnapshotKind, TaskId, TaskKind,
+    TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, ThreadId, Timestamp, ToolCallRequest,
+    ToolDescriptor, ToolDispatch, ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId,
+    ToolRepairKind, ToolRepairReport, ToolResult, ToolSideEffect, TraceRecord, TurnId,
+    WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderMessage, ProviderRequest};
 use tessera_storage::TraceStore;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
+    #[error("invalid request: {0}")]
+    InvalidRequest(String),
     #[error("provider failed: {0}")]
     Provider(#[from] tessera_providers::ProviderError),
     #[error("storage failed: {0}")]
@@ -259,6 +262,41 @@ pub struct ConversationOutcome {
     pub trace_id: String,
     pub assistant_text: String,
     pub store: TraceStore,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentRunRequest {
+    pub trace_id: String,
+    pub provider_id: ProviderId,
+    pub profile_id: ModelProfileId,
+    pub agent_profile: AgentProfile,
+    pub model: String,
+    pub objective: String,
+    pub context_references: Vec<ContextReference>,
+    pub history: Vec<ProviderMessage>,
+    pub max_steps: u32,
+}
+
+impl AgentRunRequest {
+    pub fn provider_messages(&self) -> Vec<ProviderMessage> {
+        let mut messages = self.history.clone();
+        messages.push(ProviderMessage::user(self.objective.clone()));
+        messages
+    }
+}
+
+pub struct AgentRunOutcome {
+    pub trace_id: String,
+    pub task_id: TaskId,
+    pub status: TaskStatus,
+    pub summary: AgentRunSummary,
+    pub assistant_text: String,
+    pub store: TraceStore,
+}
+
+pub struct AgentLoop<P> {
+    provider: P,
+    store: TraceStore,
 }
 
 pub struct ConversationEngine<P> {
@@ -2221,6 +2259,725 @@ impl<'a> ReplayRunner<'a> {
             assistant_text,
             event_kinds,
         })
+    }
+}
+
+impl<P> AgentLoop<P>
+where
+    P: ChatProvider,
+{
+    pub fn new(provider: P, store: TraceStore) -> Self {
+        Self { provider, store }
+    }
+
+    pub async fn run_agent(self, request: AgentRunRequest) -> Result<AgentRunOutcome> {
+        self.run_agent_with_controls_and_event_sink(request, RunControls::default(), |_| {})
+            .await
+    }
+
+    pub async fn run_agent_with_controls_and_event_sink<F, R>(
+        mut self,
+        request: AgentRunRequest,
+        controls: RunControls,
+        mut event_sink: F,
+    ) -> Result<AgentRunOutcome>
+    where
+        F: FnMut(&EventFrame) -> R,
+        R: Into<EventSinkAction>,
+    {
+        if request.max_steps == 0 || request.agent_profile.max_steps == 0 {
+            return Err(CoreError::InvalidRequest(
+                "agent max_steps must be at least 1".to_string(),
+            ));
+        }
+
+        let trace_id = request.trace_id.clone();
+        let mut context = RunContext {
+            trace_id: trace_id.clone(),
+            thread_id: ThreadId::new(),
+            turn_id: TurnId::new(),
+            task_id: TaskId::new(),
+            provider_id: request.provider_id.clone(),
+            profile_id: request.profile_id.clone(),
+            model: request.model.clone(),
+            seq: 1,
+        };
+        let task_id = context.task_id.clone();
+        let user_item_id = ItemId::new();
+        let assistant_item_id = ItemId::new();
+        let mut assistant_text = String::new();
+        let mut no_progress_detector = NoProgressDetector::default();
+        let provider_messages = request.provider_messages();
+        let objective = request.objective.clone();
+        let agent_profile_id = request.agent_profile.id.clone();
+        let cancellation_token = controls.cancellation_token.clone();
+        let pause_token = controls.pause_token.clone();
+
+        macro_rules! append_event {
+            ($event:expr) => {{
+                let action = self.append_contextual(&mut context, $event, &mut event_sink)?;
+                if let Some(reason) = action.cancel_reason() {
+                    let summary = agent_step_summary(
+                        &task_id,
+                        1,
+                        AgentStepStatus::Cancelled,
+                        &assistant_text,
+                        Some(reason.clone()),
+                    );
+                    let _ = self.append_contextual(
+                        &mut context,
+                        RunEvent::AgentStepCompleted { summary },
+                        &mut event_sink,
+                    )?;
+                    return self.finish_cancelled(
+                        task_id,
+                        agent_profile_id,
+                        assistant_text,
+                        &mut context,
+                        reason,
+                        &mut event_sink,
+                    );
+                }
+            }};
+        }
+
+        append_event!(RunEvent::TaskCreated {
+            task_id: task_id.clone(),
+            kind: TaskKind::AgentRun,
+        });
+        append_event!(RunEvent::TaskStarted {
+            task_id: task_id.clone(),
+        });
+        let thread_id = context.thread_id.clone();
+        append_event!(RunEvent::ThreadCreated { thread_id });
+        let turn_id = context.turn_id.clone();
+        append_event!(RunEvent::TurnStarted { turn_id });
+        append_event!(RunEvent::UserMessageRecorded {
+            item_id: user_item_id,
+            text: objective.clone(),
+        });
+        append_event!(RunEvent::AgentRunStarted {
+            task_id: task_id.clone(),
+            profile_id: request.agent_profile.id.clone(),
+            objective: objective.clone(),
+        });
+        append_event!(RunEvent::AgentStepStarted {
+            task_id: task_id.clone(),
+            step_index: 1,
+        });
+
+        if let Some(reason) = cancellation_token
+            .as_ref()
+            .and_then(RunCancellationToken::cancellation_reason)
+        {
+            let summary = agent_step_summary(
+                &task_id,
+                1,
+                AgentStepStatus::Cancelled,
+                &assistant_text,
+                Some(reason.clone()),
+            );
+            append_event!(RunEvent::AgentStepCompleted { summary });
+            return self.finish_cancelled(
+                task_id,
+                agent_profile_id,
+                assistant_text,
+                &mut context,
+                reason,
+                &mut event_sink,
+            );
+        }
+        if let Some(reason) = pause_token.as_ref().and_then(RunPauseToken::pause_reason) {
+            let summary = agent_step_summary(
+                &task_id,
+                1,
+                AgentStepStatus::Paused,
+                &assistant_text,
+                Some(reason.clone()),
+            );
+            append_event!(RunEvent::AgentStepCompleted { summary });
+            return self.finish_paused(
+                task_id,
+                agent_profile_id,
+                assistant_text,
+                &mut context,
+                reason,
+                &mut event_sink,
+            );
+        }
+
+        let capability = match self.provider.capability().await {
+            Ok(capability) => capability,
+            Err(error) => {
+                return self.finish_failed(
+                    task_id,
+                    agent_profile_id,
+                    assistant_text,
+                    &mut context,
+                    error,
+                    &mut event_sink,
+                );
+            }
+        };
+
+        let route_decision = ModelRouter::draft().route(ModelRouteRequest {
+            requested_profile: Some(request.profile_id.clone()),
+            default_profile: request.profile_id.clone(),
+            requested_model: request.model.clone(),
+            reasoning_level: None,
+            provider_capability: Some(capability.clone()),
+        });
+        let selected_profile = route_decision.selected_profile.clone();
+        let selected_model = route_decision.selected_model.clone();
+        context.profile_id = selected_profile.clone();
+        context.model = selected_model.clone();
+
+        append_event!(RunEvent::ProviderCapabilityReported {
+            provider_id: request.provider_id.clone(),
+            capability,
+        });
+        append_event!(RunEvent::RouteDecisionRecorded {
+            decision_id: RouteDecisionId::new(),
+            decision: route_decision,
+        });
+        append_event!(RunEvent::ProviderRequestStarted {
+            provider_id: request.provider_id.clone(),
+            profile_id: selected_profile.clone(),
+            model: selected_model.clone(),
+        });
+
+        let mut stream = match self
+            .provider
+            .stream_chat(ProviderRequest {
+                provider_id: request.provider_id.clone(),
+                profile_id: selected_profile,
+                model: selected_model,
+                prompt: objective,
+                messages: provider_messages,
+                assistant_item_id,
+            })
+            .await
+        {
+            Ok(stream) => stream,
+            Err(error) => {
+                return self.finish_failed(
+                    task_id,
+                    agent_profile_id,
+                    assistant_text,
+                    &mut context,
+                    error,
+                    &mut event_sink,
+                );
+            }
+        };
+
+        loop {
+            if let Some(reason) = cancellation_token
+                .as_ref()
+                .and_then(RunCancellationToken::cancellation_reason)
+            {
+                let summary = agent_step_summary(
+                    &task_id,
+                    1,
+                    AgentStepStatus::Cancelled,
+                    &assistant_text,
+                    Some(reason.clone()),
+                );
+                append_event!(RunEvent::AgentStepCompleted { summary });
+                return self.finish_cancelled(
+                    task_id,
+                    agent_profile_id,
+                    assistant_text,
+                    &mut context,
+                    reason,
+                    &mut event_sink,
+                );
+            }
+            if let Some(reason) = pause_token.as_ref().and_then(RunPauseToken::pause_reason) {
+                let summary = agent_step_summary(
+                    &task_id,
+                    1,
+                    AgentStepStatus::Paused,
+                    &assistant_text,
+                    Some(reason.clone()),
+                );
+                append_event!(RunEvent::AgentStepCompleted { summary });
+                return self.finish_paused(
+                    task_id,
+                    agent_profile_id,
+                    assistant_text,
+                    &mut context,
+                    reason,
+                    &mut event_sink,
+                );
+            }
+
+            let next_event = match controls.event_timeout {
+                Some(timeout) => {
+                    tokio::select! {
+                        signal = next_run_control_signal(cancellation_token.as_ref(), pause_token.as_ref()) => {
+                            match signal {
+                                RunControlSignal::Cancelled(reason) => {
+                                    let summary = agent_step_summary(
+                                        &task_id,
+                                        1,
+                                        AgentStepStatus::Cancelled,
+                                        &assistant_text,
+                                        Some(reason.clone()),
+                                    );
+                                    append_event!(RunEvent::AgentStepCompleted { summary });
+                                    return self.finish_cancelled(
+                                        task_id,
+                                        agent_profile_id,
+                                        assistant_text,
+                                        &mut context,
+                                        reason,
+                                        &mut event_sink,
+                                    );
+                                }
+                                RunControlSignal::Paused(reason) => {
+                                    let summary = agent_step_summary(
+                                        &task_id,
+                                        1,
+                                        AgentStepStatus::Paused,
+                                        &assistant_text,
+                                        Some(reason.clone()),
+                                    );
+                                    append_event!(RunEvent::AgentStepCompleted { summary });
+                                    return self.finish_paused(
+                                        task_id,
+                                        agent_profile_id,
+                                        assistant_text,
+                                        &mut context,
+                                        reason,
+                                        &mut event_sink,
+                                    );
+                                }
+                            }
+                        }
+                        timed = tokio::time::timeout(timeout, stream.try_next()) => {
+                            match timed {
+                                Ok(Ok(result)) => result,
+                                Ok(Err(error)) => {
+                                    return self.finish_failed(
+                                        task_id,
+                                        agent_profile_id,
+                                        assistant_text,
+                                        &mut context,
+                                        error,
+                                        &mut event_sink,
+                                    );
+                                }
+                                Err(_) => {
+                                    let reason = format!("provider event timeout after {}ms", timeout.as_millis());
+                                    let summary = agent_step_summary(
+                                        &task_id,
+                                        1,
+                                        AgentStepStatus::Cancelled,
+                                        &assistant_text,
+                                        Some(reason.clone()),
+                                    );
+                                    append_event!(RunEvent::AgentStepCompleted { summary });
+                                    return self.finish_cancelled(
+                                        task_id,
+                                        agent_profile_id,
+                                        assistant_text,
+                                        &mut context,
+                                        reason,
+                                        &mut event_sink,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                None if cancellation_token.is_some() || pause_token.is_some() => {
+                    tokio::select! {
+                        signal = next_run_control_signal(cancellation_token.as_ref(), pause_token.as_ref()) => {
+                            match signal {
+                                RunControlSignal::Cancelled(reason) => {
+                                    let summary = agent_step_summary(
+                                        &task_id,
+                                        1,
+                                        AgentStepStatus::Cancelled,
+                                        &assistant_text,
+                                        Some(reason.clone()),
+                                    );
+                                    append_event!(RunEvent::AgentStepCompleted { summary });
+                                    return self.finish_cancelled(
+                                        task_id,
+                                        agent_profile_id,
+                                        assistant_text,
+                                        &mut context,
+                                        reason,
+                                        &mut event_sink,
+                                    );
+                                }
+                                RunControlSignal::Paused(reason) => {
+                                    let summary = agent_step_summary(
+                                        &task_id,
+                                        1,
+                                        AgentStepStatus::Paused,
+                                        &assistant_text,
+                                        Some(reason.clone()),
+                                    );
+                                    append_event!(RunEvent::AgentStepCompleted { summary });
+                                    return self.finish_paused(
+                                        task_id,
+                                        agent_profile_id,
+                                        assistant_text,
+                                        &mut context,
+                                        reason,
+                                        &mut event_sink,
+                                    );
+                                }
+                            }
+                        }
+                        result = stream.try_next() => {
+                            match result {
+                                Ok(result) => result,
+                                Err(error) => {
+                                    return self.finish_failed(
+                                        task_id,
+                                        agent_profile_id,
+                                        assistant_text,
+                                        &mut context,
+                                        error,
+                                        &mut event_sink,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                None => match stream.try_next().await {
+                    Ok(result) => result,
+                    Err(error) => {
+                        return self.finish_failed(
+                            task_id,
+                            agent_profile_id,
+                            assistant_text,
+                            &mut context,
+                            error,
+                            &mut event_sink,
+                        );
+                    }
+                },
+            };
+
+            let Some(event) = next_event else {
+                break;
+            };
+
+            let no_progress_signal = no_progress_detector.observe_event(&event);
+            if let RunEvent::AssistantDelta { text, .. } = &event {
+                assistant_text.push_str(text);
+            }
+            append_event!(event);
+            if let Some(signal) = no_progress_signal {
+                append_event!(RunEvent::NoProgressLoopDetected {
+                    task_id: task_id.clone(),
+                    signal: signal.clone(),
+                });
+                let summary = agent_step_summary(
+                    &task_id,
+                    1,
+                    AgentStepStatus::StoppedNoProgress,
+                    &assistant_text,
+                    Some(signal.reason.clone()),
+                );
+                append_event!(RunEvent::AgentStepCompleted { summary });
+                return self.finish_cancelled(
+                    task_id,
+                    agent_profile_id,
+                    assistant_text,
+                    &mut context,
+                    format!("no progress: {}", signal.reason),
+                    &mut event_sink,
+                );
+            }
+        }
+
+        append_event!(RunEvent::ProviderRequestCompleted {
+            provider_id: request.provider_id,
+        });
+        let step_summary = agent_step_summary(
+            &task_id,
+            1,
+            AgentStepStatus::Completed,
+            &assistant_text,
+            None,
+        );
+        append_event!(RunEvent::AgentStepCompleted {
+            summary: step_summary,
+        });
+        let run_summary = agent_run_summary(
+            &task_id,
+            &agent_profile_id,
+            TaskStatus::Completed,
+            1,
+            &assistant_text,
+            None,
+            Some(EventRange {
+                start_seq: 1,
+                end_seq: context.seq.saturating_sub(1),
+            }),
+        );
+        append_event!(RunEvent::AgentRunCompleted {
+            summary: run_summary.clone(),
+        });
+        let turn_id = context.turn_id.clone();
+        append_event!(RunEvent::TurnCompleted { turn_id });
+        append_event!(RunEvent::TaskCompleted {
+            task_id: task_id.clone(),
+        });
+        append_event!(RunEvent::Done);
+
+        Ok(AgentRunOutcome {
+            trace_id,
+            task_id,
+            status: TaskStatus::Completed,
+            summary: run_summary,
+            assistant_text,
+            store: self.store,
+        })
+    }
+
+    fn finish_cancelled<F, R>(
+        mut self,
+        task_id: TaskId,
+        agent_profile_id: AgentProfileId,
+        assistant_text: String,
+        context: &mut RunContext,
+        reason: String,
+        event_sink: &mut F,
+    ) -> Result<AgentRunOutcome>
+    where
+        F: FnMut(&EventFrame) -> R,
+        R: Into<EventSinkAction>,
+    {
+        let _ = self.append_contextual(
+            context,
+            RunEvent::TaskCancelled {
+                task_id: task_id.clone(),
+                reason: Some(reason.clone()),
+            },
+            event_sink,
+        )?;
+        let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
+        let summary = agent_run_summary(
+            &task_id,
+            &agent_profile_id,
+            TaskStatus::Cancelled,
+            0,
+            &assistant_text,
+            Some(reason),
+            Some(EventRange {
+                start_seq: 1,
+                end_seq: context.seq.saturating_sub(1),
+            }),
+        );
+
+        Ok(AgentRunOutcome {
+            trace_id: context.trace_id.clone(),
+            task_id,
+            status: TaskStatus::Cancelled,
+            summary,
+            assistant_text,
+            store: self.store,
+        })
+    }
+
+    fn finish_paused<F, R>(
+        mut self,
+        task_id: TaskId,
+        agent_profile_id: AgentProfileId,
+        assistant_text: String,
+        context: &mut RunContext,
+        reason: String,
+        event_sink: &mut F,
+    ) -> Result<AgentRunOutcome>
+    where
+        F: FnMut(&EventFrame) -> R,
+        R: Into<EventSinkAction>,
+    {
+        let last_seq = context.seq.saturating_sub(1);
+        let checkpoint = TaskPauseCheckpoint {
+            checkpoint_id: TaskPauseCheckpointId::new(),
+            task_id: task_id.clone(),
+            trace_id: context.trace_id.clone(),
+            last_seq,
+            thread_id: Some(context.thread_id.clone()),
+            turn_id: Some(context.turn_id.clone()),
+            provider_id: context.provider_id.clone(),
+            profile_id: context.profile_id.clone(),
+            model: context.model.clone(),
+            resume_mode: ResumeMode::FromTraceProjection,
+            workspace_snapshot_id: None,
+            transcript_event_range: Some(EventRange {
+                start_seq: 1,
+                end_seq: last_seq,
+            }),
+            context_handle_ids: Vec::new(),
+            reason: Some(reason.clone()),
+        };
+        let _ = self.append_contextual(
+            context,
+            RunEvent::TaskPauseCheckpointCreated { checkpoint },
+            event_sink,
+        )?;
+        let _ = self.append_contextual(
+            context,
+            RunEvent::TaskPaused {
+                task_id: task_id.clone(),
+                reason: Some(reason.clone()),
+            },
+            event_sink,
+        )?;
+        let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
+        let summary = agent_run_summary(
+            &task_id,
+            &agent_profile_id,
+            TaskStatus::Paused,
+            0,
+            &assistant_text,
+            Some(reason),
+            Some(EventRange {
+                start_seq: 1,
+                end_seq: context.seq.saturating_sub(1),
+            }),
+        );
+
+        Ok(AgentRunOutcome {
+            trace_id: context.trace_id.clone(),
+            task_id,
+            status: TaskStatus::Paused,
+            summary,
+            assistant_text,
+            store: self.store,
+        })
+    }
+
+    fn finish_failed<F, R>(
+        mut self,
+        task_id: TaskId,
+        agent_profile_id: AgentProfileId,
+        assistant_text: String,
+        context: &mut RunContext,
+        error: ProviderError,
+        event_sink: &mut F,
+    ) -> Result<AgentRunOutcome>
+    where
+        F: FnMut(&EventFrame) -> R,
+        R: Into<EventSinkAction>,
+    {
+        let normalized = error.normalized();
+        let _ = self.append_contextual(
+            context,
+            RunEvent::Error {
+                error: normalized.clone(),
+            },
+            event_sink,
+        )?;
+        let summary = agent_step_summary(
+            &task_id,
+            1,
+            AgentStepStatus::Failed,
+            &assistant_text,
+            Some(normalized.message.clone()),
+        );
+        let _ = self.append_contextual(
+            context,
+            RunEvent::AgentStepCompleted { summary },
+            event_sink,
+        )?;
+        let _ = self.append_contextual(
+            context,
+            RunEvent::TaskFailed {
+                task_id: task_id.clone(),
+                error: normalized.clone(),
+            },
+            event_sink,
+        )?;
+        let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
+        let _summary = agent_run_summary(
+            &task_id,
+            &agent_profile_id,
+            TaskStatus::Failed,
+            0,
+            &assistant_text,
+            Some(normalized.message),
+            Some(EventRange {
+                start_seq: 1,
+                end_seq: context.seq.saturating_sub(1),
+            }),
+        );
+
+        Err(CoreError::Provider(error))
+    }
+
+    fn append_contextual<F, R>(
+        &mut self,
+        context: &mut RunContext,
+        event: RunEvent,
+        event_sink: &mut F,
+    ) -> Result<EventSinkAction>
+    where
+        F: FnMut(&EventFrame) -> R,
+        R: Into<EventSinkAction>,
+    {
+        let item_id = event.item_id();
+        let event_turn_id = event.turn_id();
+        let event_task_id = event.task_id();
+        let mut frame = EventFrame::new(&context.trace_id, context.seq, event)
+            .with_thread_id(context.thread_id.clone())
+            .with_turn_id(event_turn_id.unwrap_or_else(|| context.turn_id.clone()))
+            .with_task_id(event_task_id.unwrap_or_else(|| context.task_id.clone()));
+
+        if let Some(item_id) = item_id {
+            frame = frame.with_item_id(item_id);
+        }
+
+        self.store.append(&frame)?;
+        let action = event_sink(&frame).into();
+        context.seq += 1;
+        Ok(action)
+    }
+}
+
+fn agent_step_summary(
+    task_id: &TaskId,
+    step_index: u32,
+    status: AgentStepStatus,
+    assistant_text: &str,
+    stop_reason: Option<String>,
+) -> AgentStepSummary {
+    AgentStepSummary {
+        task_id: task_id.clone(),
+        step_index,
+        status,
+        assistant_text: assistant_text.to_string(),
+        stop_reason,
+    }
+}
+
+fn agent_run_summary(
+    task_id: &TaskId,
+    profile_id: &AgentProfileId,
+    status: TaskStatus,
+    steps_completed: u32,
+    final_text: &str,
+    stop_reason: Option<String>,
+    evidence_event_range: Option<EventRange>,
+) -> AgentRunSummary {
+    AgentRunSummary {
+        task_id: task_id.clone(),
+        profile_id: profile_id.clone(),
+        status,
+        steps_completed,
+        final_text: final_text.to_string(),
+        stop_reason,
+        evidence_event_range,
     }
 }
 

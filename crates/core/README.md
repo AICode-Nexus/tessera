@@ -14,7 +14,7 @@ It includes a `DiagnosticsReporter` helper that wraps LSP-style diagnostics into
 
 It includes a read-only `SkillRegistry` for listing and finding `SkillManifest` metadata. It does not activate skills, execute workflows, or bypass future tool/policy boundaries.
 
-It includes a read-only `AgentRegistry` for listing and finding `AgentProfile` metadata. It does not start agent loops, activate skills, execute tools, or bypass future policy/sandbox boundaries.
+It includes a read-only `AgentRegistry` for listing and finding `AgentProfile` metadata, plus a no-tool `AgentLoop` that records provider-neutral agent run/step events and returns an `AgentRunSummary`. The current loop does not activate skills, execute tools, load project instructions, keep background tasks alive, or bypass future policy/sandbox boundaries.
 
 It includes a read-only `ToolRegistry` for listing and finding `ToolDescriptor` metadata. It does not execute tools, dispatch tool calls, or bypass future policy/sandbox boundaries.
 

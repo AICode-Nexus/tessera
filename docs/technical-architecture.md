@@ -15,7 +15,7 @@ Tessera 是一个 Rust-first、AI-friendly、agent-ready 的本地终端大模�
 - Replayable：所有运行都能通过 JSONL trace 回放和审计。
 - Auditable：未来所有工具调用必须经过 policy gate。
 - AI-friendly：代码边界小、协议清晰、fixture/replay 完整，方便 AI 稳定参与开发。
-- Agent-ready：v0.1 不实现 agent runtime，但协议、task、artifact、policy 和 trace 从第一天给 agent 留出接入点。
+- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已加入 no-tool single-agent loop，但工具、技能、指令加载、后台所有权和多 agent 仍必须按门禁推进。
 
 ## 2. 技术选型
 
@@ -192,7 +192,7 @@ Tessera 的长期目标不是只做一个聊天终端，而是形成 CLI、TUI�
 
 约束：
 
-- CLI 可以是脚本入口，但不能直接实现 agent loop。
+- CLI 可以是脚本入口，也可以调用 core 的 `AgentLoop`；但不能自己实现 agent loop、provider routing 或 trace 写入旁路。
 - GUI 可以是多线程、多项目、多 worktree 控制面，但不能持有真实 task/session 状态机。
 - Hook 和 automation 只能订阅标准事件或提出 traced proposal，不能绕过 tool/policy/sandbox。
 - Skills 优先兼容 `SKILL.md` progressive disclosure；脚本和引用文件仍受 policy、scope 和 redaction 约束。
@@ -329,13 +329,13 @@ AI 修改代码时应优先处理小边界任务：
 
 ## 7. Agent-ready 设计
 
-v0.1 不实现 agent runtime，但必须从第一天保证 agent 能平滑接入。
+v0.1 先保证 agent 能平滑接入；v0.5 的当前实现已经提供 no-tool `AgentLoop`，用于记录 `TaskKind::AgentRun`、agent run/step lifecycle、finish summary 和 replay evidence。它不是完整 coding-agent runtime。
 
 需要预留：
 
 - `Task`：agent run、tool run、replay、learning job 都能成为 task。
 - `Artifact`：patch、test report、tool output、agent transcript 外部化。
-- `RunEvent` reserved events：skill、agent、swarm、learning 的事件名先稳定；diagnostics 和 memory proposal 已提升为 metadata events。
+- `RunEvent` lifecycle：no-tool agent loop 已使用 `agent_run_started`、`agent_step_started`、`agent_step_completed` 和 `agent_run_completed`；skill、handoff、swarm、learning 仍按后续版本门禁推进。
 - `PolicyDecision` 类型占位：未来工具调用必须可审批。
 - `ToolCallRequested` / `ToolDispatch` / `ToolResult` metadata：provider 和 agent 都不能直接执行工具；即便未来底层并发，trace 和模型可见结果也必须按声明顺序输出。
 - `DiagnosticsReported` metadata：diagnostics/LSP 结果可以写 trace，但 core helper 不启动 LSP server、compiler 或 test runner。
@@ -343,11 +343,11 @@ v0.1 不实现 agent runtime，但必须从第一天保证 agent 能平滑接入
 - `ToolRepairReport` metadata：tool-call repair 只能记录 provider-neutral 摘要，不能把 provider 原始 reasoning 或 raw text 写进 trace。
 - `SandboxDecision` metadata：workspace path guardrail 必须先写入 provider-neutral trace，再进入后续真实 sandbox/tool runtime。
 - `OsSandboxProfile` metadata：core 可以规划 read-only / workspace-write / network-required / denied profile，但不启动 OS sandbox、不执行工具、不打开网络。
-- `AgentProfile` schema foundation：模型、角色、工具权限、记忆范围、context scope 和 step limit 显式配置；core 只提供只读 registry，不启动 agent loop。
+- `AgentProfile` schema foundation：模型、角色、工具权限、记忆范围、context scope 和 step limit 显式配置；core 提供只读 registry 和 no-tool `AgentLoop`，但不激活 skill、不执行 tool、不读取 project instructions、不维持后台任务。
 - `MemoryProposal` metadata：proposal 可以进入 UI review，但长期 memory runtime 和真实写入必须等待 scope schema、policy 和 trace 边界，避免默认全局污染。
 - `Skill` manifest 兼容 `SKILL.md` frontmatter，后续再扩展 `skill.toml`；v0.2 只读 registry 不执行 skill runtime。
 
-Agent-ready 不等于 v0.1 做 agent。它意味着 v0.1 的 runtime 不会把未来 agent 逼进旁路系统。
+Agent-ready 不等于立即拥有完整 coding-agent。当前 no-tool loop 只是稳定 run envelope、trace 和 replay 语义，避免未来 agent 被迫进入旁路系统。
 
 DeepSeek-TUI 的 sub-agent 设计还暴露出一个关键点：父 agent 不应把所有子任务 transcript 塞回上下文。Tessera 后续 agent 系统必须使用 artifact/context handle 模型：
 
@@ -365,7 +365,7 @@ DeepSeek-TUI 的 sub-agent 设计还暴露出一个关键点：父 agent 不应�
 2. v0.2：context workbench、read-only runtime API、task registry v1、GUI shell spike、cost/cache telemetry、model router 草案。
 3. v0.3：tool descriptor、policy gate、approval UI、artifact handles、OS sandbox、workspace checkpoint。
 4. v0.4：MCP adapter、HTTP/SSE runtime API shape、diagnostics/LSP metadata、memory proposal UI。
-5. v0.5：single agent loop、skill runtime v1、project instruction discovery、non-interactive agent run envelope、background ownership、app-server alignment、pause/resume、context handle projection。
+5. v0.5：no-tool single agent loop、non-interactive agent run envelope、skill runtime v1、project instruction discovery、background ownership、app-server alignment、pause/resume、context handle projection。
 6. v0.6：persistent sub-agent sessions、structured handoff、reviewer gate、artifact-backed transcript isolation。
 7. v0.7：coding agent workflow、worktree-first mutation、diff/test/checkpoint/rollback、apply-patch tool、TUI/GUI diff and review surfaces。
 8. v0.8：swarm scheduler 和 automation trigger integration，建立在稳定 agent/task/trace/review/cost gates 之上。

@@ -379,6 +379,15 @@ pub enum RunEvent {
     TaskPaused { task_id: TaskId, reason: Option<String> },
     TaskResumed { task_id: TaskId, reason: Option<String> },
 
+    AgentRunStarted {
+        task_id: TaskId,
+        profile_id: AgentProfileId,
+        objective: String,
+    },
+    AgentStepStarted { task_id: TaskId, step_index: u32 },
+    AgentStepCompleted { summary: AgentStepSummary },
+    AgentRunCompleted { summary: AgentRunSummary },
+
     NoProgressLoopDetected {
         task_id: TaskId,
         signal: NoProgressLoop,
@@ -408,6 +417,8 @@ pub enum RunEvent {
 
 `TaskPauseCheckpointCreated` 记录 trace-safe resume envelope metadata，当前只支持 chat trace projection resume mode。`TaskPaused` 和 `TaskResumed` 只记录 lifecycle metadata。它们可以被 client/TUI/GUI 投影为 `Paused` / `Running` 状态，但 provider stream suspension、background persistence、checkpoint restore 和 agent resume runtime 仍是后续能力。
 
+`AgentRunStarted` / `AgentStepStarted` / `AgentStepCompleted` / `AgentRunCompleted` 是 v0.5 no-tool single-agent loop 的标准生命周期事件。它们记录 `TaskKind::AgentRun` 的 provider-neutral run envelope、step index、step status、final summary 和 event evidence range；不得包含 provider-private raw response、hidden reasoning、tool output、shell command、file diff、secret 或 runtime handle。
+
 仍只预留、不执行的事件：
 
 ```rust
@@ -416,9 +427,7 @@ pub enum ReservedRunEvent {
     SkillActivated,
     SkillStepStarted,
     MemoryRecall,
-    AgentStarted,
     AgentHandoff,
-    AgentCompleted,
     SwarmTaskStarted,
     SwarmAgentEvent,
     SwarmTaskCompleted,
@@ -552,9 +561,9 @@ pub struct SkillPolicy {
 
 `SkillManifest` 不包含 command、executable 或 script 字段。后续 skill 激活、工具调用和步骤执行必须通过 core/tool/policy/trace 边界，不得由 registry 直接执行。
 
-### Agent Profile Schema
+### Agent Profile And Run Summary Schema
 
-Agent profile v0.5 foundation 只描述可执行 agent 的静态 metadata，不启动 agent loop、不激活 skill、不执行工具。它用于让未来 single-agent loop 在进入 runtime 前先拥有 provider-neutral 的角色、模型、scope 和 step limit 表达。
+Agent profile v0.5 foundation 描述可执行 agent 的静态 metadata。当前 no-tool `AgentLoop` 会使用它记录 run/step summary；它仍不激活 skill、不执行工具、不读取 project instructions、不持有 provider-private runtime state。
 
 ```rust
 pub struct AgentProfile {
@@ -571,7 +580,36 @@ pub struct AgentProfile {
 }
 ```
 
-`AgentProfile` 不包含 command、executable、shell、provider-private handle 或 runtime state。后续 agent step、skill activation、tool request、handoff 和 completion 必须通过 core/protocol/trace 的标准事件表达。
+```rust
+pub enum AgentStepStatus {
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+    Paused,
+    StoppedNoProgress,
+}
+
+pub struct AgentStepSummary {
+    pub task_id: TaskId,
+    pub step_index: u32,
+    pub status: AgentStepStatus,
+    pub assistant_text: String,
+    pub stop_reason: Option<String>,
+}
+
+pub struct AgentRunSummary {
+    pub task_id: TaskId,
+    pub profile_id: AgentProfileId,
+    pub status: TaskStatus,
+    pub steps_completed: u32,
+    pub final_text: String,
+    pub stop_reason: Option<String>,
+    pub evidence_event_range: Option<EventRange>,
+}
+```
+
+`AgentProfile` 不包含 command、executable、shell、provider-private handle 或 runtime state。`AgentStepSummary` 和 `AgentRunSummary` 只记录 provider-neutral lifecycle/result metadata。后续 skill activation、tool request、handoff 和 completion 必须继续通过 core/protocol/trace 的标准事件表达。
 
 ## 9. Tool Descriptor / Policy / Dispatch / Repair Schema
 

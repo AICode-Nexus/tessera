@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added a roadmap governance refresh with `docs/version-plan.md` as the v0.1-v0.9 source of truth and `docs/global-plan.md` as the current progress dashboard.
 - Added `docs/coding-agent-direction.md` to align DeepSeek-TUI, Reasonix, Codex CLI/App/App Server, and Claude Code CLI/Desktop/Web lessons with Tessera's version gates, GUI direction, hooks, automations, skills, subagents, and app-server boundaries.
 - Added the v0.5 no-tool single-agent loop design spec and implementation plan covering agent run envelopes, step events, trace summaries, CLI entrypoint scope, and verification gates.
+- Added the v0.5 no-tool single-agent loop in `tessera-core` plus `tessera agent run --provider <id> --goal <text> [--json]`, recording provider-neutral agent run/step trace events without tool execution, skill activation, project instruction loading, or background reattach.
 - Added release identity metadata so `tessera --version` reports both the crate version and build git SHA.
 - Added a provider-neutral `ToolDescriptor` schema and read-only `ToolRegistry` for tool metadata, with `parallel_safe` defaulting to false and no tool execution path.
 - Added tool call request, policy decision, and approval trace metadata plus a draft `PolicyGate` that produces `allow` / `ask_user` / `deny` decisions without executing tools.

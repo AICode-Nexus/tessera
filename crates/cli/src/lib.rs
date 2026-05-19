@@ -10,12 +10,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tessera_client::{ClientMessage, ClientMessageRole, ClientSnapshot};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
-    ConversationEngine, ConversationOutcome, ConversationRequest, EventSinkAction, ReplayRunner,
-    ReplaySummary, RunCancellationToken, RunControls, RunPauseToken, RuntimeEventQuery,
-    RuntimePauseCheckpointSummary, RuntimeReader, RuntimeSessionSummary, RuntimeTaskResumer,
+    AgentLoop, AgentRunOutcome, AgentRunRequest, ConversationEngine, ConversationOutcome,
+    ConversationRequest, EventSinkAction, ReplayRunner, ReplaySummary, RunCancellationToken,
+    RunControls, RunPauseToken, RuntimeEventQuery, RuntimePauseCheckpointSummary, RuntimeReader,
+    RuntimeSessionSummary, RuntimeTaskResumer,
 };
 use tessera_protocol::{
-    EventFrame, ModelProfileId, ProviderId, ResumeMode, RunEvent, TaskId, TaskStatus, TraceRecord,
+    AgentProfile, AgentProfileId, AgentRunSummary, EventFrame, ModelProfileId, ProviderId,
+    ResumeMode, RunEvent, TaskId, TaskStatus, TraceRecord,
 };
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
@@ -54,6 +56,16 @@ pub struct CliTranscript {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CliChatOutput {
     pub trace_id: String,
+    pub assistant_text: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliAgentRunOutput {
+    pub trace_id: String,
+    pub task_id: String,
+    pub status: TaskStatus,
+    pub steps_completed: u32,
+    pub summary: AgentRunSummary,
     pub assistant_text: String,
 }
 
@@ -132,6 +144,19 @@ impl From<ConversationOutcome> for CliChatOutput {
     fn from(outcome: ConversationOutcome) -> Self {
         Self {
             trace_id: outcome.trace_id,
+            assistant_text: outcome.assistant_text,
+        }
+    }
+}
+
+impl From<AgentRunOutcome> for CliAgentRunOutput {
+    fn from(outcome: AgentRunOutcome) -> Self {
+        Self {
+            trace_id: outcome.trace_id,
+            task_id: outcome.task_id.to_string(),
+            status: outcome.status,
+            steps_completed: outcome.summary.steps_completed,
+            summary: outcome.summary,
             assistant_text: outcome.assistant_text,
         }
     }
@@ -1884,6 +1909,61 @@ where
     }
 }
 
+pub async fn run_agent_with_config(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+    provider_id: &str,
+    goal: impl Into<String>,
+) -> Result<AgentRunOutcome> {
+    let goal = goal.into();
+    let profile = config
+        .providers
+        .iter()
+        .find(|profile| profile.id == provider_id)
+        .ok_or_else(|| anyhow::anyhow!("provider profile not found: {provider_id}"))?;
+
+    match profile.kind.as_str() {
+        "mock" => run_agent_for_provider(data_dir, profile, MockProvider::default(), goal).await,
+        "openai-compatible" | "openai_compatible" => {
+            let base_url = profile.base_url.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("provider profile `{}` requires base_url", profile.id)
+            })?;
+            let api_key = read_api_key(profile)?;
+            let provider = OpenAiCompatibleProvider::new(
+                base_url,
+                api_key,
+                ProviderId::from(profile.id.as_str()),
+            );
+            run_agent_for_provider(data_dir, profile, provider, goal).await
+        }
+        "ollama" => {
+            let base_url = profile
+                .base_url
+                .as_deref()
+                .unwrap_or("http://localhost:11434");
+            let provider = OllamaProvider::new(base_url, ProviderId::from(profile.id.as_str()));
+            run_agent_for_provider(data_dir, profile, provider, goal).await
+        }
+        other => Err(anyhow::anyhow!(
+            "unsupported provider kind `{other}` for profile `{}`",
+            profile.id
+        )),
+    }
+}
+
+pub fn format_agent_run_lines(outcome: &AgentRunOutcome) -> Vec<String> {
+    let mut lines = vec![
+        format!("agent task {}", outcome.task_id),
+        format!("trace {}", outcome.trace_id),
+        format!("status {}", task_status_label(outcome.status.clone())),
+        format!("steps {}", outcome.summary.steps_completed),
+    ];
+    if !outcome.assistant_text.is_empty() {
+        lines.push(outcome.assistant_text.clone());
+    }
+    lines
+}
+
 pub async fn run_tui_with_config(
     data_dir: PathBuf,
     config: TesseraConfig,
@@ -2055,6 +2135,49 @@ where
         )
         .await?;
     Ok(outcome)
+}
+
+async fn run_agent_for_provider<P>(
+    data_dir: impl AsRef<Path>,
+    profile: &ProviderProfile,
+    provider: P,
+    goal: String,
+) -> Result<AgentRunOutcome>
+where
+    P: ChatProvider,
+{
+    let store = TraceStore::open(data_dir)?;
+    let agent_profile = agent_profile_from_provider_profile(profile);
+    let loop_runtime = AgentLoop::new(provider, store);
+    let outcome = loop_runtime
+        .run_agent(AgentRunRequest {
+            trace_id: next_trace_id(&profile.id),
+            provider_id: ProviderId::from(profile.id.as_str()),
+            profile_id: ModelProfileId::from(profile.id.as_str()),
+            agent_profile: agent_profile.clone(),
+            model: profile.default_model.clone(),
+            objective: goal,
+            context_references: Vec::new(),
+            history: Vec::new(),
+            max_steps: agent_profile.max_steps,
+        })
+        .await?;
+    Ok(outcome)
+}
+
+fn agent_profile_from_provider_profile(profile: &ProviderProfile) -> AgentProfile {
+    AgentProfile {
+        id: AgentProfileId::from(format!("agent_profile_{}", profile.id)),
+        name: format!("{} agent", profile.id),
+        role: "no-tool assistant".to_string(),
+        model_profile: ModelProfileId::from(profile.id.as_str()),
+        skills: Vec::new(),
+        memory_scopes: Vec::new(),
+        context_scopes: Vec::new(),
+        tool_permissions: Vec::new(),
+        max_steps: 1,
+        metadata: None,
+    }
 }
 
 fn read_api_key(profile: &ProviderProfile) -> Result<Option<String>> {

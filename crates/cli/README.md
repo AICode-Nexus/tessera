@@ -2,9 +2,11 @@
 
 Headless command entrypoint for Tessera.
 
-v0.1 exposes bare `tessera` as the default interactive mock REPL, plus `tessera doctor` / `doctor --json`, `tessera init`, read-only `tessera config validate`, secret-safe `tessera profiles`, one-shot `tessera chat --provider mock --prompt ...`, script-friendly `chat --json`, `chat --list-commands`, trace inspection with `transcript` / `replay` / `events`, and explicit interactive `tessera chat --provider mock` / `chat --continue` on top of `tessera-core`.
+v0.1 exposes bare `tessera` as the default interactive mock REPL, plus `tessera doctor` / `doctor --json`, `tessera init`, read-only `tessera config validate`, secret-safe `tessera profiles`, one-shot `tessera chat --provider mock --prompt ...`, script-friendly `chat --json`, no-tool `tessera agent run --provider mock --goal ... [--json]`, `chat --list-commands`, trace inspection with `transcript` / `replay` / `events`, and explicit interactive `tessera chat --provider mock` / `chat --continue` on top of `tessera-core`.
 
 Interactive `chat` mode prints startup context for the active profile, data dir, and configured profiles. It supports `/help`, `/commands`, `/new`, `/clear`, `/cancel`, `/pause [task_id]`, `/resume-task <task_id>`, `/paste`, `/profiles`, `/profile <id>`, numbered `/sessions`, `/resume <trace_id|#>`, `/doctor`, `/history`, `/status`, `/export`, and `/quit` while keeping provider execution behind core and client projection in `tessera-client`. In paste mode, `/send` submits the collected multiline prompt and `/cancel` discards it; while a provider run is active, `/cancel` requests cancellation through core `RunControls` / `RunCancellationToken` and records a cancelled trace. Active `/pause` records a pause checkpoint, and idle `/resume-task <task_id>` starts a new chat run from that trace projection without background reattach or workspace restore. Outside an active run, `/cancel` reports that there is no active run to cancel. `chat --list-commands` prints the same command list without resolving config or starting the REPL.
+
+`tessera agent run` starts the first bounded single-agent path. It is script-friendly, writes `TaskKind::AgentRun` plus agent run/step trace events, and returns text or JSON containing trace/task/status/summary fields. It does not execute tools, mutate files, load project instructions, activate skills, run hooks, or reattach background work.
 
 `tessera init` writes a starter TOML config with env var names only. It must not store provider secrets, bearer tokens, cookies, or `.env` values.
 

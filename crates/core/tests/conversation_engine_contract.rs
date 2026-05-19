@@ -3,26 +3,26 @@ use futures::stream;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tessera_core::{
-    AgentRegistry, ContextWorkbench, ConversationEngine, ConversationRequest, CoreError,
-    DiagnosticsReporter, EventSinkAction, McpToolAdapter, McpToolAnnotations, McpToolSpec,
-    ModelRouteRequest, ModelRouter, NoProgressDetector, NoProgressObservation,
-    OrderedToolResultBuffer, OsSandboxPlanner, PolicyGate, ReplayRunner, RunCancellationToken,
-    RunControls, RunPauseToken, RuntimeEventQuery, RuntimeHttpApi, RuntimeHttpEventRequest,
-    RuntimeReader, SkillRegistry, ToolRegistry, ToolRepairTelemetry, WorkspaceCheckpointPlanner,
-    WorkspaceGuardrailChecker,
+    AgentLoop, AgentRegistry, AgentRunRequest, ContextWorkbench, ConversationEngine,
+    ConversationRequest, CoreError, DiagnosticsReporter, EventSinkAction, McpToolAdapter,
+    McpToolAnnotations, McpToolSpec, ModelRouteRequest, ModelRouter, NoProgressDetector,
+    NoProgressObservation, OrderedToolResultBuffer, OsSandboxPlanner, PolicyGate, ReplayRunner,
+    RunCancellationToken, RunControls, RunPauseToken, RuntimeEventQuery, RuntimeHttpApi,
+    RuntimeHttpEventRequest, RuntimeReader, SkillRegistry, ToolRegistry, ToolRepairTelemetry,
+    WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
 };
 use tessera_protocol::{
-    AgentProfile, AgentProfileId, ArtifactId, ArtifactKind, ContextBudget, ContextId,
-    ContextPlacement, ContextReference, ContextSource, ContextSourceKind, Diagnostic,
+    AgentProfile, AgentProfileId, AgentStepStatus, ArtifactId, ArtifactKind, ContextBudget,
+    ContextId, ContextPlacement, ContextReference, ContextSource, ContextSourceKind, Diagnostic,
     DiagnosticRange, DiagnosticSeverity, ErrorSource, EventFrame, EventRange, ItemId,
     ModelProfileId, NoProgressAction, NoProgressSignalKind, NormalizedError, OsSandboxFilesystem,
     OsSandboxMode, OsSandboxNetwork, OsSandboxShell, PolicyOutcome, ProviderCapability, ProviderId,
     ResumeMode, RouteStrategy, RunEvent, SandboxDecisionKind, SkillEntrypoint,
     SkillEntrypointFormat, SkillId, SkillManifest, SkillPolicy, SkillRequirements, SkillSource,
-    SkillSourceKind, SnapshotId, SnapshotKind, TaskId, TaskPauseCheckpoint, TaskPauseCheckpointId,
-    ThreadId, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId,
-    ToolPermission, ToolRepairKind, ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect,
-    TurnId, WorkspaceCheckpoint, WorkspaceScope,
+    SkillSourceKind, SnapshotId, SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint,
+    TaskPauseCheckpointId, TaskStatus, ThreadId, ToolCallId, ToolCallRequest, ToolDescriptor,
+    ToolDispatch, ToolDispatchId, ToolId, ToolPermission, ToolRepairKind, ToolResult, ToolResultId,
+    ToolResultStatus, ToolSideEffect, TurnId, WorkspaceCheckpoint, WorkspaceScope,
 };
 use tessera_providers::{
     mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderMessage,
@@ -160,6 +160,35 @@ fn mock_capability() -> ProviderCapability {
         supports_tool_calling: false,
         max_context_tokens: Some(128_000),
         extension: None,
+    }
+}
+
+fn mock_agent_profile() -> AgentProfile {
+    AgentProfile {
+        id: AgentProfileId::from_static("agent_profile_mock"),
+        name: "Mock agent".to_string(),
+        role: "assistant".to_string(),
+        model_profile: ModelProfileId::from_static("mock-default"),
+        skills: Vec::new(),
+        memory_scopes: Vec::new(),
+        context_scopes: Vec::new(),
+        tool_permissions: Vec::new(),
+        max_steps: 1,
+        metadata: None,
+    }
+}
+
+fn mock_agent_request(objective: &str) -> AgentRunRequest {
+    AgentRunRequest {
+        trace_id: "trace_agent_mock".to_string(),
+        provider_id: ProviderId::from_static("mock"),
+        profile_id: ModelProfileId::from_static("mock-default"),
+        agent_profile: mock_agent_profile(),
+        model: "mock-chat".to_string(),
+        objective: objective.to_string(),
+        context_references: Vec::new(),
+        history: Vec::new(),
+        max_steps: 1,
     }
 }
 
@@ -1085,6 +1114,203 @@ async fn conversation_engine_drives_mock_provider_and_persists_trace() {
 }
 
 #[tokio::test]
+async fn agent_loop_drives_mock_provider_and_persists_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let loop_runner = AgentLoop::new(MockProvider::default(), store);
+
+    let outcome = loop_runner
+        .run_agent(mock_agent_request("summarize agent status"))
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.trace_id, "trace_agent_mock");
+    assert_eq!(outcome.status, TaskStatus::Completed);
+    assert_eq!(outcome.summary.status, TaskStatus::Completed);
+    assert_eq!(outcome.summary.steps_completed, 1);
+    assert!(outcome.assistant_text.contains("mock response"));
+
+    let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let event_kinds = records
+        .iter()
+        .map(|record| record.event_kind.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(event_kinds.contains(&"task_created"));
+    assert!(event_kinds.contains(&"task_started"));
+    assert!(event_kinds.contains(&"agent_run_started"));
+    assert!(event_kinds.contains(&"agent_step_started"));
+    assert!(event_kinds.contains(&"assistant_message_started"));
+    assert!(event_kinds.contains(&"assistant_delta"));
+    assert!(event_kinds.contains(&"assistant_message_completed"));
+    assert!(event_kinds.contains(&"agent_step_completed"));
+    assert!(event_kinds.contains(&"agent_run_completed"));
+    assert!(event_kinds.contains(&"task_completed"));
+    assert_eq!(event_kinds.last(), Some(&"done"));
+
+    let created = records
+        .iter()
+        .find(|record| record.event_kind == "task_created")
+        .unwrap();
+    assert_eq!(created.payload["kind"], "agent_run");
+
+    let step_completed = records
+        .iter()
+        .find(|record| record.event_kind == "agent_step_completed")
+        .unwrap();
+    assert_eq!(
+        step_completed.payload["summary"]["status"],
+        serde_json::json!(AgentStepStatus::Completed)
+    );
+
+    let reader = RuntimeReader::new(outcome.store);
+    let tasks = reader.list_tasks("trace_agent_mock").unwrap();
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].kind, Some(TaskKind::AgentRun));
+    assert_eq!(tasks[0].status, TaskStatus::Completed);
+}
+
+#[tokio::test]
+async fn agent_loop_honors_pre_cancelled_run_controls() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let loop_runner = AgentLoop::new(MockProvider::default(), store);
+    let cancellation_token = RunCancellationToken::new();
+    cancellation_token.cancel("operator cancelled agent");
+
+    let outcome = loop_runner
+        .run_agent_with_controls_and_event_sink(
+            mock_agent_request("cancel before provider"),
+            RunControls {
+                event_timeout: None,
+                cancellation_token: Some(cancellation_token),
+                pause_token: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.status, TaskStatus::Cancelled);
+    let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let event_kinds = records
+        .iter()
+        .map(|record| record.event_kind.as_str())
+        .collect::<Vec<_>>();
+    assert!(event_kinds.contains(&"agent_step_completed"));
+    assert!(event_kinds.contains(&"task_cancelled"));
+    assert!(!event_kinds.contains(&"provider_request_started"));
+    assert!(!event_kinds.contains(&"task_completed"));
+    assert_eq!(event_kinds.last(), Some(&"done"));
+
+    let step = records
+        .iter()
+        .find(|record| record.event_kind == "agent_step_completed")
+        .unwrap();
+    assert_eq!(step.payload["summary"]["status"], "cancelled");
+    assert_eq!(
+        step.payload["summary"]["stop_reason"],
+        "operator cancelled agent"
+    );
+}
+
+#[tokio::test]
+async fn agent_loop_honors_pre_paused_run_controls() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let loop_runner = AgentLoop::new(MockProvider::default(), store);
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("operator paused agent");
+
+    let outcome = loop_runner
+        .run_agent_with_controls_and_event_sink(
+            mock_agent_request("pause before provider"),
+            RunControls {
+                event_timeout: None,
+                cancellation_token: None,
+                pause_token: Some(pause_token),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.status, TaskStatus::Paused);
+    let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let event_kinds = records
+        .iter()
+        .map(|record| record.event_kind.as_str())
+        .collect::<Vec<_>>();
+    assert!(event_kinds.contains(&"agent_step_completed"));
+    assert!(event_kinds.contains(&"task_pause_checkpoint_created"));
+    assert!(event_kinds.contains(&"task_paused"));
+    assert!(!event_kinds.contains(&"provider_request_started"));
+    assert!(!event_kinds.contains(&"task_completed"));
+    assert_eq!(event_kinds.last(), Some(&"done"));
+
+    let step = records
+        .iter()
+        .find(|record| record.event_kind == "agent_step_completed")
+        .unwrap();
+    assert_eq!(step.payload["summary"]["status"], "paused");
+    assert_eq!(
+        step.payload["summary"]["stop_reason"],
+        "operator paused agent"
+    );
+}
+
+#[tokio::test]
+async fn agent_loop_records_provider_failure_before_returning_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let loop_runner = AgentLoop::new(FailingProvider, store);
+    let mut request = mock_agent_request("provider should fail");
+    request.trace_id = "trace_agent_failure".to_string();
+    request.provider_id = ProviderId::from_static("failing");
+    request.profile_id = ModelProfileId::from_static("failing-default");
+    request.model = "failing-chat".to_string();
+
+    let result = loop_runner.run_agent(request).await;
+
+    assert!(matches!(result, Err(CoreError::Provider(_))));
+    let store = TraceStore::open(temp.path()).unwrap();
+    let records = store.read_trace_records("trace_agent_failure").unwrap();
+    let event_kinds = records
+        .iter()
+        .map(|record| record.event_kind.as_str())
+        .collect::<Vec<_>>();
+    assert!(event_kinds.contains(&"error"));
+    assert!(event_kinds.contains(&"agent_step_completed"));
+    assert!(event_kinds.contains(&"task_failed"));
+    assert_eq!(event_kinds.last(), Some(&"done"));
+
+    let step = records
+        .iter()
+        .find(|record| record.event_kind == "agent_step_completed")
+        .unwrap();
+    assert_eq!(step.payload["summary"]["status"], "failed");
+}
+
+#[tokio::test]
+async fn agent_loop_rejects_zero_max_steps_before_trace_creation() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let loop_runner = AgentLoop::new(MockProvider::default(), store);
+    let mut request = mock_agent_request("reject zero max steps");
+    request.max_steps = 0;
+    request.agent_profile.max_steps = 0;
+
+    let error = match loop_runner.run_agent(request).await {
+        Ok(_) => panic!("expected zero max_steps to fail"),
+        Err(error) => error.to_string(),
+    };
+
+    assert!(error.contains("agent max_steps must be at least 1"));
+    let store = TraceStore::open(temp.path()).unwrap();
+    assert!(store.list_trace_ids().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn conversation_engine_passes_history_to_provider_without_retracing_it() {
     let temp = tempfile::tempdir().unwrap();
     let captured_request = Arc::new(Mutex::new(None));
@@ -1607,6 +1833,30 @@ async fn runtime_reader_lists_task_registry_from_trace() {
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].kind, Some(tessera_protocol::TaskKind::Chat));
     assert_eq!(tasks[0].status, tessera_protocol::TaskStatus::Completed);
+    assert!(tasks[0].created_at.is_some());
+    assert!(tasks[0].started_at.is_some());
+    assert!(tasks[0].finished_at.is_some());
+    assert!(tasks[0].error_code.is_none());
+    assert!(tasks[0].cancel_reason.is_none());
+}
+
+#[tokio::test]
+async fn runtime_reader_lists_agent_run_tasks_from_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let loop_runner = AgentLoop::new(MockProvider::default(), store);
+
+    let outcome = loop_runner
+        .run_agent(mock_agent_request("summarize projected agent task"))
+        .await
+        .unwrap();
+
+    let reader = RuntimeReader::new(outcome.store);
+    let tasks = reader.list_tasks(&outcome.trace_id).unwrap();
+
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].kind, Some(TaskKind::AgentRun));
+    assert_eq!(tasks[0].status, TaskStatus::Completed);
     assert!(tasks[0].created_at.is_some());
     assert!(tasks[0].started_at.is_some());
     assert!(tasks[0].finished_at.is_some());

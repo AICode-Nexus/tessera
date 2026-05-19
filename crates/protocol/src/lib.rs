@@ -493,6 +493,40 @@ pub struct AgentProfile {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum AgentStepStatus {
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+    Paused,
+    StoppedNoProgress,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct AgentStepSummary {
+    pub task_id: TaskId,
+    pub step_index: u32,
+    pub status: AgentStepStatus,
+    pub assistant_text: String,
+    pub stop_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct AgentRunSummary {
+    pub task_id: TaskId,
+    pub profile_id: AgentProfileId,
+    pub status: TaskStatus,
+    pub steps_completed: u32,
+    pub final_text: String,
+    pub stop_reason: Option<String>,
+    pub evidence_event_range: Option<EventRange>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolPermission {
     FilesystemRead,
@@ -923,6 +957,21 @@ pub enum RunEvent {
     TaskPauseCheckpointCreated {
         checkpoint: TaskPauseCheckpoint,
     },
+    AgentRunStarted {
+        task_id: TaskId,
+        profile_id: AgentProfileId,
+        objective: String,
+    },
+    AgentStepStarted {
+        task_id: TaskId,
+        step_index: u32,
+    },
+    AgentStepCompleted {
+        summary: AgentStepSummary,
+    },
+    AgentRunCompleted {
+        summary: AgentRunSummary,
+    },
     NoProgressLoopDetected {
         task_id: TaskId,
         signal: NoProgressLoop,
@@ -1006,6 +1055,10 @@ impl RunEvent {
             Self::TaskPaused { .. } => "task_paused",
             Self::TaskResumed { .. } => "task_resumed",
             Self::TaskPauseCheckpointCreated { .. } => "task_pause_checkpoint_created",
+            Self::AgentRunStarted { .. } => "agent_run_started",
+            Self::AgentStepStarted { .. } => "agent_step_started",
+            Self::AgentStepCompleted { .. } => "agent_step_completed",
+            Self::AgentRunCompleted { .. } => "agent_run_completed",
             Self::NoProgressLoopDetected { .. } => "no_progress_loop_detected",
             Self::DiagnosticsReported { .. } => "diagnostics_reported",
             Self::MemoryWriteProposed { .. } => "memory_write_proposed",
@@ -1048,8 +1101,12 @@ impl RunEvent {
             | Self::TaskCancelled { task_id, .. }
             | Self::TaskPaused { task_id, .. }
             | Self::TaskResumed { task_id, .. }
+            | Self::AgentRunStarted { task_id, .. }
+            | Self::AgentStepStarted { task_id, .. }
             | Self::NoProgressLoopDetected { task_id, .. } => Some(task_id.clone()),
             Self::TaskPauseCheckpointCreated { checkpoint } => Some(checkpoint.task_id.clone()),
+            Self::AgentStepCompleted { summary } => Some(summary.task_id.clone()),
+            Self::AgentRunCompleted { summary } => Some(summary.task_id.clone()),
             _ => None,
         }
     }
@@ -1139,6 +1196,24 @@ impl RunEvent {
             Self::TaskPauseCheckpointCreated { checkpoint } => {
                 json!({ "checkpoint": checkpoint })
             }
+            Self::AgentRunStarted {
+                task_id,
+                profile_id,
+                objective,
+            } => json!({
+                "task_id": task_id,
+                "profile_id": profile_id,
+                "objective": objective,
+            }),
+            Self::AgentStepStarted {
+                task_id,
+                step_index,
+            } => json!({
+                "task_id": task_id,
+                "step_index": step_index,
+            }),
+            Self::AgentStepCompleted { summary } => json!({ "summary": summary }),
+            Self::AgentRunCompleted { summary } => json!({ "summary": summary }),
             Self::NoProgressLoopDetected { task_id, signal } => {
                 json!({ "task_id": task_id, "signal": signal })
             }

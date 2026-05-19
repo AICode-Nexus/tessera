@@ -47,7 +47,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 | v0.2 | Read-only projection and GUI-ready surfaces | Complete | Read-only runtime/query/projection foundations are usable; no runtime HTTP server. |
 | v0.3 | Tool policy and sandbox foundations | Foundation complete | Tool metadata, policy, approval, sandbox and checkpoint planners exist; no tool execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
-| v0.5 | Single-agent and resumable task foundations | In progress | Pause/resume chat path and context handles are usable; single agent loop and skill runtime are not. |
+| v0.5 | Single-agent and resumable task foundations | In progress | Pause/resume chat path, context handles, the no-tool single-agent loop, and `tessera agent run` are usable; skill runtime, project instruction discovery, tools, and background reattach are not. |
 | v0.6 | Persistent sub-agents and structured review | Planned | No persistent sub-agent runtime or reviewer gate yet. |
 | v0.7 | Project coding-agent workflow | Planned | No file-modifying coding-agent workflow, patch workflow, or GUI/TUI diff control yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
@@ -166,13 +166,13 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Repeat resume guard and provider-profile preflight.
 - Top-level `tessera tasks [--json]` and `tessera chat --resume-task <task_id|#>`.
 - Context handle projection through core/client/GUI bindings.
+- No-tool `AgentLoop` with provider-neutral run/step events, cancellation/pause/provider-failure/no-progress finish paths, trace replay evidence range, and machine-readable run summary.
+- Non-interactive `tessera agent run --provider <id> --goal <text> [--json]` envelope for script/CI use.
 
 **Remaining:**
 
-- Single agent loop with provider-neutral observations, max-step limits, stop/no-progress handling, trace replay, and machine-readable run summary.
 - Skill runtime v1 with `SKILL.md` discovery, activation/step trace events, read-only reference loading, and no unchecked script execution.
 - Project instruction discovery foundation for `AGENTS.md` / future `CLAUDE.md`-style files: precedence, byte limits, source reporting, secret redaction, and trace references.
-- Non-interactive agent run envelope for future `exec` / script / CI use: input, task id, trace id, exit status, evidence refs, and JSON output.
 - Durable background task ownership.
 - Background reattach with log/artifact projection.
 - Non-chat task resume.
@@ -183,7 +183,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 
 - Provider socket freezing, workspace restore/revert, tool execution, sub-agent persistence, hook runtime, automation runtime, swarm scheduling, and learning runtime.
 
-**Exit Criteria:** A single-agent loop can run against provider-neutral observations, obey policy/sandbox gates, write trace, stop on no-progress conditions, load instruction/skill references through bounded traceable handles, emit machine-readable summaries, and be replayed without relying on UI state.
+**Exit Criteria:** A single-agent loop can run against provider-neutral observations, obey cancellation/pause/no-progress controls, write trace, emit machine-readable summaries, and be replayed without relying on UI state. Full v0.5 completion additionally requires bounded instruction/skill references, durable background ownership, runtime API/app-server alignment, and honest resume semantics without provider socket freezing.
 
 ## 10. v0.6: Persistent Sub-Agents And Structured Review
 

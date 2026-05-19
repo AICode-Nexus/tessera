@@ -122,6 +122,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - Task/Window 的最小运行时语义。
 - v0.1 reserved type 的行为边界。
 - Skill / agent / tool metadata 的只读 registry foundation。
+- No-tool single-agent loop 的 run/step lifecycle 编排。
 
 允许依赖：
 
@@ -140,7 +141,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - shell/file/git/http tool 执行。
 - MCP runtime。
 - skill runtime。
-- agent loop 实现。
+- tool-using、skill-aware 或 background agent runtime。
 
 ### providers
 
@@ -402,7 +403,7 @@ GUI 是 client shell，不是第二套 runtime。产品 GUI 默认方向见 [ADR
 - policy。
 - tasks。
 - windows。
-- agents。
+- full agents beyond the no-tool `AgentLoop` slice。
 - memory。
 - skills。
 - swarm。
@@ -418,7 +419,7 @@ GUI 是 client shell，不是第二套 runtime。产品 GUI 默认方向见 [ADR
 - app-server listener。
 - instruction loader。
 
-它们不得在 v0.1 中形成独立执行系统。如果确实需要类型，放入 `protocol` 或 `core` 的 reserved area，并写清楚不执行。
+它们不得在 v0.1 中形成独立执行系统。v0.5 允许的例外是 `core::AgentLoop` 的 no-tool single-agent slice：它只能复用 provider/storage/event-sink 边界记录 `TaskKind::AgentRun` 和 agent run/step trace events，不得执行 tools、skills、hooks、project instruction ingestion、workspace mutation 或 background reattach。如果确实需要类型，放入 `protocol` 或 `core` 的 reserved area，并写清楚不执行。
 
 ## 5. DeepSeek-TUI Lessons 对边界的补充
 
