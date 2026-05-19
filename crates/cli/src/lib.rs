@@ -15,7 +15,7 @@ use tessera_core::{
     RuntimePauseCheckpointSummary, RuntimeReader, RuntimeSessionSummary, RuntimeTaskResumer,
 };
 use tessera_protocol::{
-    EventFrame, ModelProfileId, ProviderId, ResumeMode, RunEvent, TaskId, TraceRecord,
+    EventFrame, ModelProfileId, ProviderId, ResumeMode, RunEvent, TaskId, TaskStatus, TraceRecord,
 };
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
@@ -1115,6 +1115,7 @@ where
             checkpoint.resume_mode
         ));
     }
+    ensure_checkpoint_task_is_paused(data_dir, &checkpoint)?;
     project_checkpoint_trace_into_session(data_dir, session, &checkpoint)?;
 
     let provider_id = checkpoint.provider_id.to_string();
@@ -1153,6 +1154,43 @@ fn load_pause_checkpoint_for_task(
     reader
         .find_pause_checkpoint(&task_id)?
         .ok_or_else(|| anyhow::anyhow!("pause checkpoint not found for task: {task_id}"))
+}
+
+fn ensure_checkpoint_task_is_paused(
+    data_dir: &Path,
+    checkpoint: &RuntimePauseCheckpointSummary,
+) -> Result<()> {
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    let status = reader
+        .list_tasks(&checkpoint.trace_id)?
+        .into_iter()
+        .find(|task| task.task_id == checkpoint.task_id)
+        .map(|task| task.status);
+    match status {
+        Some(TaskStatus::Paused) => Ok(()),
+        Some(status) => Err(anyhow::anyhow!(
+            "task {} is not paused (current status: {})",
+            checkpoint.task_id,
+            task_status_label(status)
+        )),
+        None => Err(anyhow::anyhow!(
+            "task {} is not present in trace {}",
+            checkpoint.task_id,
+            checkpoint.trace_id
+        )),
+    }
+}
+
+fn task_status_label(status: TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Pending => "pending",
+        TaskStatus::Running => "running",
+        TaskStatus::WaitingForApproval => "waiting_for_approval",
+        TaskStatus::Completed => "completed",
+        TaskStatus::Failed => "failed",
+        TaskStatus::Cancelled => "cancelled",
+        TaskStatus::Paused => "paused",
+    }
 }
 
 fn project_checkpoint_trace_into_session(
