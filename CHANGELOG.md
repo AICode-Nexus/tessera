@@ -54,6 +54,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added `/resume-task <number|#number>` support so CLI users can resume from the `/resume-tasks` list without copying full task ids.
 - Added a v0.1 manual testing guide for deterministic mock pause, checkpoint listing, numbered resume, trace inspection, and negative-path checks without live provider credentials.
 - Added a real provider Chinese test-question guide covering conversation quality, structure, context continuity, safety boundaries, trace inspection, and pause/resume prompts.
+- Added default config discovery so CLI commands can reuse `TESSERA_CONFIG` or the current directory `tessera.toml` without passing `--config` on every manual test run.
 - Added an interactive `tessera chat` CLI REPL with `/help`, `/new`, `/profiles`, `/profile <id>`, `/status`, `/export`, and `/quit`, reusing the shared client projection and core event stream without tool or shell execution.
 - Added `tessera init` for a secret-safe local config template plus interactive `/sessions` and `/resume <trace_id>` commands backed by read-only runtime trace summaries and client projection replay.
 - Added provider-neutral chat history plumbing so CLI `/resume` follow-up prompts continue with restored user/assistant transcript while tracing only the new user turn.

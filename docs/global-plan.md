@@ -243,6 +243,7 @@
 - [x] Resume-task numbered selector：CLI `/resume-task <number|#number>` 可按 `/resume-tasks` 的当前只读排序选择可恢复 checkpoint，越界时只报错、不投影旧 trace、不启动 runtime。
 - [x] Manual test readiness：`docs/manual-testing-v0.1.md` 记录 mock-only pause → checkpoint list → numbered resume → trace inspection → negative path 的手测步骤，并用本地临时配置 smoke 验证；不需要真实 provider credential。
 - [x] Real provider prompt pack：`docs/real-provider-test-questions-zh.md` 提供真实 provider 中文手测问题，覆盖流式输出、结构化回答、多轮上下文、安全边界、trace 检查和 pause/resume 接续观察点。
+- [x] Default config discovery：CLI 未传 `--config` 时按 `TESSERA_CONFIG`、当前目录 `tessera.toml`、内置 mock 默认配置的顺序解析配置，减少真实 provider 手测时重复传参。
 - [ ] Suspended/background run resume implementation：background reattach、checkpoint restore、非 chat task resume 分阶段实现。
 - [x] Context handle projection：`ContextWorkbench::projection` 输出只读 context reference + budget summary，`tessera-client` 投影 `ClientContextHandle` 和 context handle summary，GUI bindings 已生成；不读取 source 内容、不构建 prompt、不写 context trace event。
 - [ ] Persistent sub-agent sessions。
