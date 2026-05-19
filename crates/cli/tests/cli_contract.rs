@@ -1131,6 +1131,78 @@ async fn repl_resume_task_rejects_task_that_is_no_longer_paused() {
     assert_eq!(list_sessions(temp.path()).unwrap().len(), 2);
 }
 
+#[tokio::test]
+async fn repl_resume_task_missing_provider_profile_does_not_project_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let pause_config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("test pause before missing profile");
+    let mut paused_task_id = None;
+    run_chat_with_config_and_controls_and_events(
+        temp.path(),
+        &pause_config,
+        "offline",
+        "hello missing provider profile",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: None,
+            pause_token: Some(pause_token),
+        },
+        |frame| {
+            if let RunEvent::TaskPaused { task_id, .. } = &frame.event {
+                paused_task_id = Some(task_id.clone());
+            }
+            EventSinkAction::Continue
+        },
+    )
+    .await
+    .unwrap();
+    let paused_task_id = paused_task_id.unwrap();
+    let resume_config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "other".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let input = format!("/resume-task {paused_task_id}\n/quit\n");
+    let mut output = Vec::new();
+
+    let snapshot = run_chat_repl_with_io_and_resume(
+        temp.path().to_path_buf(),
+        resume_config,
+        "other".to_string(),
+        None,
+        Cursor::new(input.into_bytes()),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(stdout.contains("error: provider profile not found: offline"));
+    assert!(!stdout.contains("resuming task "));
+    assert!(!stdout.contains("assistant>"));
+    assert!(!snapshot
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content == "hello missing provider profile"));
+    assert_eq!(snapshot.status.active_profile, "other");
+}
+
 #[test]
 fn init_config_template_writes_secret_safe_profiles_and_respects_force() {
     let temp = tempfile::tempdir().unwrap();

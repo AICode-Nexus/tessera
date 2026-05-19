@@ -1116,10 +1116,10 @@ where
         ));
     }
     ensure_checkpoint_task_is_paused(data_dir, &checkpoint)?;
-    project_checkpoint_trace_into_session(data_dir, session, &checkpoint)?;
-
     let provider_id = checkpoint.provider_id.to_string();
     let resume_config = config_for_resume_checkpoint(config, &checkpoint)?;
+
+    project_checkpoint_trace_into_session(data_dir, session, &checkpoint)?;
     session.snapshot.status.active_profile = provider_id;
     writeln!(
         output,
