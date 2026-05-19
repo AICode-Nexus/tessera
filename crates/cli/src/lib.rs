@@ -1189,10 +1189,11 @@ async fn resume_repl_task_and_write<W>(
 where
     W: Write,
 {
-    let checkpoint = load_pause_checkpoint_for_task(data_dir, task_id)?;
+    let checkpoint = resolve_resume_task_checkpoint(data_dir, config, task_id)?;
     if checkpoint.resume_mode != ResumeMode::FromTraceProjection {
         return Err(anyhow::anyhow!(
-            "unsupported resume mode for task {task_id}: {:?}",
+            "unsupported resume mode for task {}: {:?}",
+            checkpoint.task_id,
             checkpoint.resume_mode
         ));
     }
@@ -1224,6 +1225,42 @@ where
         Some(format!("chat resume started in trace {}", outcome.trace_id)),
     )?;
     Ok(())
+}
+
+fn resolve_resume_task_checkpoint(
+    data_dir: &Path,
+    config: &TesseraConfig,
+    selector: &str,
+) -> Result<RuntimePauseCheckpointSummary> {
+    if let Some(index) = parse_resume_task_index(selector)? {
+        let checkpoints = list_resumable_pause_checkpoints(data_dir, config)?;
+        if index == 0 {
+            return Err(anyhow::anyhow!(
+                "resume task index out of range: 0 (available tasks: {})",
+                checkpoints.len()
+            ));
+        }
+        return checkpoints.get(index - 1).cloned().ok_or_else(|| {
+            anyhow::anyhow!(
+                "resume task index out of range: {index} (available tasks: {})",
+                checkpoints.len()
+            )
+        });
+    }
+
+    load_pause_checkpoint_for_task(data_dir, selector)
+}
+
+fn parse_resume_task_index(selector: &str) -> Result<Option<usize>> {
+    let candidate = selector.strip_prefix('#').unwrap_or(selector);
+    if candidate.is_empty()
+        || !candidate
+            .chars()
+            .all(|character| character.is_ascii_digit())
+    {
+        return Ok(None);
+    }
+    Ok(Some(candidate.parse()?))
 }
 
 fn load_pause_checkpoint_for_task(
@@ -1446,7 +1483,7 @@ pub fn chat_command_lines() -> Vec<&'static str> {
         "  /clear             clear the current visible thread",
         "  /cancel            cancel active paste/run when available",
         "  /pause [task_id]   pause active run when available; otherwise record metadata-only intent",
-        "  /resume-task <task_id> resume a paused chat task from its trace checkpoint",
+        "  /resume-task <task_id|#> resume a paused chat task by id or /resume-tasks number",
         "  /resume-tasks      list resumable paused tasks from trace checkpoints",
         "  /paste             enter multiline prompt mode",
         "  /profiles          list configured provider profiles",

@@ -133,7 +133,7 @@ fn chat_list_commands_prints_repl_commands_without_runtime_config() {
     assert!(stdout.contains("/help"));
     assert!(stdout.contains("/cancel"));
     assert!(stdout.contains("/pause [task_id]"));
-    assert!(stdout.contains("/resume-task <task_id>"));
+    assert!(stdout.contains("/resume-task <task_id|#>"));
     assert!(stdout.contains("/clear"));
     assert!(stdout.contains("/paste"));
     assert!(stdout.contains("/profiles"));
@@ -1295,6 +1295,125 @@ async fn repl_resume_tasks_lists_resumable_paused_checkpoints_without_runtime_wo
         .messages
         .iter()
         .any(|message| message.content == "hello listed paused task"));
+    assert_eq!(snapshot.status.active_profile, "offline");
+}
+
+#[tokio::test]
+async fn repl_resume_task_accepts_numbered_resume_task_selector() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("test pause before numbered resume");
+    let mut paused_task_id = None;
+    let paused = run_chat_with_config_and_controls_and_events(
+        temp.path(),
+        &config,
+        "offline",
+        "hello numbered paused task",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: None,
+            pause_token: Some(pause_token),
+        },
+        |frame| {
+            if let RunEvent::TaskPaused { task_id, .. } = &frame.event {
+                paused_task_id = Some(task_id.clone());
+            }
+            EventSinkAction::Continue
+        },
+    )
+    .await
+    .unwrap();
+    let paused_task_id = paused_task_id.unwrap();
+    let input = "/resume-tasks\n/resume-task 1\n/quit\n";
+    let mut output = Vec::new();
+
+    run_chat_repl_with_io_and_resume(
+        temp.path().to_path_buf(),
+        config,
+        "offline".to_string(),
+        None,
+        Cursor::new(input.as_bytes()),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(stdout.contains(&format!("1. {paused_task_id} | trace {}", paused.trace_id)));
+    assert!(stdout.contains(&format!("resuming task {paused_task_id}")));
+    assert!(stdout.contains("assistant> mock response to: Continue the paused task"));
+
+    let event_page = list_events(temp.path(), &paused.trace_id, None, None).unwrap();
+    let resumed_count = event_page
+        .records
+        .iter()
+        .filter(|record| record.event_kind == "task_resumed")
+        .count();
+    assert_eq!(resumed_count, 1);
+}
+
+#[tokio::test]
+async fn repl_resume_task_rejects_out_of_range_numbered_selector_without_runtime_work() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("test pause before out of range selector");
+    run_chat_with_config_and_controls_and_events(
+        temp.path(),
+        &config,
+        "offline",
+        "hello out of range paused task",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: None,
+            pause_token: Some(pause_token),
+        },
+        |_| EventSinkAction::Continue,
+    )
+    .await
+    .unwrap();
+    let input = "/resume-task #2\n/quit\n";
+    let mut output = Vec::new();
+
+    let snapshot = run_chat_repl_with_io_and_resume(
+        temp.path().to_path_buf(),
+        config,
+        "offline".to_string(),
+        None,
+        Cursor::new(input.as_bytes()),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(stdout.contains("error: resume task index out of range: 2 (available tasks: 1)"));
+    assert!(!stdout.contains("resuming task "));
+    assert!(!stdout.contains("assistant>"));
+    assert!(!snapshot
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content == "hello out of range paused task"));
     assert_eq!(snapshot.status.active_profile, "offline");
 }
 
