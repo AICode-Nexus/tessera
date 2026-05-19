@@ -237,6 +237,7 @@
 - [x] Chat pause checkpoint envelope：`TaskPauseCheckpoint` / `ResumeMode::FromTraceProjection` / `task_pause_checkpoint_created` 已接入 protocol 和 core pause path，暂停时先写 trace-projection envelope 再写 `task_paused`；不执行 `/resume-task`。
 - [x] Runtime pause checkpoint projection：`RuntimeReader::list_pause_checkpoints` 可从 JSONL trace 重建每个 paused task 的最新 `TaskPauseCheckpoint` 摘要，供后续 chat-only resume 使用；不执行 `/resume-task`，不冻结 provider socket，不做 checkpoint restore。
 - [x] Chat-only task resume execution：CLI `/resume-task <task_id>` 可加载 pause checkpoint、从 trace projection 重建 provider-neutral history、启动新的 core chat run，并通过 core `RuntimeTaskResumer` 在原 trace 追加 `task_resumed`；不实现 background reattach、provider socket freezing、workspace checkpoint restore 或非 chat task resume。
+- [x] Resume-task repeat guard：CLI `/resume-task <task_id>` 在执行前会通过 `RuntimeReader::list_tasks` 校验原 task 当前仍为 `Paused`，已恢复或其他非 paused 状态会明确拒绝，避免同一 checkpoint 重复启动 chat resume。
 - [ ] Suspended/background run resume implementation：background reattach、checkpoint restore、非 chat task resume 分阶段实现。
 - [x] Context handle projection：`ContextWorkbench::projection` 输出只读 context reference + budget summary，`tessera-client` 投影 `ClientContextHandle` 和 context handle summary，GUI bindings 已生成；不读取 source 内容、不构建 prompt、不写 context trace event。
 - [ ] Persistent sub-agent sessions。

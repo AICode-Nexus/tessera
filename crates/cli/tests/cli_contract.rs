@@ -1066,6 +1066,71 @@ async fn repl_resume_task_runs_chat_from_pause_checkpoint() {
     assert_eq!(tasks[0].status, TaskStatus::Running);
 }
 
+#[tokio::test]
+async fn repl_resume_task_rejects_task_that_is_no_longer_paused() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("test pause before duplicate resume");
+    let mut paused_task_id = None;
+    let paused = run_chat_with_config_and_controls_and_events(
+        temp.path(),
+        &config,
+        "offline",
+        "hello duplicate resume",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: None,
+            pause_token: Some(pause_token),
+        },
+        |frame| {
+            if let RunEvent::TaskPaused { task_id, .. } = &frame.event {
+                paused_task_id = Some(task_id.clone());
+            }
+            EventSinkAction::Continue
+        },
+    )
+    .await
+    .unwrap();
+    let paused_task_id = paused_task_id.unwrap();
+    let input = format!("/resume-task {paused_task_id}\n/resume-task {paused_task_id}\n/quit\n");
+    let mut output = Vec::new();
+
+    run_chat_repl_with_io_and_resume(
+        temp.path().to_path_buf(),
+        config,
+        "offline".to_string(),
+        None,
+        Cursor::new(input.into_bytes()),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert_eq!(stdout.matches("resuming task ").count(), 1);
+    assert!(stdout.contains(&format!("task {paused_task_id} is not paused")));
+    assert!(stdout.contains("current status: running"));
+
+    let event_page = list_events(temp.path(), &paused.trace_id, None, None).unwrap();
+    let resumed_count = event_page
+        .records
+        .iter()
+        .filter(|record| record.event_kind == "task_resumed")
+        .count();
+    assert_eq!(resumed_count, 1);
+    assert_eq!(list_sessions(temp.path()).unwrap().len(), 2);
+}
+
 #[test]
 fn init_config_template_writes_secret_safe_profiles_and_respects_force() {
     let temp = tempfile::tempdir().unwrap();

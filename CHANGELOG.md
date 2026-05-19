@@ -48,6 +48,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added provider-neutral chat pause checkpoint metadata with `task_pause_checkpoint_created` trace events before `task_paused`, using `from_trace_projection` resume mode without implementing resume execution.
 - Added read-only `RuntimeReader::list_pause_checkpoints` projection for the latest pause checkpoint per task, without implementing `/resume-task` execution or provider suspension.
 - Added chat-only CLI `/resume-task <task_id>` execution from pause checkpoints, using trace projection to start a new core chat run and append `task_resumed` without background reattach or workspace restore.
+- Added a CLI `/resume-task` guard that rejects repeat resume attempts once the original task is no longer paused, preventing duplicate chat resume runs from a stale checkpoint.
 - Added an interactive `tessera chat` CLI REPL with `/help`, `/new`, `/profiles`, `/profile <id>`, `/status`, `/export`, and `/quit`, reusing the shared client projection and core event stream without tool or shell execution.
 - Added `tessera init` for a secret-safe local config template plus interactive `/sessions` and `/resume <trace_id>` commands backed by read-only runtime trace summaries and client projection replay.
 - Added provider-neutral chat history plumbing so CLI `/resume` follow-up prompts continue with restored user/assistant transcript while tracing only the new user turn.
