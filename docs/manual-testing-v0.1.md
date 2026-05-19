@@ -6,6 +6,8 @@ This guide is for local manual checks before trying a broader interactive sessio
 
 For real provider Chinese test prompts and expected observations, see [real-provider-test-questions-zh.md](real-provider-test-questions-zh.md).
 
+For repeated real-provider testing, keep your existing config as `./tessera.toml` in the working directory, or set `TESSERA_CONFIG=/path/to/your/tessera.toml` once in the shell. Then you can run `./target/debug/tessera chat --provider <profile-id>` without passing `--config` every time.
+
 ## 1. Build
 
 Run from the repository root:

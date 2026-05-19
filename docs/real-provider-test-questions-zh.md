@@ -23,8 +23,17 @@ api_key_env = "TESSERA_OPENAI_COMPATIBLE_API_KEY"
 
 ```bash
 PATH="$HOME/.cargo/bin:$PATH" cargo build -p tessera-cli
-./target/debug/tessera chat --provider real --config ./tessera.toml
+./target/debug/tessera chat --provider real
 ```
+
+如果你的配置文件不在当前目录，可以只在当前 shell 设置一次：
+
+```bash
+export TESSERA_CONFIG="/path/to/your/tessera.toml"
+./target/debug/tessera chat --provider real
+```
+
+配置发现顺序是：显式 `--config`、`TESSERA_CONFIG`、当前目录 `tessera.toml`、最后回落到内置 mock 默认配置。
 
 建议记录：
 

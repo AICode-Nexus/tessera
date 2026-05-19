@@ -1674,6 +1674,82 @@ default_model = "mock-chat"
 }
 
 #[test]
+fn chat_command_uses_default_tessera_toml_from_current_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .current_dir(temp.path())
+        .args([
+            "chat",
+            "--provider",
+            "offline",
+            "--prompt",
+            "hello default config",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("mock response to: hello default config"));
+}
+
+#[test]
+fn chat_command_uses_tessera_config_env_when_no_config_flag_is_passed() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("real-test.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .env("TESSERA_CONFIG", &config_path)
+        .args([
+            "chat",
+            "--provider",
+            "offline",
+            "--prompt",
+            "hello env config",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("mock response to: hello env config"));
+}
+
+#[test]
 fn chat_continue_rejects_missing_session() {
     let temp = tempfile::tempdir().unwrap();
     let data_dir = temp.path().join("data");

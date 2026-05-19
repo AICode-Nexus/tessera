@@ -1958,10 +1958,22 @@ pub fn resolve_data_dir_with_config(
 }
 
 pub fn resolve_config(explicit: Option<PathBuf>) -> Result<TesseraConfig> {
-    match explicit {
-        Some(path) => Ok(TesseraConfig::load_from_path(path)?),
-        None => Ok(TesseraConfig::default_with_mock()),
+    if let Some(path) = explicit {
+        return Ok(TesseraConfig::load_from_path(path)?);
     }
+
+    if let Ok(path) = std::env::var("TESSERA_CONFIG") {
+        if !path.trim().is_empty() {
+            return Ok(TesseraConfig::load_from_path(path)?);
+        }
+    }
+
+    let default_path = PathBuf::from("tessera.toml");
+    if default_path.is_file() {
+        return Ok(TesseraConfig::load_from_path(default_path)?);
+    }
+
+    Ok(TesseraConfig::default_with_mock())
 }
 
 fn next_trace_id(provider_id: &str) -> String {
