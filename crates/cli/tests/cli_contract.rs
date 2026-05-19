@@ -535,6 +535,10 @@ fn repl_parser_recognizes_local_slash_commands() {
         parse_repl_command("/resume-task task_cli_pause"),
         Some(CliReplCommand::ResumeTask("task_cli_pause".to_string()))
     );
+    assert_eq!(
+        parse_repl_command("/resume-tasks"),
+        Some(CliReplCommand::ResumeTasks)
+    );
     assert_eq!(parse_repl_command("/paste"), Some(CliReplCommand::Paste));
     assert_eq!(
         parse_repl_command("/profiles"),
@@ -1201,6 +1205,97 @@ async fn repl_resume_task_missing_provider_profile_does_not_project_trace() {
         .iter()
         .any(|message| message.content == "hello missing provider profile"));
     assert_eq!(snapshot.status.active_profile, "other");
+}
+
+#[tokio::test]
+async fn repl_resume_task_missing_checkpoint_does_not_start_run_or_project_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig::default_with_mock();
+    let input = "/resume-task task_missing_checkpoint\n/quit\n";
+    let mut output = Vec::new();
+
+    let snapshot = run_chat_repl_with_io_and_resume(
+        temp.path().to_path_buf(),
+        config,
+        "mock".to_string(),
+        None,
+        Cursor::new(input.as_bytes()),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(stdout.contains("error: pause checkpoint not found for task: task_missing_checkpoint"));
+    assert!(!stdout.contains("resuming task "));
+    assert!(!stdout.contains("assistant>"));
+    assert!(snapshot.projection.messages.is_empty());
+    assert_eq!(snapshot.status.active_profile, "mock");
+}
+
+#[tokio::test]
+async fn repl_resume_tasks_lists_resumable_paused_checkpoints_without_runtime_work() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("test pause before list");
+    let mut paused_task_id = None;
+    let paused = run_chat_with_config_and_controls_and_events(
+        temp.path(),
+        &config,
+        "offline",
+        "hello listed paused task",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: None,
+            pause_token: Some(pause_token),
+        },
+        |frame| {
+            if let RunEvent::TaskPaused { task_id, .. } = &frame.event {
+                paused_task_id = Some(task_id.clone());
+            }
+            EventSinkAction::Continue
+        },
+    )
+    .await
+    .unwrap();
+    let paused_task_id = paused_task_id.unwrap();
+    let input = "/resume-tasks\n/quit\n";
+    let mut output = Vec::new();
+
+    let snapshot = run_chat_repl_with_io_and_resume(
+        temp.path().to_path_buf(),
+        config,
+        "offline".to_string(),
+        None,
+        Cursor::new(input.as_bytes()),
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8(output).unwrap();
+    assert!(stdout.contains(&format!("1. {paused_task_id} | trace {}", paused.trace_id)));
+    assert!(stdout.contains("provider offline"));
+    assert!(stdout.contains("checkpoint "));
+    assert!(stdout.contains("reason test pause before list"));
+    assert!(!stdout.contains("resuming task "));
+    assert!(!stdout.contains("assistant>"));
+    assert!(!snapshot
+        .projection
+        .messages
+        .iter()
+        .any(|message| message.content == "hello listed paused task"));
+    assert_eq!(snapshot.status.active_profile, "offline");
 }
 
 #[test]
