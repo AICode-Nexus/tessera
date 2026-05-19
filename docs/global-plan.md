@@ -102,6 +102,7 @@
 - [x] v0.5 single-agent loop design spec and implementation plan.
 - [x] No-tool single-agent loop with `agent_run_*` / `agent_step_*` trace events, cancellation/pause/provider-failure/no-progress finish paths, and RuntimeReader task projection.
 - [x] Script-friendly `tessera agent run --provider <id> --goal <text> [--json]` entrypoint.
+- [x] v0.5 project instruction discovery design spec and implementation plan.
 
 ## 6. Current Gaps
 
@@ -140,7 +141,7 @@ The next implementation slices should stay conservative and preserve the current
 
 1. [ ] If local time permits, run Ollama live smoke; otherwise keep it documented as unverified.
 2. [x] Design v0.5 single-agent loop as a separate spec before code: provider-neutral observations, max-step limits, stop/no-progress handling, trace replay, run summary and machine-readable result.
-3. [ ] Design project instruction discovery with `AGENTS.md` first and future `CLAUDE.md` compatibility: precedence, byte limits, source report, redaction and trace refs.
+3. [x] Design project instruction discovery with `AGENTS.md` first and future `CLAUDE.md` compatibility: precedence, byte limits, source report, redaction and trace refs.
 4. [x] Implement single-agent loop without tools first.
 5. [ ] Design skill runtime v1 after single-agent loop is trace-stable: `SKILL.md` discovery, activation events, read-only references, no unchecked scripts.
 6. [ ] Design durable background task ownership and reattach before any long-running agent task.
