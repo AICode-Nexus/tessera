@@ -556,6 +556,152 @@ fn agent_run_text_command_reports_task_trace_and_status() {
 }
 
 #[test]
+fn instructions_inspect_json_reports_sources_without_content() {
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::write(
+        workspace.path().join("AGENTS.md"),
+        "Prefer concise answers.\napi_key = sk-test\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["instructions", "inspect", "--workspace"])
+        .arg(workspace.path())
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    assert_eq!(payload["source_count"], 1);
+    assert_eq!(payload["loaded_count"], 1);
+    assert_eq!(payload["sources"][0]["relative_path"], "AGENTS.md");
+    assert_eq!(payload["sources"][0]["status"], "loaded");
+    assert_eq!(payload["warning_count"], 1);
+    assert!(!stdout.contains("Prefer concise answers"));
+    assert!(!stdout.contains("sk-test"));
+    assert!(!stdout.contains("api_key"));
+}
+
+#[test]
+fn instructions_inspect_text_summarizes_sources_without_content() {
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::write(workspace.path().join("AGENTS.md"), "Local rules\n").unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["instructions", "inspect", "--workspace"])
+        .arg(workspace.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("instructions: 1 loaded / 1 sources"));
+    assert!(stdout.contains("loaded stable_prefix AGENTS.md"));
+    assert!(!stdout.contains("Local rules"));
+}
+
+#[test]
+fn instructions_inspect_rejects_outside_target() {
+    let workspace = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["instructions", "inspect", "--workspace"])
+        .arg(workspace.path())
+        .arg("--target-dir")
+        .arg(outside.path())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("target_dir must be within workspace_root"));
+}
+
+#[test]
+fn agent_run_with_instructions_reports_sources_and_traces_metadata() {
+    let workspace = tempfile::tempdir().unwrap();
+    let data_dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        workspace.path().join("AGENTS.md"),
+        "Prefer concise answers.\napi_key = sk-test\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args([
+            "agent",
+            "run",
+            "--provider",
+            "mock",
+            "--goal",
+            "summarize",
+            "--instructions",
+            "--workspace",
+        ])
+        .arg(workspace.path())
+        .args(["--json", "--data-dir"])
+        .arg(data_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let trace_id = payload["trace_id"].as_str().unwrap();
+
+    assert_eq!(
+        payload["instruction_sources"][0]["relative_path"],
+        "AGENTS.md"
+    );
+    assert_eq!(payload["instruction_warning_count"], 1);
+    assert!(!stdout.contains("Prefer concise answers"));
+    assert!(!stdout.contains("sk-test"));
+    assert!(!stdout.contains("api_key"));
+
+    let event_page = list_events(data_dir.path(), trace_id, None, None).unwrap();
+    let record = event_page
+        .records
+        .iter()
+        .find(|record| record.event_kind == "instructions_discovered")
+        .unwrap();
+    assert_eq!(record.payload["sources"][0]["relative_path"], "AGENTS.md");
+    let encoded_payload = serde_json::to_string(&record.payload).unwrap();
+    assert!(!encoded_payload.contains("Prefer concise answers"));
+    assert!(!encoded_payload.contains("sk-test"));
+}
+
+#[test]
+fn agent_run_rejects_workspace_without_instructions() {
+    let workspace = tempfile::tempdir().unwrap();
+    let data_dir = tempfile::tempdir().unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args([
+            "agent",
+            "run",
+            "--provider",
+            "mock",
+            "--goal",
+            "summarize",
+            "--workspace",
+        ])
+        .arg(workspace.path())
+        .args(["--data-dir"])
+        .arg(data_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("--workspace and --target-dir require --instructions"));
+    assert!(!data_dir.path().join("traces").exists());
+}
+
+#[test]
 fn agent_run_requires_goal() {
     let temp = tempfile::tempdir().unwrap();
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))

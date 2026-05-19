@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added the v0.5 no-tool single-agent loop design spec and implementation plan covering agent run envelopes, step events, trace summaries, CLI entrypoint scope, and verification gates.
 - Added the v0.5 project instruction discovery design spec and implementation plan covering `AGENTS.md` priority, `CLAUDE.md` fallback compatibility, source reporting, byte limits, redaction, trace metadata, CLI inspection, and opt-in agent context.
 - Added the v0.5 no-tool single-agent loop in `tessera-core` plus `tessera agent run --provider <id> --goal <text> [--json]`, recording provider-neutral agent run/step trace events without tool execution, skill activation, project instruction loading, or background reattach.
+- Added opt-in project instruction discovery with `tessera instructions inspect --workspace <path>` and `tessera agent run --instructions --workspace <path>`, recording `instructions_discovered` source metadata while keeping instruction text out of trace.
 - Added release identity metadata so `tessera --version` reports both the crate version and build git SHA.
 - Added a provider-neutral `ToolDescriptor` schema and read-only `ToolRegistry` for tool metadata, with `parallel_safe` defaulting to false and no tool execution path.
 - Added tool call request, policy decision, and approval trace metadata plus a draft `PolicyGate` that produces `allow` / `ask_user` / `deny` decisions without executing tools.

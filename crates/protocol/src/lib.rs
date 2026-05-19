@@ -412,6 +412,49 @@ pub struct ContextReference {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InstructionSourceKind {
+    AgentsMd,
+    ClaudeMd,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InstructionLoadStatus {
+    Loaded,
+    SkippedLowerPrecedence,
+    SkippedSymlink,
+    SkippedOutsideWorkspace,
+    SkippedNonUtf8,
+    SkippedTooLarge,
+    ReadFailed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InstructionRedactionStatus {
+    Clean,
+    Redacted,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct InstructionSource {
+    pub source_id: ContextId,
+    pub kind: InstructionSourceKind,
+    pub path: String,
+    pub relative_path: String,
+    pub precedence: u32,
+    pub placement: ContextPlacement,
+    pub status: InstructionLoadStatus,
+    pub original_bytes: u64,
+    pub loaded_bytes: u64,
+    pub sha256: Option<String>,
+    pub redaction_status: InstructionRedactionStatus,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ContextBudget {
     pub max_tokens: u64,
     pub reserved_output_tokens: u64,
@@ -885,6 +928,10 @@ pub enum RunEvent {
         item_id: ItemId,
         text: String,
     },
+    InstructionsDiscovered {
+        task_id: TaskId,
+        sources: Vec<InstructionSource>,
+    },
     ProviderRequestStarted {
         provider_id: ProviderId,
         profile_id: ModelProfileId,
@@ -1037,6 +1084,7 @@ impl RunEvent {
             Self::ThreadCreated { .. } => "thread_created",
             Self::TurnStarted { .. } => "turn_started",
             Self::UserMessageRecorded { .. } => "user_message_recorded",
+            Self::InstructionsDiscovered { .. } => "instructions_discovered",
             Self::ProviderRequestStarted { .. } => "provider_request_started",
             Self::AssistantMessageStarted { .. } => "assistant_message_started",
             Self::AssistantDelta { .. } => "assistant_delta",
@@ -1101,6 +1149,7 @@ impl RunEvent {
             | Self::TaskCancelled { task_id, .. }
             | Self::TaskPaused { task_id, .. }
             | Self::TaskResumed { task_id, .. }
+            | Self::InstructionsDiscovered { task_id, .. }
             | Self::AgentRunStarted { task_id, .. }
             | Self::AgentStepStarted { task_id, .. }
             | Self::NoProgressLoopDetected { task_id, .. } => Some(task_id.clone()),
@@ -1126,6 +1175,9 @@ impl RunEvent {
             Self::TurnStarted { turn_id } => json!({ "turn_id": turn_id }),
             Self::UserMessageRecorded { item_id, text } => {
                 json!({ "item_id": item_id, "text": text })
+            }
+            Self::InstructionsDiscovered { task_id, sources } => {
+                json!({ "task_id": task_id, "sources": sources })
             }
             Self::ProviderRequestStarted {
                 provider_id,

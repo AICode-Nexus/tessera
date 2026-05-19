@@ -11,13 +11,14 @@ use tessera_client::{ClientMessage, ClientMessageRole, ClientSnapshot};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
     AgentLoop, AgentRunOutcome, AgentRunRequest, ConversationEngine, ConversationOutcome,
-    ConversationRequest, EventSinkAction, ReplayRunner, ReplaySummary, RunCancellationToken,
-    RunControls, RunPauseToken, RuntimeEventQuery, RuntimePauseCheckpointSummary, RuntimeReader,
+    ConversationRequest, EventSinkAction, InstructionDiscoveryOptions, InstructionDiscoveryPlanner,
+    LoadedInstructionSet, ReplayRunner, ReplaySummary, RunCancellationToken, RunControls,
+    RunPauseToken, RuntimeEventQuery, RuntimePauseCheckpointSummary, RuntimeReader,
     RuntimeSessionSummary, RuntimeTaskResumer,
 };
 use tessera_protocol::{
-    AgentProfile, AgentProfileId, AgentRunSummary, EventFrame, ModelProfileId, ProviderId,
-    ResumeMode, RunEvent, TaskId, TaskStatus, TraceRecord,
+    AgentProfile, AgentProfileId, AgentRunSummary, ContextReference, EventFrame, InstructionSource,
+    ModelProfileId, ProviderId, ResumeMode, RunEvent, TaskId, TaskStatus, TraceRecord,
 };
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
@@ -67,6 +68,24 @@ pub struct CliAgentRunOutput {
     pub steps_completed: u32,
     pub summary: AgentRunSummary,
     pub assistant_text: String,
+    pub instruction_sources: Vec<InstructionSource>,
+    pub instruction_warning_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliInstructionDiscoveryOutput {
+    pub source_count: usize,
+    pub loaded_count: usize,
+    pub warning_count: usize,
+    pub sources: Vec<InstructionSource>,
+    pub context_references: Vec<ContextReference>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CliInstructionContextOptions {
+    pub workspace: PathBuf,
+    pub target_dir: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -151,6 +170,8 @@ impl From<ConversationOutcome> for CliChatOutput {
 
 impl From<AgentRunOutcome> for CliAgentRunOutput {
     fn from(outcome: AgentRunOutcome) -> Self {
+        let (instruction_sources, instruction_warning_count) =
+            instruction_report_from_trace(&outcome.store, &outcome.trace_id);
         Self {
             trace_id: outcome.trace_id,
             task_id: outcome.task_id.to_string(),
@@ -158,6 +179,21 @@ impl From<AgentRunOutcome> for CliAgentRunOutput {
             steps_completed: outcome.summary.steps_completed,
             summary: outcome.summary,
             assistant_text: outcome.assistant_text,
+            instruction_sources,
+            instruction_warning_count,
+        }
+    }
+}
+
+impl From<&LoadedInstructionSet> for CliInstructionDiscoveryOutput {
+    fn from(set: &LoadedInstructionSet) -> Self {
+        Self {
+            source_count: set.sources.len(),
+            loaded_count: set.loaded.len(),
+            warning_count: set.warnings.len(),
+            sources: set.sources.clone(),
+            context_references: set.context_references.clone(),
+            warnings: set.warnings.clone(),
         }
     }
 }
@@ -1390,6 +1426,42 @@ fn task_status_label(status: TaskStatus) -> &'static str {
     }
 }
 
+fn snake_json_label<T>(value: &T) -> String
+where
+    T: Serialize,
+{
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(ToString::to_string))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn instruction_report_from_trace(
+    store: &TraceStore,
+    trace_id: &str,
+) -> (Vec<InstructionSource>, usize) {
+    let sources = store
+        .read_trace_records(trace_id)
+        .ok()
+        .and_then(|records| {
+            records
+                .into_iter()
+                .find(|record| record.event_kind == "instructions_discovered")
+                .and_then(|record| {
+                    serde_json::from_value::<Vec<InstructionSource>>(
+                        record.payload.get("sources")?.clone(),
+                    )
+                    .ok()
+                })
+        })
+        .unwrap_or_default();
+    let warning_count = sources
+        .iter()
+        .map(|source| source.warnings.len())
+        .sum::<usize>();
+    (sources, warning_count)
+}
+
 fn project_checkpoint_trace_into_session(
     data_dir: &Path,
     session: &mut CliReplSession,
@@ -1915,15 +1987,74 @@ pub async fn run_agent_with_config(
     provider_id: &str,
     goal: impl Into<String>,
 ) -> Result<AgentRunOutcome> {
+    run_agent_with_config_and_instruction_options(data_dir, config, provider_id, goal, None).await
+}
+
+pub fn inspect_instructions(
+    workspace: impl AsRef<Path>,
+    target_dir: Option<PathBuf>,
+) -> Result<LoadedInstructionSet> {
+    let workspace = workspace.as_ref().to_path_buf();
+    let target_dir = target_dir.unwrap_or_else(|| workspace.clone());
+    let options = InstructionDiscoveryOptions::new(workspace, target_dir);
+    InstructionDiscoveryPlanner
+        .discover(options)
+        .map_err(Into::into)
+}
+
+pub fn format_instruction_discovery_lines(set: &LoadedInstructionSet) -> Vec<String> {
+    let mut lines = vec![format!(
+        "instructions: {} loaded / {} sources",
+        set.loaded.len(),
+        set.sources.len()
+    )];
+
+    for source in &set.sources {
+        lines.push(format!(
+            "{} {} {} ({}/{})",
+            snake_json_label(&source.status),
+            snake_json_label(&source.placement),
+            source.relative_path,
+            source.loaded_bytes,
+            source.original_bytes
+        ));
+    }
+    if !set.warnings.is_empty() {
+        lines.push(format!("warnings: {}", set.warnings.len()));
+    }
+
+    lines
+}
+
+pub async fn run_agent_with_config_and_instruction_options(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+    provider_id: &str,
+    goal: impl Into<String>,
+    instruction_options: Option<CliInstructionContextOptions>,
+) -> Result<AgentRunOutcome> {
     let goal = goal.into();
     let profile = config
         .providers
         .iter()
         .find(|profile| profile.id == provider_id)
         .ok_or_else(|| anyhow::anyhow!("provider profile not found: {provider_id}"))?;
+    let instruction_context = match instruction_options {
+        Some(options) => Some(inspect_instructions(options.workspace, options.target_dir)?),
+        None => None,
+    };
 
     match profile.kind.as_str() {
-        "mock" => run_agent_for_provider(data_dir, profile, MockProvider::default(), goal).await,
+        "mock" => {
+            run_agent_for_provider(
+                data_dir,
+                profile,
+                MockProvider::default(),
+                goal,
+                instruction_context,
+            )
+            .await
+        }
         "openai-compatible" | "openai_compatible" => {
             let base_url = profile.base_url.as_deref().ok_or_else(|| {
                 anyhow::anyhow!("provider profile `{}` requires base_url", profile.id)
@@ -1934,7 +2065,7 @@ pub async fn run_agent_with_config(
                 api_key,
                 ProviderId::from(profile.id.as_str()),
             );
-            run_agent_for_provider(data_dir, profile, provider, goal).await
+            run_agent_for_provider(data_dir, profile, provider, goal, instruction_context).await
         }
         "ollama" => {
             let base_url = profile
@@ -1942,7 +2073,7 @@ pub async fn run_agent_with_config(
                 .as_deref()
                 .unwrap_or("http://localhost:11434");
             let provider = OllamaProvider::new(base_url, ProviderId::from(profile.id.as_str()));
-            run_agent_for_provider(data_dir, profile, provider, goal).await
+            run_agent_for_provider(data_dir, profile, provider, goal, instruction_context).await
         }
         other => Err(anyhow::anyhow!(
             "unsupported provider kind `{other}` for profile `{}`",
@@ -1960,6 +2091,12 @@ pub fn format_agent_run_lines(outcome: &AgentRunOutcome) -> Vec<String> {
     ];
     if !outcome.assistant_text.is_empty() {
         lines.push(outcome.assistant_text.clone());
+    }
+    let (instruction_sources, instruction_warning_count) =
+        instruction_report_from_trace(&outcome.store, &outcome.trace_id);
+    if !instruction_sources.is_empty() {
+        lines.push(format!("instruction_sources {}", instruction_sources.len()));
+        lines.push(format!("instruction_warnings {instruction_warning_count}"));
     }
     lines
 }
@@ -2142,6 +2279,7 @@ async fn run_agent_for_provider<P>(
     profile: &ProviderProfile,
     provider: P,
     goal: String,
+    instruction_context: Option<LoadedInstructionSet>,
 ) -> Result<AgentRunOutcome>
 where
     P: ChatProvider,
@@ -2158,6 +2296,7 @@ where
             model: profile.default_model.clone(),
             objective: goal,
             context_references: Vec::new(),
+            instruction_context,
             history: Vec::new(),
             max_steps: agent_profile.max_steps,
         })

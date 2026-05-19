@@ -14,7 +14,7 @@ It includes a `DiagnosticsReporter` helper that wraps LSP-style diagnostics into
 
 It includes a read-only `SkillRegistry` for listing and finding `SkillManifest` metadata. It does not activate skills, execute workflows, or bypass future tool/policy boundaries.
 
-It includes a read-only `AgentRegistry` for listing and finding `AgentProfile` metadata, plus a no-tool `AgentLoop` that records provider-neutral agent run/step events and returns an `AgentRunSummary`. The current loop does not activate skills, execute tools, load project instructions, keep background tasks alive, or bypass future policy/sandbox boundaries.
+It includes a read-only `AgentRegistry` for listing and finding `AgentProfile` metadata, plus a no-tool `AgentLoop` that records provider-neutral agent run/step events and returns an `AgentRunSummary`. The current loop can receive explicitly loaded project instruction context from the core planner, but it does not activate skills, execute tools, keep background tasks alive, or bypass future policy/sandbox boundaries.
 
 It includes a read-only `ToolRegistry` for listing and finding `ToolDescriptor` metadata. It does not execute tools, dispatch tool calls, or bypass future policy/sandbox boundaries.
 
@@ -33,6 +33,8 @@ It includes an `OsSandboxPlanner` that maps tool descriptors to read-only, works
 It includes a `WorkspaceCheckpointPlanner` that creates checkpoint metadata for sandbox profiles that require checkpoints. It does not create side-git state, read or write workspace files, restore snapshots, or revert changes.
 
 It includes a pure in-memory `ContextWorkbench` for managing context references and token budget summaries across stable prefix, append-only transcript, and volatile scratch placement. Its read-only projection helper exposes context handles plus budget summary for client shells. It does not read files, canonicalize URIs, build provider prompts, or write context trace events.
+
+It includes an `InstructionDiscoveryPlanner` for project-local `AGENTS.md` / `CLAUDE.md` discovery with source reports, UTF-8 handling, byte limits, symlink rejection, and conservative secret-line redaction. It returns provider context text only to explicit callers and records trace-safe `InstructionSource` metadata without instruction content.
 
 It also exposes read-only runtime API foundations: `RuntimeReader` can page trace events, query indexed runtime object IDs, and rebuild task/artifact/snapshot summaries through the core boundary, while `RuntimeHttpApi` can shape those event pages as JSON and SSE frames. This is not a listening HTTP server and does not own runtime execution.
 

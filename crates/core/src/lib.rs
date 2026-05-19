@@ -1,4 +1,5 @@
 use futures::TryStreamExt;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
@@ -6,17 +7,18 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ArtifactId,
-    ArtifactKind, ContextBudget, ContextId, ContextPlacement, ContextReference, Diagnostic,
-    DiagnosticReport, DiagnosticReportId, EventFrame, EventRange, ExtensionMap, ItemId,
-    ModelProfileId, NoProgressAction, NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem,
-    OsSandboxMode, OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId, OsSandboxShell,
-    PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, ResumeMode, RouteDecision,
-    RouteDecisionId, RouteStrategy, RunEvent, SandboxDecision, SandboxDecisionId,
-    SandboxDecisionKind, SkillId, SkillManifest, SnapshotId, SnapshotKind, TaskId, TaskKind,
-    TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, ThreadId, Timestamp, ToolCallRequest,
-    ToolDescriptor, ToolDispatch, ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId,
-    ToolRepairKind, ToolRepairReport, ToolResult, ToolSideEffect, TraceRecord, TurnId,
-    WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    ArtifactKind, ContextBudget, ContextId, ContextPlacement, ContextReference, ContextSource,
+    ContextSourceKind, Diagnostic, DiagnosticReport, DiagnosticReportId, EventFrame, EventRange,
+    ExtensionMap, InstructionLoadStatus, InstructionRedactionStatus, InstructionSource,
+    InstructionSourceKind, ItemId, ModelProfileId, NoProgressAction, NoProgressLoop,
+    NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
+    OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
+    ProviderId, ResumeMode, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent,
+    SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillId, SkillManifest, SnapshotId,
+    SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus,
+    ThreadId, Timestamp, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId, ToolPermission,
+    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolSideEffect,
+    TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderMessage, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -273,13 +275,22 @@ pub struct AgentRunRequest {
     pub model: String,
     pub objective: String,
     pub context_references: Vec<ContextReference>,
+    pub instruction_context: Option<LoadedInstructionSet>,
     pub history: Vec<ProviderMessage>,
     pub max_steps: u32,
 }
 
 impl AgentRunRequest {
     pub fn provider_messages(&self) -> Vec<ProviderMessage> {
-        let mut messages = self.history.clone();
+        let mut messages = Vec::new();
+        if let Some(instruction_context) = &self.instruction_context {
+            if !instruction_context.loaded.is_empty() {
+                messages.push(ProviderMessage::system(render_instruction_system_message(
+                    instruction_context,
+                )));
+            }
+        }
+        messages.extend(self.history.clone());
         messages.push(ProviderMessage::user(self.objective.clone()));
         messages
     }
@@ -478,6 +489,44 @@ pub struct ContextWorkbench {
     references: Vec<ContextReference>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InstructionDiscoveryOptions {
+    pub workspace_root: PathBuf,
+    pub target_dir: PathBuf,
+    pub per_source_byte_limit: usize,
+    pub combined_byte_limit: usize,
+    pub placement: ContextPlacement,
+}
+
+impl InstructionDiscoveryOptions {
+    pub fn new(workspace_root: impl Into<PathBuf>, target_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            workspace_root: workspace_root.into(),
+            target_dir: target_dir.into(),
+            per_source_byte_limit: 64 * 1024,
+            combined_byte_limit: 192 * 1024,
+            placement: ContextPlacement::StablePrefix,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LoadedInstruction {
+    pub source: InstructionSource,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LoadedInstructionSet {
+    pub sources: Vec<InstructionSource>,
+    pub loaded: Vec<LoadedInstruction>,
+    pub context_references: Vec<ContextReference>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct InstructionDiscoveryPlanner;
+
 impl ContextWorkbench {
     pub fn new(budget: ContextBudget) -> Self {
         Self {
@@ -571,6 +620,433 @@ impl ContextWorkbench {
             over_budget: used_tokens > available_tokens,
         }
     }
+}
+
+impl InstructionDiscoveryPlanner {
+    pub fn discover(&self, options: InstructionDiscoveryOptions) -> Result<LoadedInstructionSet> {
+        if options.per_source_byte_limit == 0 {
+            return Err(CoreError::InvalidRequest(
+                "per_source_byte_limit must be at least 1".to_string(),
+            ));
+        }
+        if options.combined_byte_limit == 0 {
+            return Err(CoreError::InvalidRequest(
+                "combined_byte_limit must be at least 1".to_string(),
+            ));
+        }
+
+        let workspace_root = canonicalize_existing_dir("workspace_root", &options.workspace_root)?;
+        let target_dir = canonicalize_existing_dir("target_dir", &options.target_dir)?;
+        if !target_dir.starts_with(&workspace_root) {
+            return Err(CoreError::InvalidRequest(
+                "target_dir must be within workspace_root".to_string(),
+            ));
+        }
+
+        let mut remaining_budget = options.combined_byte_limit;
+        let mut set = LoadedInstructionSet::default();
+        let mut precedence = 0_u32;
+
+        for directory in instruction_search_directories(&workspace_root, &target_dir)? {
+            let agents_path = directory.join("AGENTS.md");
+            let claude_path = directory.join("CLAUDE.md");
+
+            if instruction_candidate_exists(&agents_path) {
+                let evaluated = inspect_instruction_candidate(
+                    &workspace_root,
+                    &agents_path,
+                    InstructionSourceKind::AgentsMd,
+                    precedence,
+                    options.placement,
+                    remaining_budget,
+                    options.per_source_byte_limit,
+                );
+                push_instruction_evaluation(&mut set, evaluated, &mut remaining_budget);
+
+                if instruction_candidate_exists(&claude_path) {
+                    let source = skipped_lower_precedence_instruction_source(
+                        &workspace_root,
+                        &claude_path,
+                        InstructionSourceKind::ClaudeMd,
+                        precedence,
+                        options.placement,
+                    );
+                    set.warnings.extend(source.warnings.clone());
+                    set.sources.push(source);
+                }
+                precedence = precedence.saturating_add(1);
+            } else if instruction_candidate_exists(&claude_path) {
+                let evaluated = inspect_instruction_candidate(
+                    &workspace_root,
+                    &claude_path,
+                    InstructionSourceKind::ClaudeMd,
+                    precedence,
+                    options.placement,
+                    remaining_budget,
+                    options.per_source_byte_limit,
+                );
+                push_instruction_evaluation(&mut set, evaluated, &mut remaining_budget);
+                precedence = precedence.saturating_add(1);
+            }
+        }
+
+        Ok(set)
+    }
+}
+
+struct InstructionCandidateEvaluation {
+    source: InstructionSource,
+    loaded_text: Option<String>,
+}
+
+fn push_instruction_evaluation(
+    set: &mut LoadedInstructionSet,
+    evaluation: InstructionCandidateEvaluation,
+    remaining_budget: &mut usize,
+) {
+    let source = evaluation.source;
+    set.warnings.extend(source.warnings.clone());
+
+    if let Some(text) = evaluation.loaded_text {
+        *remaining_budget = remaining_budget.saturating_sub(source.loaded_bytes as usize);
+        set.context_references
+            .push(context_reference_for_instruction(&source, &text));
+        set.loaded.push(LoadedInstruction {
+            source: source.clone(),
+            text,
+        });
+    }
+
+    set.sources.push(source);
+}
+
+fn canonicalize_existing_dir(label: &str, path: &Path) -> Result<PathBuf> {
+    let canonical = std::fs::canonicalize(path).map_err(|error| {
+        CoreError::InvalidRequest(format!("failed to resolve {label}: {error}"))
+    })?;
+    if !canonical.is_dir() {
+        return Err(CoreError::InvalidRequest(format!(
+            "{label} must be an existing directory"
+        )));
+    }
+    Ok(canonical)
+}
+
+fn instruction_search_directories(
+    workspace_root: &Path,
+    target_dir: &Path,
+) -> Result<Vec<PathBuf>> {
+    let mut directories = Vec::new();
+    let mut current = target_dir.to_path_buf();
+
+    loop {
+        directories.push(current.clone());
+        if current == workspace_root {
+            break;
+        }
+        current = current.parent().map(Path::to_path_buf).ok_or_else(|| {
+            CoreError::InvalidRequest("target_dir must be within workspace_root".to_string())
+        })?;
+    }
+
+    directories.reverse();
+    Ok(directories)
+}
+
+fn instruction_candidate_exists(path: &Path) -> bool {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => true,
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
+fn inspect_instruction_candidate(
+    workspace_root: &Path,
+    path: &Path,
+    kind: InstructionSourceKind,
+    precedence: u32,
+    placement: ContextPlacement,
+    remaining_budget: usize,
+    per_source_byte_limit: usize,
+) -> InstructionCandidateEvaluation {
+    let mut source = base_instruction_source(workspace_root, path, kind, precedence, placement);
+
+    if !path.starts_with(workspace_root) {
+        source.status = InstructionLoadStatus::SkippedOutsideWorkspace;
+        source
+            .warnings
+            .push("skipped_outside_workspace".to_string());
+        return InstructionCandidateEvaluation {
+            source,
+            loaded_text: None,
+        };
+    }
+
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            source.status = InstructionLoadStatus::ReadFailed;
+            source
+                .warnings
+                .push(format!("read_failed: {}", error.kind()));
+            return InstructionCandidateEvaluation {
+                source,
+                loaded_text: None,
+            };
+        }
+    };
+    source.original_bytes = metadata.len();
+
+    if metadata.file_type().is_symlink() {
+        source.status = InstructionLoadStatus::SkippedSymlink;
+        source.warnings.push("skipped_symlink_source".to_string());
+        return InstructionCandidateEvaluation {
+            source,
+            loaded_text: None,
+        };
+    }
+    if !metadata.is_file() {
+        source.status = InstructionLoadStatus::ReadFailed;
+        source.warnings.push("not_a_regular_file".to_string());
+        return InstructionCandidateEvaluation {
+            source,
+            loaded_text: None,
+        };
+    }
+    if metadata_len_exceeds(metadata.len(), per_source_byte_limit) {
+        source.status = InstructionLoadStatus::SkippedTooLarge;
+        source.warnings.push("skipped_too_large_source".to_string());
+        return InstructionCandidateEvaluation {
+            source,
+            loaded_text: None,
+        };
+    }
+
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            source.status = InstructionLoadStatus::ReadFailed;
+            source
+                .warnings
+                .push(format!("read_failed: {}", error.kind()));
+            return InstructionCandidateEvaluation {
+                source,
+                loaded_text: None,
+            };
+        }
+    };
+    source.original_bytes = bytes.len() as u64;
+    source.sha256 = Some(sha256_hex(&bytes));
+
+    let text = match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(_) => {
+            source.status = InstructionLoadStatus::SkippedNonUtf8;
+            source.warnings.push("skipped_non_utf8_source".to_string());
+            return InstructionCandidateEvaluation {
+                source,
+                loaded_text: None,
+            };
+        }
+    };
+
+    if remaining_budget == 0 {
+        source.status = InstructionLoadStatus::SkippedTooLarge;
+        source
+            .warnings
+            .push("skipped_combined_byte_limit_exhausted".to_string());
+        return InstructionCandidateEvaluation {
+            source,
+            loaded_text: None,
+        };
+    }
+
+    let (redacted, redaction_status, mut redaction_warnings) = redact_instruction_text(&text);
+    let loaded_text = truncate_to_utf8_boundary(&redacted, remaining_budget);
+    if loaded_text.len() < redacted.len() {
+        source
+            .warnings
+            .push("truncated_to_combined_byte_limit".to_string());
+    }
+    source.warnings.append(&mut redaction_warnings);
+    source.status = InstructionLoadStatus::Loaded;
+    source.redaction_status = redaction_status;
+    source.loaded_bytes = loaded_text.len() as u64;
+
+    InstructionCandidateEvaluation {
+        source,
+        loaded_text: Some(loaded_text),
+    }
+}
+
+fn base_instruction_source(
+    workspace_root: &Path,
+    path: &Path,
+    kind: InstructionSourceKind,
+    precedence: u32,
+    placement: ContextPlacement,
+) -> InstructionSource {
+    let relative_path = relative_instruction_path(workspace_root, path);
+    InstructionSource {
+        source_id: ContextId::from(format!(
+            "context_instruction_{}",
+            sanitize_mcp_id_fragment(&relative_path)
+        )),
+        kind,
+        path: path_to_string(path),
+        relative_path,
+        precedence,
+        placement,
+        status: InstructionLoadStatus::ReadFailed,
+        original_bytes: 0,
+        loaded_bytes: 0,
+        sha256: None,
+        redaction_status: InstructionRedactionStatus::Clean,
+        warnings: Vec::new(),
+    }
+}
+
+fn skipped_lower_precedence_instruction_source(
+    workspace_root: &Path,
+    path: &Path,
+    kind: InstructionSourceKind,
+    precedence: u32,
+    placement: ContextPlacement,
+) -> InstructionSource {
+    let mut source = base_instruction_source(workspace_root, path, kind, precedence, placement);
+    source.status = InstructionLoadStatus::SkippedLowerPrecedence;
+    source.original_bytes = std::fs::symlink_metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    source
+        .warnings
+        .push("skipped_lower_precedence_source".to_string());
+    source
+}
+
+fn relative_instruction_path(workspace_root: &Path, path: &Path) -> String {
+    let relative = path.strip_prefix(workspace_root).unwrap_or(path);
+    path_to_string(relative).replace('\\', "/")
+}
+
+fn metadata_len_exceeds(metadata_len: u64, byte_limit: usize) -> bool {
+    usize::try_from(metadata_len).map_or(true, |len| len > byte_limit)
+}
+
+fn redact_instruction_text(text: &str) -> (String, InstructionRedactionStatus, Vec<String>) {
+    let mut redacted = String::new();
+    let mut changed = false;
+
+    for segment in text.split_inclusive('\n') {
+        let line_without_newline = segment.strip_suffix('\n').unwrap_or(segment);
+        if instruction_line_may_contain_secret(line_without_newline) {
+            redacted.push_str("[REDACTED: possible secret]");
+            if segment.ends_with('\n') {
+                redacted.push('\n');
+            }
+            changed = true;
+        } else {
+            redacted.push_str(segment);
+        }
+    }
+
+    if !text.ends_with('\n') && !text.is_empty() && text.rsplit('\n').next().is_some() {
+        let last_line = text.rsplit('\n').next().unwrap();
+        if !text.contains('\n') && instruction_line_may_contain_secret(last_line) {
+            redacted = "[REDACTED: possible secret]".to_string();
+            changed = true;
+        }
+    }
+
+    if changed {
+        (
+            redacted,
+            InstructionRedactionStatus::Redacted,
+            vec!["redacted_possible_secret_line".to_string()],
+        )
+    } else {
+        (redacted, InstructionRedactionStatus::Clean, Vec::new())
+    }
+}
+
+fn instruction_line_may_contain_secret(line: &str) -> bool {
+    let normalized = line.to_ascii_lowercase();
+    [
+        "api_key",
+        "apikey",
+        "authorization",
+        "bearer",
+        "cookie",
+        ".env",
+        "password",
+        "secret",
+        "token",
+    ]
+    .iter()
+    .any(|marker| normalized.contains(marker))
+}
+
+fn truncate_to_utf8_boundary(text: &str, byte_limit: usize) -> String {
+    if text.len() <= byte_limit {
+        return text.to_string();
+    }
+
+    let mut end = byte_limit;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_string()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn context_reference_for_instruction(source: &InstructionSource, text: &str) -> ContextReference {
+    ContextReference {
+        id: source.source_id.clone(),
+        source: ContextSource {
+            kind: ContextSourceKind::File,
+            uri: Some(source.relative_path.clone()),
+            label: Some(format!("project instructions: {}", source.relative_path)),
+        },
+        placement: source.placement,
+        estimated_tokens: estimate_instruction_tokens(text),
+        pinned: true,
+        summary: Some(format!(
+            "Project instructions loaded from {}",
+            source.relative_path
+        )),
+        metadata: None,
+    }
+}
+
+fn estimate_instruction_tokens(text: &str) -> u64 {
+    if text.is_empty() {
+        0
+    } else {
+        ((text.len() as u64).saturating_add(3) / 4).max(1)
+    }
+}
+
+fn render_instruction_system_message(instruction_context: &LoadedInstructionSet) -> String {
+    let mut message =
+        "Project instructions loaded by Tessera for this run. Follow them as stable workspace context."
+            .to_string();
+
+    for loaded in &instruction_context.loaded {
+        message.push_str("\n\n### ");
+        message.push_str(&loaded.source.relative_path);
+        message.push('\n');
+        message.push_str(&loaded.text);
+        if !loaded.text.ends_with('\n') {
+            message.push('\n');
+        }
+    }
+
+    message
 }
 
 impl SkillRegistry {
@@ -2308,6 +2784,11 @@ where
         let mut assistant_text = String::new();
         let mut no_progress_detector = NoProgressDetector::default();
         let provider_messages = request.provider_messages();
+        let instruction_sources = request
+            .instruction_context
+            .as_ref()
+            .map(|context| context.sources.clone())
+            .unwrap_or_default();
         let objective = request.objective.clone();
         let agent_profile_id = request.agent_profile.id.clone();
         let cancellation_token = controls.cancellation_token.clone();
@@ -2356,6 +2837,12 @@ where
             item_id: user_item_id,
             text: objective.clone(),
         });
+        if !instruction_sources.is_empty() {
+            append_event!(RunEvent::InstructionsDiscovered {
+                task_id: task_id.clone(),
+                sources: instruction_sources,
+            });
+        }
         append_event!(RunEvent::AgentRunStarted {
             task_id: task_id.clone(),
             profile_id: request.agent_profile.id.clone(),

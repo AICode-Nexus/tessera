@@ -331,6 +331,10 @@ pub enum RunEvent {
     ThreadCreated { thread_id: ThreadId },
     TurnStarted { turn_id: TurnId },
     UserMessageRecorded { item_id: ItemId, text: String },
+    InstructionsDiscovered {
+        task_id: TaskId,
+        sources: Vec<InstructionSource>,
+    },
 
     ProviderRequestStarted {
         provider_id: ProviderId,
@@ -416,6 +420,8 @@ pub enum RunEvent {
 ```
 
 `TaskPauseCheckpointCreated` 记录 trace-safe resume envelope metadata，当前只支持 chat trace projection resume mode。`TaskPaused` 和 `TaskResumed` 只记录 lifecycle metadata。它们可以被 client/TUI/GUI 投影为 `Paused` / `Running` 状态，但 provider stream suspension、background persistence、checkpoint restore 和 agent resume runtime 仍是后续能力。
+
+`InstructionsDiscovered` 是 v0.5 opt-in project instruction discovery 的 source report。payload 必须包含 `task_id` 和 `sources`；`sources` 只能记录 `AGENTS.md` / `CLAUDE.md` 的 source id、kind、absolute/relative path、precedence、placement、load status、byte counts、sha256、redaction status 和 warnings，不得包含 instruction text/content、secret、provider-private prompt 或 filesystem handle。
 
 `AgentRunStarted` / `AgentStepStarted` / `AgentStepCompleted` / `AgentRunCompleted` 是 v0.5 no-tool single-agent loop 的标准生命周期事件。它们记录 `TaskKind::AgentRun` 的 provider-neutral run envelope、step index、step status、final summary 和 event evidence range；不得包含 provider-private raw response、hidden reasoning、tool output、shell command、file diff、secret 或 runtime handle。
 
@@ -563,7 +569,7 @@ pub struct SkillPolicy {
 
 ### Agent Profile And Run Summary Schema
 
-Agent profile v0.5 foundation 描述可执行 agent 的静态 metadata。当前 no-tool `AgentLoop` 会使用它记录 run/step summary；它仍不激活 skill、不执行工具、不读取 project instructions、不持有 provider-private runtime state。
+Agent profile v0.5 foundation 描述可执行 agent 的静态 metadata。当前 no-tool `AgentLoop` 会使用它记录 run/step summary，并可接收显式 opt-in 的 project instruction context；它仍不激活 skill、不执行工具、不持有 provider-private runtime state。
 
 ```rust
 pub struct AgentProfile {
@@ -955,6 +961,31 @@ pub struct ContextBudget {
 ```
 
 `ContextReference` 不包含 `content`、`bytes` 或 provider-specific prompt fragment。后续 context loader/compaction/handle read 必须通过 core/policy/trace 边界。
+
+### Instruction Source Metadata
+
+Project instruction discovery 使用独立的 source report，而不是把正文塞进 context reference 或 trace payload。
+
+```rust
+pub struct InstructionSource {
+    pub source_id: ContextId,
+    pub kind: InstructionSourceKind,
+    pub path: String,
+    pub relative_path: String,
+    pub precedence: u32,
+    pub placement: ContextPlacement,
+    pub status: InstructionLoadStatus,
+    pub original_bytes: u64,
+    pub loaded_bytes: u64,
+    pub sha256: Option<String>,
+    pub redaction_status: InstructionRedactionStatus,
+    pub warnings: Vec<String>,
+}
+```
+
+`InstructionLoadStatus` 目前覆盖 `loaded`、`skipped_lower_precedence`、`skipped_symlink`、`skipped_outside_workspace`、`skipped_non_utf8`、`skipped_too_large` 和 `read_failed`。`InstructionRedactionStatus` 目前覆盖 `clean` 与 `redacted`。
+
+`LoadedInstruction` 是 core 内部 provider context 输入，不是 trace schema；trace 只记录 `InstructionSource` metadata。
 
 禁止：
 

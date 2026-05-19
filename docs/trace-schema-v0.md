@@ -75,6 +75,8 @@ Context workbench v0.2 的 `ContextReference` / `ContextBudget` 目前是 runtim
 
 Agent profile v0.5 foundation 的 `AgentProfile` 是 runtime metadata schema，不是 trace event。当前 no-tool single-agent loop 使用 `agent_run_started`、`agent_step_started`、`agent_step_completed` 和 `agent_run_completed` 记录生命周期，不能把 agent runtime 状态藏在 profile metadata 中。
 
+Project instruction discovery v0.5 使用 `instructions_discovered` trace event 记录 source report。该 event 只允许保存 `InstructionSource` metadata，不允许保存 `AGENTS.md` / `CLAUDE.md` 正文、provider prompt fragment、secret 或文件句柄。
+
 ## 4. Event Kind
 
 当前必须支持（v0.1 基线 + v0.2/v0.3 草案信号）：
@@ -83,6 +85,7 @@ Agent profile v0.5 foundation 的 `AgentProfile` 是 runtime metadata schema，�
 thread_created
 turn_started
 user_message_recorded
+instructions_discovered
 provider_request_started
 provider_capability_reported
 route_decision_recorded
@@ -129,6 +132,8 @@ done
 `task_pause_checkpoint_created` payload 必须包含 `checkpoint`，其中 `checkpoint.task_id`、`trace_id`、`last_seq`、`provider_id`、`profile_id`、`model`、`resume_mode` 为必填。当前实现只使用 `resume_mode: "from_trace_projection"`，表示未来 resume 可基于 JSONL trace projection 继续，而不是恢复 provider socket。
 
 `task_paused` 和 `task_resumed` payload 必须包含 `task_id`，可选包含 `reason`。它们只表示 provider-neutral lifecycle metadata，供 replay、TUI、GUI 和 future runtime API 投影使用；不得被解释为真实 provider stream 已挂起、后台任务已持久化或 checkpoint 已恢复。
+
+`instructions_discovered` payload 必须包含 `task_id` 和 `sources`。每个 source 必须是 provider-neutral `InstructionSource` metadata，包括 kind、path、relative_path、precedence、placement、status、byte counts、sha256、redaction_status 和 warnings；不得包含 instruction 正文、secret、provider request headers、prompt text 或 raw filesystem content。
 
 `agent_run_started` payload 必须包含 `task_id`、`profile_id` 和 `objective`。`agent_step_started` payload 必须包含 `task_id` 和 `step_index`。`agent_step_completed` payload 必须包含 `summary`，其中 `summary.task_id`、`step_index`、`status`、`assistant_text` 和 `stop_reason` 使用 provider-neutral 字段。`agent_run_completed` payload 必须包含 `summary`，其中 `summary.task_id`、`profile_id`、`status`、`steps_completed`、`final_text`、`stop_reason` 和 `evidence_event_range` 描述最终结果和证据范围。
 

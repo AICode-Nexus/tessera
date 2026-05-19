@@ -31,7 +31,7 @@
 
 - **用户可用能力**：CLI/TUI/mock chat、trace/replay、session resume、chat-only paused task resume 等。
 - **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、diagnostics event、memory proposal UI 等。
-- **尚未支持能力**：真实 tool execution、skill-aware/full coding-agent runtime、MCP runtime、background reattach、project instruction ingestion、hook runtime、automation runtime、workspace restore、sub-agent persistence、swarm、learning apply。
+- **尚未支持能力**：真实 tool execution、skill-aware/full coding-agent runtime、MCP runtime、background reattach、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、sub-agent persistence、swarm、learning apply。
 
 ## 4. Version Status Matrix
 
@@ -41,7 +41,7 @@
 | v0.2 | Read-only projection and GUI-ready surfaces | [x] Done | RuntimeReader, task/artifact/snapshot projection, GUI shell spike, DTO bindings, distribution plan. |
 | v0.3 | Tool policy and sandbox foundations | [~] Foundation complete | Tool descriptor, policy gate, approval projection, sandbox decision, OS sandbox planner, checkpoint planner; no execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | [~] Foundation complete | RuntimeHttpApi shape, metadata-only MCP adapter, diagnostics event, memory proposal UI; no server/runtime/store. |
-| v0.5 | Single-agent and resumable task foundations | [~] In progress | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, and `tessera agent run`; no skill runtime, instruction discovery, tools, or background reattach yet. |
+| v0.5 | Single-agent and resumable task foundations | [~] In progress | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, and opt-in project instruction discovery/source reporting; no skill runtime, tools, or background reattach yet. |
 | v0.6 | Persistent sub-agents and structured review | [ ] Planned | No persistent sub-agent runtime, structured handoff, or reviewer gate yet. |
 | v0.7 | Project coding-agent workflow | [ ] Planned | No apply-patch, diff/test/checkpoint/rollback, worktree mutation, or GUI/TUI diff workflow yet. |
 | v0.8 | Swarm scheduler | [!] Blocked | Requires v0.6 structured handoff and reviewer gate. |
@@ -103,6 +103,7 @@
 - [x] No-tool single-agent loop with `agent_run_*` / `agent_step_*` trace events, cancellation/pause/provider-failure/no-progress finish paths, and RuntimeReader task projection.
 - [x] Script-friendly `tessera agent run --provider <id> --goal <text> [--json]` entrypoint.
 - [x] v0.5 project instruction discovery design spec and implementation plan.
+- [x] Project-local `AGENTS.md` / `CLAUDE.md` instruction discovery with source reporting, byte limits, symlink rejection, UTF-8 handling, redaction, `instructions_discovered` trace metadata, `tessera instructions inspect`, and opt-in `agent run --instructions`.
 
 ## 6. Current Gaps
 
@@ -114,7 +115,7 @@
 ### v0.5 Not Done
 
 - [ ] Skill runtime v1.
-- [ ] Project instruction discovery and source reporting.
+- [ ] Default-on/global/user instruction loading, Claude imports, and `.claude/` rule compatibility.
 - [ ] Durable background task ownership.
 - [ ] Background reattach.
 - [ ] Runtime API / app-server design alignment with auth, bounded queues, generated schema and localhost default.
@@ -143,14 +144,15 @@ The next implementation slices should stay conservative and preserve the current
 2. [x] Design v0.5 single-agent loop as a separate spec before code: provider-neutral observations, max-step limits, stop/no-progress handling, trace replay, run summary and machine-readable result.
 3. [x] Design project instruction discovery with `AGENTS.md` first and future `CLAUDE.md` compatibility: precedence, byte limits, source report, redaction and trace refs.
 4. [x] Implement single-agent loop without tools first.
-5. [ ] Design skill runtime v1 after single-agent loop is trace-stable: `SKILL.md` discovery, activation events, read-only references, no unchecked scripts.
-6. [ ] Design durable background task ownership and reattach before any long-running agent task.
-7. [ ] Align runtime API / app-server shape before GUI live-provider path: auth, bounded queues, generated schemas, localhost default, no duplicate runtime.
-8. [ ] Only after v0.5 is stable, design v0.6 structured handoff and reviewer gate.
-9. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-10. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
-11. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
-12. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
+5. [x] Implement opt-in project instruction discovery and source reporting before skill runtime.
+6. [ ] Design skill runtime v1 after single-agent loop is trace-stable: `SKILL.md` discovery, activation events, read-only references, no unchecked scripts.
+7. [ ] Design durable background task ownership and reattach before any long-running agent task.
+8. [ ] Align runtime API / app-server shape before GUI live-provider path: auth, bounded queues, generated schemas, localhost default, no duplicate runtime.
+9. [ ] Only after v0.5 is stable, design v0.6 structured handoff and reviewer gate.
+10. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+11. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
+12. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
+13. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
 
 ## 8. Mandatory Gates
 

@@ -88,6 +88,10 @@ enum Commands {
         #[command(subcommand)]
         command: AgentCommands,
     },
+    Instructions {
+        #[command(subcommand)]
+        command: InstructionsCommands,
+    },
     Chat {
         #[arg(long, default_value = "mock")]
         provider: String,
@@ -144,9 +148,27 @@ enum AgentCommands {
         #[arg(long)]
         json: bool,
         #[arg(long)]
+        instructions: bool,
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        #[arg(long)]
+        target_dir: Option<PathBuf>,
+        #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long)]
         data_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum InstructionsCommands {
+    Inspect {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        target_dir: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -293,18 +315,55 @@ async fn main() -> anyhow::Result<()> {
                 provider,
                 goal,
                 json,
+                instructions,
+                workspace,
+                target_dir,
                 config,
                 data_dir,
             } => {
+                if !instructions && (workspace.is_some() || target_dir.is_some()) {
+                    anyhow::bail!("--workspace and --target-dir require --instructions");
+                }
                 let config = tessera_cli::resolve_config(config)?;
                 let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
-                let outcome =
-                    tessera_cli::run_agent_with_config(data_dir, &config, &provider, goal).await?;
+                let instruction_options = if instructions {
+                    Some(tessera_cli::CliInstructionContextOptions {
+                        workspace: workspace.unwrap_or(std::env::current_dir()?),
+                        target_dir,
+                    })
+                } else {
+                    None
+                };
+                let outcome = tessera_cli::run_agent_with_config_and_instruction_options(
+                    data_dir,
+                    &config,
+                    &provider,
+                    goal,
+                    instruction_options,
+                )
+                .await?;
                 if json {
                     let output = tessera_cli::CliAgentRunOutput::from(outcome);
                     println!("{}", serde_json::to_string_pretty(&output)?);
                 } else {
                     for line in tessera_cli::format_agent_run_lines(&outcome) {
+                        println!("{line}");
+                    }
+                }
+            }
+        },
+        Some(Commands::Instructions { command }) => match command {
+            InstructionsCommands::Inspect {
+                workspace,
+                target_dir,
+                json,
+            } => {
+                let set = tessera_cli::inspect_instructions(workspace, target_dir)?;
+                if json {
+                    let output = tessera_cli::CliInstructionDiscoveryOutput::from(&set);
+                    println!("{}", serde_json::to_string_pretty(&output)?);
+                } else {
+                    for line in tessera_cli::format_instruction_discovery_lines(&set) {
                         println!("{line}");
                     }
                 }

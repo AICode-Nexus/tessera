@@ -479,17 +479,18 @@ Project instruction discovery 是 coding-agent CLI 的关键体验，但它不�
 
 推荐边界：
 
-- `protocol` 后续定义 `InstructionSource` / `LoadedInstruction` metadata，记录 path/uri、precedence、byte count、hash、redaction status 和 placement。
-- `core` 可以提供只读 discovery planner，先识别 `AGENTS.md`，后续兼容 `CLAUDE.md` 或其他 fallback names。
+- `protocol` 定义 `InstructionSource` metadata，记录 path/uri、precedence、byte count、hash、redaction status、load status 和 placement。
+- `core` 提供只读 discovery planner，识别 `AGENTS.md`，并在同目录没有 `AGENTS.md` 时兼容 `CLAUDE.md` fallback。
 - instruction 内容进入 provider 前必须有 byte limit、encoding handling、secret redaction 和 trace reference。
 - discovery 不得读取 workspace 外任意路径，不得跟随不安全 symlink，不得把文件内容写入不受限日志。
-- TUI/GUI/CLI 只展示 loaded-source report，不自行加载和拼 prompt。
+- CLI 只通过 core planner 展示 loaded-source report 或显式 opt-in 注入 no-tool `AgentLoop`；TUI/GUI 不自行加载和拼 prompt。
 
 禁止：
 
 - CLI 直接读取 instruction 文件并绕过 core/context tracing。
 - 把所有 instruction 原文无上限写入 trace。
 - 不记录来源地把 instruction 注入 provider request。
+- 默认开启 global/user instruction loading、Claude imports 或 `.claude/` rule runtime。
 
 ### tools / policy / sandbox
 

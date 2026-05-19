@@ -4,17 +4,19 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tessera_core::{
     AgentLoop, AgentRegistry, AgentRunRequest, ContextWorkbench, ConversationEngine,
-    ConversationRequest, CoreError, DiagnosticsReporter, EventSinkAction, McpToolAdapter,
-    McpToolAnnotations, McpToolSpec, ModelRouteRequest, ModelRouter, NoProgressDetector,
-    NoProgressObservation, OrderedToolResultBuffer, OsSandboxPlanner, PolicyGate, ReplayRunner,
-    RunCancellationToken, RunControls, RunPauseToken, RuntimeEventQuery, RuntimeHttpApi,
-    RuntimeHttpEventRequest, RuntimeReader, SkillRegistry, ToolRegistry, ToolRepairTelemetry,
-    WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
+    ConversationRequest, CoreError, DiagnosticsReporter, EventSinkAction,
+    InstructionDiscoveryOptions, InstructionDiscoveryPlanner, McpToolAdapter, McpToolAnnotations,
+    McpToolSpec, ModelRouteRequest, ModelRouter, NoProgressDetector, NoProgressObservation,
+    OrderedToolResultBuffer, OsSandboxPlanner, PolicyGate, ReplayRunner, RunCancellationToken,
+    RunControls, RunPauseToken, RuntimeEventQuery, RuntimeHttpApi, RuntimeHttpEventRequest,
+    RuntimeReader, SkillRegistry, ToolRegistry, ToolRepairTelemetry, WorkspaceCheckpointPlanner,
+    WorkspaceGuardrailChecker,
 };
 use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentStepStatus, ArtifactId, ArtifactKind, ContextBudget,
     ContextId, ContextPlacement, ContextReference, ContextSource, ContextSourceKind, Diagnostic,
-    DiagnosticRange, DiagnosticSeverity, ErrorSource, EventFrame, EventRange, ItemId,
+    DiagnosticRange, DiagnosticSeverity, ErrorSource, EventFrame, EventRange,
+    InstructionLoadStatus, InstructionRedactionStatus, InstructionSourceKind, ItemId,
     ModelProfileId, NoProgressAction, NoProgressSignalKind, NormalizedError, OsSandboxFilesystem,
     OsSandboxMode, OsSandboxNetwork, OsSandboxShell, PolicyOutcome, ProviderCapability, ProviderId,
     ResumeMode, RouteStrategy, RunEvent, SandboxDecisionKind, SkillEntrypoint,
@@ -187,6 +189,7 @@ fn mock_agent_request(objective: &str) -> AgentRunRequest {
         model: "mock-chat".to_string(),
         objective: objective.to_string(),
         context_references: Vec::new(),
+        instruction_context: None,
         history: Vec::new(),
         max_steps: 1,
     }
@@ -1072,6 +1075,187 @@ fn context_workbench_projects_handles_without_loading_sources() {
     );
 }
 
+fn instruction_options(
+    workspace_root: impl Into<std::path::PathBuf>,
+    target_dir: impl Into<std::path::PathBuf>,
+) -> InstructionDiscoveryOptions {
+    let mut options = InstructionDiscoveryOptions::new(workspace_root, target_dir);
+    options.per_source_byte_limit = 512;
+    options.combined_byte_limit = 4_096;
+    options
+}
+
+#[test]
+fn instruction_discovery_loads_agents_md_from_root_to_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("crates/cli/src");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(temp.path().join("AGENTS.md"), "root rules\n").unwrap();
+    std::fs::create_dir_all(temp.path().join("crates/cli")).unwrap();
+    std::fs::write(temp.path().join("crates/cli/AGENTS.md"), "cli rules\n").unwrap();
+
+    let set = InstructionDiscoveryPlanner
+        .discover(instruction_options(temp.path(), &target))
+        .unwrap();
+
+    assert_eq!(set.loaded.len(), 2);
+    assert_eq!(set.loaded[0].text, "root rules\n");
+    assert_eq!(set.loaded[1].text, "cli rules\n");
+    assert_eq!(set.sources[0].kind, InstructionSourceKind::AgentsMd);
+    assert_eq!(set.sources[0].relative_path, "AGENTS.md");
+    assert_eq!(set.sources[0].precedence, 0);
+    assert_eq!(set.sources[0].status, InstructionLoadStatus::Loaded);
+    assert_eq!(set.sources[1].relative_path, "crates/cli/AGENTS.md");
+    assert_eq!(set.sources[1].precedence, 1);
+    assert_eq!(set.context_references.len(), 2);
+    assert!(set.context_references[0].pinned);
+    assert_eq!(
+        set.context_references[0].placement,
+        ContextPlacement::StablePrefix
+    );
+}
+
+#[test]
+fn instruction_discovery_uses_claude_md_only_when_agents_is_absent() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("packages/app");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(temp.path().join("CLAUDE.md"), "root fallback\n").unwrap();
+    std::fs::write(target.join("AGENTS.md"), "app rules\n").unwrap();
+    std::fs::write(target.join("CLAUDE.md"), "app fallback\n").unwrap();
+
+    let set = InstructionDiscoveryPlanner
+        .discover(instruction_options(temp.path(), &target))
+        .unwrap();
+
+    assert_eq!(set.loaded.len(), 2);
+    assert_eq!(set.loaded[0].source.kind, InstructionSourceKind::ClaudeMd);
+    assert_eq!(set.loaded[0].text, "root fallback\n");
+    assert_eq!(set.loaded[1].source.kind, InstructionSourceKind::AgentsMd);
+    assert_eq!(set.loaded[1].text, "app rules\n");
+
+    let skipped = set
+        .sources
+        .iter()
+        .find(|source| source.relative_path == "packages/app/CLAUDE.md")
+        .unwrap();
+    assert_eq!(skipped.kind, InstructionSourceKind::ClaudeMd);
+    assert_eq!(
+        skipped.status,
+        InstructionLoadStatus::SkippedLowerPrecedence
+    );
+}
+
+#[test]
+fn instruction_discovery_rejects_target_outside_workspace() {
+    let workspace = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+
+    let error = InstructionDiscoveryPlanner
+        .discover(instruction_options(workspace.path(), outside.path()))
+        .unwrap_err();
+
+    assert!(
+        matches!(error, CoreError::InvalidRequest(message) if message.contains("target_dir must be within workspace_root"))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn instruction_discovery_skips_symlink_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_agents = outside.path().join("AGENTS.md");
+    std::fs::write(&outside_agents, "outside rules\n").unwrap();
+    std::os::unix::fs::symlink(&outside_agents, temp.path().join("AGENTS.md")).unwrap();
+
+    let set = InstructionDiscoveryPlanner
+        .discover(instruction_options(temp.path(), temp.path()))
+        .unwrap();
+
+    assert!(set.loaded.is_empty());
+    assert_eq!(set.sources.len(), 1);
+    assert_eq!(set.sources[0].status, InstructionLoadStatus::SkippedSymlink);
+    assert_eq!(set.sources[0].relative_path, "AGENTS.md");
+}
+
+#[test]
+fn instruction_discovery_skips_non_utf8_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("AGENTS.md"), [0xff, 0xfe, 0xfd]).unwrap();
+
+    let set = InstructionDiscoveryPlanner
+        .discover(instruction_options(temp.path(), temp.path()))
+        .unwrap();
+
+    assert!(set.loaded.is_empty());
+    assert_eq!(set.sources[0].status, InstructionLoadStatus::SkippedNonUtf8);
+    assert_eq!(set.sources[0].loaded_bytes, 0);
+}
+
+#[test]
+fn instruction_discovery_redacts_obvious_secret_lines() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join("AGENTS.md"),
+        "keep this line\napi_key = sk-test\nAuthorization: Bearer secret\n",
+    )
+    .unwrap();
+
+    let set = InstructionDiscoveryPlanner
+        .discover(instruction_options(temp.path(), temp.path()))
+        .unwrap();
+
+    assert_eq!(set.loaded.len(), 1);
+    assert!(set.loaded[0].text.contains("keep this line"));
+    assert!(set.loaded[0].text.contains("[REDACTED: possible secret]"));
+    assert!(!set.loaded[0].text.contains("sk-test"));
+    assert!(!set.loaded[0].text.contains("Bearer secret"));
+    assert_eq!(
+        set.sources[0].redaction_status,
+        InstructionRedactionStatus::Redacted
+    );
+    assert!(set.sources[0]
+        .warnings
+        .contains(&"redacted_possible_secret_line".to_string()));
+}
+
+#[test]
+fn instruction_discovery_enforces_byte_limits_on_utf8_boundaries() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("AGENTS.md"), "éééabc").unwrap();
+    let mut options = instruction_options(temp.path(), temp.path());
+    options.combined_byte_limit = 5;
+
+    let set = InstructionDiscoveryPlanner.discover(options).unwrap();
+
+    assert_eq!(set.loaded.len(), 1);
+    assert_eq!(set.loaded[0].text, "éé");
+    assert_eq!(set.sources[0].status, InstructionLoadStatus::Loaded);
+    assert_eq!(set.sources[0].original_bytes, 9);
+    assert_eq!(set.sources[0].loaded_bytes, 4);
+    assert!(set.sources[0]
+        .warnings
+        .contains(&"truncated_to_combined_byte_limit".to_string()));
+}
+
+#[test]
+fn instruction_discovery_skips_per_source_too_large_files() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("AGENTS.md"), "larger than limit").unwrap();
+    let mut options = instruction_options(temp.path(), temp.path());
+    options.per_source_byte_limit = 4;
+
+    let set = InstructionDiscoveryPlanner.discover(options).unwrap();
+
+    assert!(set.loaded.is_empty());
+    assert_eq!(
+        set.sources[0].status,
+        InstructionLoadStatus::SkippedTooLarge
+    );
+    assert_eq!(set.sources[0].loaded_bytes, 0);
+}
+
 #[tokio::test]
 async fn conversation_engine_drives_mock_provider_and_persists_trace() {
     let temp = tempfile::tempdir().unwrap();
@@ -1168,6 +1352,70 @@ async fn agent_loop_drives_mock_provider_and_persists_trace() {
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].kind, Some(TaskKind::AgentRun));
     assert_eq!(tasks[0].status, TaskStatus::Completed);
+}
+
+#[tokio::test]
+async fn agent_loop_includes_instruction_context_and_traces_metadata_without_content() {
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::write(
+        workspace.path().join("AGENTS.md"),
+        "Prefer concise answers.\napi_key = sk-test\n",
+    )
+    .unwrap();
+    let instruction_context = InstructionDiscoveryPlanner
+        .discover(instruction_options(workspace.path(), workspace.path()))
+        .unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let captured_request = Arc::new(Mutex::new(None));
+    let loop_runner = AgentLoop::new(
+        CapturingProvider {
+            captured_request: captured_request.clone(),
+        },
+        store,
+    );
+    let mut request = mock_agent_request("summarize instruction behavior");
+    request.instruction_context = Some(instruction_context);
+
+    let outcome = loop_runner.run_agent(request).await.unwrap();
+
+    let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let instruction_index = records
+        .iter()
+        .position(|record| record.event_kind == "instructions_discovered")
+        .unwrap();
+    let agent_started_index = records
+        .iter()
+        .position(|record| record.event_kind == "agent_run_started")
+        .unwrap();
+    assert!(instruction_index < agent_started_index);
+
+    let instruction_record = &records[instruction_index];
+    assert_eq!(
+        instruction_record.payload["sources"][0]["relative_path"],
+        "AGENTS.md"
+    );
+    let encoded_payload = serde_json::to_string(&instruction_record.payload).unwrap();
+    assert!(!encoded_payload.contains("Prefer concise answers"));
+    assert!(!encoded_payload.contains("sk-test"));
+    assert!(!encoded_payload.contains("api_key"));
+
+    let provider_request = captured_request.lock().unwrap().clone().unwrap();
+    assert_eq!(
+        provider_request.messages[0].role,
+        ProviderMessageRole::System
+    );
+    assert!(provider_request.messages[0]
+        .content
+        .contains("Prefer concise answers."));
+    assert!(provider_request.messages[0]
+        .content
+        .contains("[REDACTED: possible secret]"));
+    assert!(!provider_request.messages[0].content.contains("sk-test"));
+    assert_eq!(
+        provider_request.messages.last().map(|message| message.role),
+        Some(ProviderMessageRole::User)
+    );
 }
 
 #[tokio::test]

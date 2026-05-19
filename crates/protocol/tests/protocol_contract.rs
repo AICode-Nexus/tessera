@@ -2,7 +2,8 @@ use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ApprovalId,
     ApprovalStatus, ArtifactId, ContextBudget, ContextId, ContextPlacement, ContextReference,
     ContextSource, ContextSourceKind, CostEstimate, Diagnostic, DiagnosticRange, DiagnosticReport,
-    DiagnosticReportId, DiagnosticSeverity, EventFrame, EventRange, ItemId, MemoryProposal,
+    DiagnosticReportId, DiagnosticSeverity, EventFrame, EventRange, InstructionLoadStatus,
+    InstructionRedactionStatus, InstructionSource, InstructionSourceKind, ItemId, MemoryProposal,
     MemoryProposalId, MemoryProposalStatus, ModelProfileId, NoProgressAction, NoProgressLoop,
     NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
     OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
@@ -841,4 +842,39 @@ fn context_reference_schema_preserves_source_placement_and_budget_without_conten
     assert_eq!(budget_value["reserved_output_tokens"], 1_000);
     assert!(reference_value.get("content").is_none());
     assert!(reference_value.get("bytes").is_none());
+}
+
+#[test]
+fn instructions_discovered_event_records_sources_without_content() {
+    let task_id = TaskId::from_static("task_instruction_context");
+    let source = InstructionSource {
+        source_id: ContextId::from_static("context_instruction_agents_root"),
+        kind: InstructionSourceKind::AgentsMd,
+        path: "/workspace/project/AGENTS.md".to_string(),
+        relative_path: "AGENTS.md".to_string(),
+        precedence: 0,
+        placement: ContextPlacement::StablePrefix,
+        status: InstructionLoadStatus::Loaded,
+        original_bytes: 128,
+        loaded_bytes: 96,
+        sha256: Some("abc123".to_string()),
+        redaction_status: InstructionRedactionStatus::Redacted,
+        warnings: vec!["redacted_possible_secret_line".to_string()],
+    };
+    let event = RunEvent::InstructionsDiscovered {
+        task_id: task_id.clone(),
+        sources: vec![source],
+    };
+
+    assert_eq!(event.kind(), "instructions_discovered");
+    assert_eq!(event.task_id(), Some(task_id));
+
+    let payload = event.payload();
+    assert_eq!(payload["sources"][0]["kind"], "agents_md");
+    assert_eq!(payload["sources"][0]["relative_path"], "AGENTS.md");
+    assert_eq!(payload["sources"][0]["placement"], "stable_prefix");
+    assert_eq!(payload["sources"][0]["status"], "loaded");
+    assert_eq!(payload["sources"][0]["redaction_status"], "redacted");
+    assert!(payload["sources"][0].get("content").is_none());
+    assert!(payload["sources"][0].get("text").is_none());
 }
