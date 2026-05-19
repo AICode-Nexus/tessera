@@ -177,6 +177,29 @@ Reasonix 官方架构进一步说明，prefix cache 的价值不来自 provider 
 
 v0.1 不实现长期上下文构建器，但 protocol、trace 和 client projection 必须不阻断这条路径。详细采纳矩阵见 [Reasonix Lessons](reasonix-lessons.md)。
 
+### 2.12 Coding Agent Surface Direction
+
+Tessera 的长期目标不是只做一个聊天终端，而是形成 CLI、TUI、GUI、runtime API、skills、hooks、subagents 和 automations 都能共享的本地 coding-agent workbench。Codex CLI / App / App Server、Claude Code CLI / Desktop / Web、DeepSeek-TUI 和 Reasonix 的共同经验是：产品表面可以很多，但运行时对象必须少而硬。
+
+需要提前固化的对象：
+
+- `Thread` / `Turn` / `Item`：对话、推理、工具、审批、诊断和学习都挂在统一时间线。
+- `Task`：chat run、agent run、subagent、tool run、automation job、learning job 都必须有可取消、可暂停、可恢复或可解释失败的生命周期。
+- `Artifact`：diff、patch、test report、terminal output、browser evidence、subagent transcript、large provider metadata 都不应直接塞进上下文。
+- `Approval`：用户审批、reviewer gate、policy decision、GUI diff review 都必须 trace-backed。
+- `InstructionSource` / `ContextReference`：`AGENTS.md`、未来 `CLAUDE.md`、skills、hook output、MCP metadata 都只能作为有来源、有上限、可审计的 context 输入。
+- `RuntimeApi`：GUI、IDE、automation 和 remote client 只通过 typed messages / bounded queues / generated schemas 访问 core。
+
+约束：
+
+- CLI 可以是脚本入口，但不能直接实现 agent loop。
+- GUI 可以是多线程、多项目、多 worktree 控制面，但不能持有真实 task/session 状态机。
+- Hook 和 automation 只能订阅标准事件或提出 traced proposal，不能绕过 tool/policy/sandbox。
+- Skills 优先兼容 `SKILL.md` progressive disclosure；脚本和引用文件仍受 policy、scope 和 redaction 约束。
+- Subagent 是上下文隔离和结构化 handoff 机制，不是绕过 reviewer gate 的并发执行捷径。
+
+详细方向见 [Coding-Agent Direction](coding-agent-direction.md)。
+
 ## 3. 整体架构
 
 v0.1 的架构分为七层：
@@ -211,7 +234,7 @@ Core Runtime + Protocol + Trace
 
 这些未来能力不得绕过 core、protocol、policy 和 trace。
 
-DeepSeek-TUI 解析稿对 Tessera 的核心启发是：runtime 能力比 UI 外观更重要。Tessera 应优先吸收它的 durable task、runtime API、tool policy、sandbox、snapshot、sub-agent handle、MCP/ACP integration 和 distribution 设计，但按阶段纳入，避免 v0.1 失控。Reasonix 官方仓库进一步强化了 cache-stable context、ordered parallel dispatch、tool-call repair telemetry 和 visible cost control 的长期约束。详细采纳矩阵见 [DeepSeek-TUI Lessons](deepseek-tui-lessons.md) 和 [Reasonix Lessons](reasonix-lessons.md)。
+DeepSeek-TUI 解析稿对 Tessera 的核心启发是：runtime 能力比 UI 外观更重要。Tessera 应优先吸收它的 durable task、runtime API、tool policy、sandbox、snapshot、sub-agent handle、MCP/ACP integration 和 distribution 设计，但按阶段纳入，避免 v0.1 失控。Reasonix 官方仓库进一步强化了 cache-stable context、ordered parallel dispatch、tool-call repair telemetry 和 visible cost control 的长期约束。Codex 和 Claude Code 生态进一步说明，CLI、GUI、skills、hooks、app-server、background tasks 和 subagents 都必须建立在同一套 task/policy/trace/runtime API 上。详细采纳矩阵见 [DeepSeek-TUI Lessons](deepseek-tui-lessons.md)、[Reasonix Lessons](reasonix-lessons.md) 和 [Coding-Agent Direction](coding-agent-direction.md)。
 
 ## 4. v0.1 Crate 结构
 
@@ -341,11 +364,11 @@ DeepSeek-TUI 的 sub-agent 设计还暴露出一个关键点：父 agent 不应�
 1. v0.1：headless runtime、CLI/TUI chat、trace、mock/replay。
 2. v0.2：context workbench、read-only runtime API、task registry v1、GUI shell spike、cost/cache telemetry、model router 草案。
 3. v0.3：tool descriptor、policy gate、approval UI、artifact handles、OS sandbox、workspace checkpoint。
-4. v0.4：MCP adapter、HTTP/SSE runtime API、diagnostics/LSP、memory proposal UI。
-5. v0.5：single agent loop、skill runtime v1、pause/resume、context handle projection。
-6. v0.6：persistent sub-agent sessions、structured handoff、reviewer gate。
-7. v0.7：coding agent workflow、diff/test/checkpoint/rollback、apply-patch tool。
-8. v0.8：swarm scheduler，建立在稳定 agent/task/trace 之上。
+4. v0.4：MCP adapter、HTTP/SSE runtime API shape、diagnostics/LSP metadata、memory proposal UI。
+5. v0.5：single agent loop、skill runtime v1、project instruction discovery、non-interactive agent run envelope、background ownership、app-server alignment、pause/resume、context handle projection。
+6. v0.6：persistent sub-agent sessions、structured handoff、reviewer gate、artifact-backed transcript isolation。
+7. v0.7：coding agent workflow、worktree-first mutation、diff/test/checkpoint/rollback、apply-patch tool、TUI/GUI diff and review surfaces。
+8. v0.8：swarm scheduler 和 automation trigger integration，建立在稳定 agent/task/trace/review/cost gates 之上。
 9. v0.9：learning proposal system，默认只提案、不自动应用。
 
 ## 9. Non-negotiable Invariants
@@ -359,6 +382,7 @@ DeepSeek-TUI 的 sub-agent 设计还暴露出一个关键点：父 agent 不应�
 - SQLite 可以重建。
 - Secrets 不进入持久化数据。
 - Agent、memory、skill、swarm 都通过 protocol/core/trace 接入。
+- Project instructions、hooks、automations 和 app-server 都通过 protocol/core/trace/policy 接入。
 - v0.1 先稳定，不追求功能数量。
 
 ## 10. 技术选型表

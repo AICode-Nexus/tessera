@@ -5,6 +5,7 @@
 本文用于提前约束 Tessera 的 GUI 方向。GUI 不进入 v0.1 交付范围，但从现在开始不能让 CLI/TUI 的实现方式阻断后续 GUI。
 
 当前决策见 [ADR-001: GUI Architecture and Toolkit Direction](adr/ADR-001-gui-architecture-and-toolkit.md)。
+编码代理产品方向见 [Coding-Agent Direction](coding-agent-direction.md)。
 
 ## 1. 结论
 
@@ -141,6 +142,11 @@ Tauri bridge 只允许暴露 typed command：
 - `execute_shell`
 - `run_tool`
 - `read_env_secret`
+- `git_commit`
+- `git_push`
+- `apply_patch`
+
+这些 mutation command 未来可以作为 policy-gated client intent 进入 runtime，但不能作为 GUI bridge 的直接旁路。
 
 Rust 到前端的事件必须是 versioned DTO：
 
@@ -178,7 +184,39 @@ GUI 第一版默认最小权限：
 - sandbox/checkpoint
 - trace event
 
-## 8. AI-Friendly Rules
+## 8. Coding-Agent GUI Direction
+
+GUI 后续应向 Codex App / Claude Desktop / modern coding-agent workbench 的方向发展，但必须保持 Tessera 的单 runtime 约束。
+
+应成为一等 UI 对象：
+
+- Thread list：按 project / worktree / status / provider / cost / updated time 查询。
+- Task sidebar：running、paused、waiting approval、failed、completed、background reattach。
+- Approval queue：tool approval、reviewer gate、memory proposal、route escalation、automation setup。
+- Artifact viewer：transcript slice、terminal output、test report、diff、patch、diagnostic report、browser evidence。
+- Diff/review pane：v0.7 后展示 policy-gated patch、test evidence、checkpoint 和 rollback status。
+- Integrated terminal：作为 task evidence source，不作为绕过 runtime 的 shell。
+- Worktree binding：每个 code-modifying task 显示 workspace scope、worktree path、checkpoint id 和 cleanup status。
+- Automation panel：后置到 task ownership、worktree setup、notifications 和 failure reporting 稳定之后。
+
+GUI 不应先实现：
+
+- 直接 Git stage/commit/push/PR。
+- 直接 shell / file / patch execution。
+- 直接 provider call。
+- 独立 task scheduler。
+- 未经过 runtime API 的 background task reattach。
+
+App-server / runtime API 进入时，GUI 只连接 typed protocol：
+
+- 默认 localhost。
+- 需要 auth / session token / origin checks。
+- event channel bounded。
+- DTO/schema 从 Rust 类型生成。
+- 断线重连后通过 `since_seq` 或 task snapshot 恢复。
+- 所有 mutation 都映射为 `ClientIntent` 或 future policy-gated runtime command。
+
+## 9. AI-Friendly Rules
 
 GUI 代码必须 AI-ready，而不是只追求 UI 能跑：
 
@@ -203,7 +241,7 @@ AI 修改 GUI 时优先做小任务：
 
 避免一次性同时改 Rust runtime、IPC、React state、布局和 provider adapter。
 
-## 9. v0.1 到 v0.2 的准备项
+## 10. v0.1 到 v0.2 的准备项
 
 - v0.1：TUI 状态投影已下沉到 `tessera-client`，TUI 只保留 terminal input、live event wrapper 和 Ratatui renderer。
 - v0.1：profile switch 已按 client intent 设计，不把 profile 选择写成 Ratatui 私有逻辑。
@@ -220,7 +258,7 @@ Tauri spike 验收标准：
 - 至少覆盖一个 submit/cancel/replay 的 UI 路径。
 - 有可重复的自动化验证方案：当前 `App.smoke.test.tsx` 用 Vitest + Testing Library 覆盖 mock/replay load、submit、cancel、new-thread 和 icon action accessible names；Playwright/Chromium 真实浏览器截图仍作为后续环境门禁。
 
-## 10. 不做
+## 11. 不做
 
 - 不在 v0.1 开 GUI crate/app。
 - 不为了 GUI 提前引入 Web build system。
@@ -228,9 +266,10 @@ Tauri spike 验收标准：
 - 不让 GUI 直接读 SQLite。
 - 不让 GUI 拥有独立 session/task 状态机。
 - 不让 GUI 引入 shell/file/git tool 执行旁路。
+- 不让 GUI 直接实现 app-server、automation scheduler 或 hook runtime。
 - 不把 TUI 私有状态当成 GUI 的公共模型。
 
-## 11. References
+## 12. References
 
 - Tauri Architecture: https://v2.tauri.app/concept/architecture/
 - Tauri Calling Rust From Frontend: https://v2.tauri.app/develop/calling-rust/

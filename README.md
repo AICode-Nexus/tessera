@@ -18,11 +18,12 @@ This repository has shipped the v0.1 trace-first local runtime and is now advanc
 
 ## Documents
 
-- [Requirements](docs/requirements.md)
-- [Architecture](docs/architecture.md)
+- [Requirements](docs/requirements.md) (early product baseline; current roadmap lives below)
+- [Architecture](docs/architecture.md) (early vision; current contract lives in the documents below)
 - [Technical Architecture](docs/technical-architecture.md)
 - [DeepSeek-TUI Lessons](docs/deepseek-tui-lessons.md)
 - [Reasonix Lessons](docs/reasonix-lessons.md)
+- [Coding-Agent Direction](docs/coding-agent-direction.md)
 - [GUI-Ready Architecture](docs/gui-ready-architecture.md)
 - [ADR-001: GUI Architecture and Toolkit Direction](docs/adr/ADR-001-gui-architecture-and-toolkit.md)
 - [Distribution Plan](docs/distribution-plan.md)
@@ -41,10 +42,12 @@ The current implementation contract is still architecture-led:
 
 - Keep the headless runtime limited to `protocol`, `client`, `core`, `providers`, `storage`, `config`, `cli`, and `tui`, with GUI work entering through `gui-bridge`, `gui-bindings`, and `apps/gui-tauri` shell code only.
 - Follow `docs/version-plan.md` for v0.1-v0.9 scope, dependencies, and exit criteria; use `docs/global-plan.md` as the current status dashboard.
+- Follow `docs/coding-agent-direction.md` when aligning with DeepSeek-TUI, Reasonix, Codex CLI/GUI/App Server, Claude Code CLI/Desktop/Web, skills, hooks, subagents, automations, and modern coding-agent UX.
 - Keep future tools, agents, memory, skills, learning, and swarm support behind their version gates.
 - Keep CLI, TUI, and future GUI on top of the same headless runtime.
 - Keep client UI state in UI-neutral reducers and view models before implementing the Tauri-first GUI path.
 - Treat Tauri 2 + TypeScript/React/Vite as the default product GUI direction, with egui limited to possible internal inspector work and GPUI kept as a watch item.
+- Treat app-server, hooks, automations, project instruction discovery, and GUI Git controls as policy/trace-gated roadmap items, not shortcuts around core.
 - Treat JSONL trace as the durable event truth and SQLite as a rebuildable index.
 - Access SQLite through `rusqlite`; build it with bundled SQLite for local release portability.
 

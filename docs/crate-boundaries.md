@@ -8,6 +8,8 @@
 
 这是实现阶段的约束文档，不是长期愿景清单。
 
+Coding-agent 产品方向和外部参考目标见 [Coding-Agent Direction](coding-agent-direction.md)。本文件只记录 crate 依赖和禁止绕路的边界。
+
 ## 2. 依赖方向
 
 v0.1 允许的核心依赖方向：
@@ -411,6 +413,10 @@ GUI 是 client shell，不是第二套 runtime。产品 GUI 默认方向见 [ADR
 - snapshots。
 - sandbox。
 - distribution。
+- hooks。
+- automations。
+- app-server listener。
+- instruction loader。
 
 它们不得在 v0.1 中形成独立执行系统。如果确实需要类型，放入 `protocol` 或 `core` 的 reserved area，并写清楚不执行。
 
@@ -465,6 +471,24 @@ Skill registry 第一版是只读 schema 和 discovery 边界，不是可执行�
 - 入口优先兼容 `SKILL.md` metadata；`skill.toml` 只作为后续高级 manifest 格式预留。
 - registry 不能执行 workflow、shell、脚本、MCP 或工具。
 - 后续 skill activation 必须转成标准 trace event，并通过 tool/policy 边界。
+
+### instruction_loader
+
+Project instruction discovery 是 coding-agent CLI 的关键体验，但它不是简单读取文件拼进 prompt。
+
+推荐边界：
+
+- `protocol` 后续定义 `InstructionSource` / `LoadedInstruction` metadata，记录 path/uri、precedence、byte count、hash、redaction status 和 placement。
+- `core` 可以提供只读 discovery planner，先识别 `AGENTS.md`，后续兼容 `CLAUDE.md` 或其他 fallback names。
+- instruction 内容进入 provider 前必须有 byte limit、encoding handling、secret redaction 和 trace reference。
+- discovery 不得读取 workspace 外任意路径，不得跟随不安全 symlink，不得把文件内容写入不受限日志。
+- TUI/GUI/CLI 只展示 loaded-source report，不自行加载和拼 prompt。
+
+禁止：
+
+- CLI 直接读取 instruction 文件并绕过 core/context tracing。
+- 把所有 instruction 原文无上限写入 trace。
+- 不记录来源地把 instruction 注入 provider request。
 
 ### tools / policy / sandbox
 
@@ -549,6 +573,61 @@ HTTP/SSE 和未来 ACP/editor integration 都不能拥有第二套 runtime。
 - `since_seq` 是增量读取基础。
 - 默认只绑定 localhost。
 - v0.4 foundation 可以在 `core` 提供 `RuntimeHttpApi`，把 `RuntimeReader` event page 形状化为 JSON 和 SSE frames；真正 HTTP server 仍必须是薄壳，不能拥有第二套 runtime。
+
+### app_server
+
+Codex App Server / Claude Desktop-Web style clients 需要比 read-only HTTP/SSE 更完整的控制协议，但 app server 仍然只是 runtime API 的传输壳。
+
+推荐边界：
+
+- 后续 `app-server` crate 只能依赖 core public runtime API、client/protocol DTO、config 和 auth/session helpers。
+- 使用 typed messages、bounded queues、generated schemas 和 explicit protocol version。
+- 默认只绑定 localhost 或 unix socket。
+- 所有 mutation command 都必须变成 core runtime command 或 `ClientIntent`，并进入 policy/trace。
+- 支持 reconnect：client 通过 task snapshot、trace id 和 `since_seq` 恢复。
+
+禁止：
+
+- app server 调 provider SDK。
+- app server 直接读写 SQLite internals。
+- app server 执行 shell/file/git tool。
+- app server 持有独立 task scheduler。
+- app server 暴露未授权远程控制端口。
+
+### hooks
+
+Hooks 是 event subscriber / decision contributor，不是 shell 旁路。
+
+推荐边界：
+
+- hook runtime 不早于 tool/policy/sandbox/checkpoint foundation。
+- hook 输入是标准 runtime event、task metadata 或 approval request。
+- hook 输出只能是 context addition、policy decision request、notification request 或 traced tool proposal。
+- 每个 hook 有 timeout、allowed tools、env allowlist、workspace scope 和 failure policy。
+- hook execution 必须写 trace，并避免把 secret env 注入子进程。
+
+禁止：
+
+- 未经 policy 直接执行 shell hook。
+- hook 修改文件但不创建 checkpoint。
+- hook 输出直接进入 provider context 但不记录来源。
+
+### automations
+
+Automations 是 scheduled/event-triggered task creation，不是隐藏 agent。
+
+推荐边界：
+
+- 需要 durable task ownership、workspace/worktree binding、setup verification、logs/artifacts、notifications 和 failure summary。
+- automation prompt、schedule、workspace、model、reasoning、permission profile 和 output contract 都必须显式保存。
+- worktree mode 是 code-modifying automation 的默认隔离方式。
+- automation run 必须能被取消、暂停、查看 trace、导出 evidence。
+
+禁止：
+
+- 在没有 workspace isolation 时自动修改用户项目。
+- 静默运行 provider/tool without trace。
+- 失败时只吞日志或只发自然语言摘要。
 
 ### GUI client
 

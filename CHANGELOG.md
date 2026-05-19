@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added a deterministic GUI smoke test for the Tauri shell covering mock/replay load, prompt submission, cancellation, new-thread reset, and toolbar action accessibility names.
 - Added a v0.2 distribution plan covering GitHub Releases, Cargo, Homebrew, npm wrapper, Docker, checksums, publish ordering, mirror knobs, and v0.3+ acceptance gates.
 - Added a roadmap governance refresh with `docs/version-plan.md` as the v0.1-v0.9 source of truth and `docs/global-plan.md` as the current progress dashboard.
+- Added `docs/coding-agent-direction.md` to align DeepSeek-TUI, Reasonix, Codex CLI/App/App Server, and Claude Code CLI/Desktop/Web lessons with Tessera's version gates, GUI direction, hooks, automations, skills, subagents, and app-server boundaries.
 - Added release identity metadata so `tessera --version` reports both the crate version and build git SHA.
 - Added a provider-neutral `ToolDescriptor` schema and read-only `ToolRegistry` for tool metadata, with `parallel_safe` defaulting to false and no tool execution path.
 - Added tool call request, policy decision, and approval trace metadata plus a draft `PolicyGate` that produces `allow` / `ask_user` / `deny` decisions without executing tools.

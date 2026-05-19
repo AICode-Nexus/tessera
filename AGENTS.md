@@ -6,10 +6,11 @@ This repository has shipped v0.1 and is now roadmap-driven. Architecture documen
 
 - Keep Tessera Rust-first and quality-first.
 - Preserve a single headless runtime shared by CLI, TUI, replay, future GUI, and future runtime APIs.
-- Treat `docs/technical-architecture.md`, `docs/version-plan.md`, `docs/global-plan.md`, `docs/deepseek-tui-lessons.md`, `docs/reasonix-lessons.md`, `docs/protocol-v0.md`, `docs/trace-schema-v0.md`, and `docs/crate-boundaries.md` as the current implementation contract.
+- Treat `docs/technical-architecture.md`, `docs/version-plan.md`, `docs/global-plan.md`, `docs/coding-agent-direction.md`, `docs/deepseek-tui-lessons.md`, `docs/reasonix-lessons.md`, `docs/protocol-v0.md`, `docs/trace-schema-v0.md`, and `docs/crate-boundaries.md` as the current implementation contract.
 - Treat `docs/v0.1-plan.md` and `docs/v0.1-release-checklist.md` as historical v0.1 release contract documents.
 - Update `docs/version-plan.md` when a version scope, dependency, exit criterion, or cross-version gate changes.
 - Update `docs/global-plan.md` whenever a staged checklist item is completed, added, removed, or deliberately deferred.
+- Update `docs/coding-agent-direction.md` when aligning or changing DeepSeek-TUI, Reasonix, Codex CLI/GUI/App Server, Claude Code CLI/Desktop/Web, skills, hooks, subagents, automations, or modern coding-agent UX direction.
 
 ## Architecture Rules
 
@@ -20,7 +21,7 @@ This repository has shipped v0.1 and is now roadmap-driven. Architecture documen
 - Core owns run lifecycle, event routing, and provider/storage coordination.
 - Protocol must stay provider-neutral and UI-neutral.
 - DeepSeek-TUI lessons may inform Tessera design, but DeepSeek-specific capabilities must remain provider extensions.
-- Auto routing, YOLO mode, tool execution, sub-agents, MCP, ACP, sandbox, snapshots, diagnostics, memory, swarm, and learning are staged roadmap items unless the user explicitly changes scope.
+- Auto routing, YOLO mode, tool execution, sub-agents, MCP, ACP, sandbox, snapshots, diagnostics, memory, project instruction ingestion, hooks, automations, app-server listeners, GUI Git mutation, swarm, and learning are staged roadmap items unless the user explicitly changes scope.
 
 ## Version Scope
 
@@ -40,6 +41,11 @@ Not allowed unless the active version gate explicitly permits it:
 - MCP runtime.
 - Agent runtime.
 - Provider socket freezing.
+- Project instruction ingestion without precedence, byte limits, source reporting, redaction, and trace references.
+- Hook runtime.
+- Automation runtime.
+- App-server listener.
+- GUI Git mutation.
 - Workspace restore/revert.
 - Swarm scheduler.
 - Long-term memory runtime.

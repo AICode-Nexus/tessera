@@ -2,6 +2,8 @@
 
 日期：2026-05-14
 
+> Status note: 本文是早期高层愿景和需求分析，保留用于背景和设计溯源。当前实现合约以 `docs/technical-architecture.md`、`docs/version-plan.md`、`docs/global-plan.md`、`docs/coding-agent-direction.md`、`docs/protocol-v0.md`、`docs/trace-schema-v0.md` 和 `docs/crate-boundaries.md` 为准。若本文中的 v0.1 范围、crate 列表或下一步建议与这些当前合约冲突，以当前合约为准。
+
 ## 1. 背景
 
 目标是开发 Tessera：一个新的通用大模型 TUI，形态上接近 deepseek-tui 一类终端交互工具，但定位不应局限于某一个模型或某一种聊天界面。

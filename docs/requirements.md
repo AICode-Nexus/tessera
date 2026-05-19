@@ -2,6 +2,8 @@
 
 日期：2026-05-14
 
+> Status note: 本文是早期需求稿，保留用于产品定位和设计溯源。当前实现状态、版本边界和下一步执行顺序以 `docs/version-plan.md`、`docs/global-plan.md`、`docs/coding-agent-direction.md` 和 `docs/technical-architecture.md` 为准。若本文仍写“当前阶段只做需求和架构设计”或旧 v0.1 范围，以当前路线图为准。
+
 ## 1. 项目定位
 
 Tessera 是一个模型无关、面向 agent 演进、支持多任务多窗口、工具调用可审计、运行可回放的终端大模型工作台。

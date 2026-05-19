@@ -2,7 +2,7 @@
 
 日期：2026-05-19
 
-本文是 Tessera v0.1 到 v0.9 的版本路线图源文件。它回答每个版本“为什么存在、包含什么、不包含什么、怎样算完成”。`docs/global-plan.md` 只记录当前进度和下一步执行顺序；本文件记录跨版本边界。
+本文是 Tessera v0.1 到 v0.9 的版本路线图源文件。它回答每个版本“为什么存在、包含什么、不包含什么、怎样算完成”。`docs/global-plan.md` 只记录当前进度和下一步执行顺序；本文件记录跨版本边界。DeepSeek-TUI、Reasonix、Codex CLI / App / App Server、Claude Code CLI / Desktop / Web 等外部方向统一沉淀在 `docs/coding-agent-direction.md`，本文件只承接其中会改变版本边界和门禁的内容。
 
 ## 1. Roadmap Rules
 
@@ -12,8 +12,23 @@
 - UI 只渲染和分发 intent；TUI/GUI 不直接调用 provider SDK、不读写 storage internals。
 - Foundation 完成不等于用户可用 runtime 完成。凡是只定义 schema、registry、projection、planner 或 metadata helper 的项目，必须标为 foundation。
 - Tool、agent、MCP、swarm、learning、long-term memory、workspace restore 等能力必须按版本门禁进入，不能因为有 schema 就宣称 runtime 已支持。
+- CLI、TUI、GUI、runtime API、IDE bridge、automation 和 hook 都是 client 或 policy surface，不得拥有第二套 runtime。
+- Project instruction files、skills、hooks、MCP servers、web/computer-use、automation setup scripts 都是高风险输入，必须有来源记录、作用域、权限和 trace。
 
-## 2. Status Terms
+## 2. Directional Compatibility Targets
+
+Tessera 不复刻某个产品，但必须逐步具备现代 coding-agent workbench 的结构能力：
+
+- **Codex CLI / Claude Code CLI style headless workflow:** interactive chat、one-shot prompt、resume、non-interactive run、JSON output、doctor、config validation、script/CI friendly exit status。
+- **Codex App / GUI style control plane:** 多 thread/task、worktree isolation、diff/review panes、artifact previews、approvals、integrated terminal、background task reattach。
+- **App-server / runtime API style protocol:** typed messages、bounded queues、auth、generated schemas、localhost default、no duplicate runtime。
+- **Skills and project instructions:** `AGENTS.md` / `CLAUDE.md`-like instruction discovery and `SKILL.md`-compatible progressive disclosure, but no unchecked script execution.
+- **Hooks and automations:** event-driven workflow extensions only after tool/policy/sandbox/checkpoint/task ownership exist.
+- **Subagents:** context isolation and structured evidence first; swarm scheduling later.
+
+Detailed product-direction rules live in `docs/coding-agent-direction.md`.
+
+## 3. Status Terms
 
 | Status | Meaning |
 | --- | --- |
@@ -24,7 +39,7 @@
 | Planned | 设计方向明确，尚未实现。 |
 | Blocked | 需要前置版本或门禁完成后才能实现。 |
 
-## 3. Version Matrix
+## 4. Version Matrix
 
 | Version | Theme | Current Status | Runtime Claim |
 | --- | --- | --- | --- |
@@ -33,12 +48,12 @@
 | v0.3 | Tool policy and sandbox foundations | Foundation complete | Tool metadata, policy, approval, sandbox and checkpoint planners exist; no tool execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
 | v0.5 | Single-agent and resumable task foundations | In progress | Pause/resume chat path and context handles are usable; single agent loop and skill runtime are not. |
-| v0.6 | Persistent sub-agents and structured review | Planned | No persistent sub-agent runtime yet. |
-| v0.7 | Project coding-agent workflow | Planned | No file-modifying coding-agent workflow yet. |
+| v0.6 | Persistent sub-agents and structured review | Planned | No persistent sub-agent runtime or reviewer gate yet. |
+| v0.7 | Project coding-agent workflow | Planned | No file-modifying coding-agent workflow, patch workflow, or GUI/TUI diff control yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
 | v0.9 | Learning proposal system | Planned | No automatic learning or self-modification; proposals only. |
 
-## 4. v0.1: Trace-First Local Runtime
+## 5. v0.1: Trace-First Local Runtime
 
 **Goal:** Build the smallest real local runtime that proves CLI/TUI/mock/provider/storage/replay can share the same headless core.
 
@@ -63,7 +78,7 @@
 
 **Detailed Plan:** `docs/v0.1-plan.md` remains the detailed historical v0.1 plan.
 
-## 5. v0.2: Read-Only Projection And GUI-Ready Surfaces
+## 6. v0.2: Read-Only Projection And GUI-Ready Surfaces
 
 **Goal:** Make runtime state observable and GUI-ready without adding new execution paths.
 
@@ -90,7 +105,7 @@
 
 **Exit Criteria:** GUI/mock projection, runtime reader, task/artifact/snapshot projection, and DTO bindings are covered by contract tests; no GUI bridge command bypasses core/provider/storage boundaries.
 
-## 6. v0.3: Tool Policy And Sandbox Foundations
+## 7. v0.3: Tool Policy And Sandbox Foundations
 
 **Goal:** Define the governance layer required before any file, shell, git, or HTTP tool can execute.
 
@@ -114,7 +129,7 @@
 
 **Exit Criteria:** Any future tool runtime must start from these policy/sandbox/checkpoint contracts and produce trace events before model-visible results.
 
-## 7. v0.4: Runtime API, MCP, Diagnostics, Memory Foundations
+## 8. v0.4: Runtime API, MCP, Diagnostics, Memory Foundations
 
 **Goal:** Shape integration surfaces while keeping execution ownership in core.
 
@@ -130,11 +145,11 @@
 
 **Excluded:**
 
-- MCP client/server runtime, listening HTTP/SSE server, LSP server, compiler/test runner integration, diagnostics file scanning, long-term memory store, and automatic memory writes.
+- MCP client/server runtime, listening HTTP/SSE server, app-server auth/listener, LSP server, compiler/test runner integration, diagnostics file scanning, long-term memory store, automation runtime, hook runtime, and automatic memory writes.
 
 **Exit Criteria:** Integrations can be replayed from trace and cannot mutate runtime state through side channels.
 
-## 8. v0.5: Single-Agent And Resumable Task Foundations
+## 9. v0.5: Single-Agent And Resumable Task Foundations
 
 **Goal:** Move from single chat runs toward a controlled single-agent runtime, while making pause/resume honest and trace-first.
 
@@ -154,20 +169,23 @@
 
 **Remaining:**
 
-- Single agent loop.
-- Skill runtime v1.
+- Single agent loop with provider-neutral observations, max-step limits, stop/no-progress handling, trace replay, and machine-readable run summary.
+- Skill runtime v1 with `SKILL.md` discovery, activation/step trace events, read-only reference loading, and no unchecked script execution.
+- Project instruction discovery foundation for `AGENTS.md` / future `CLAUDE.md`-style files: precedence, byte limits, source reporting, secret redaction, and trace references.
+- Non-interactive agent run envelope for future `exec` / script / CI use: input, task id, trace id, exit status, evidence refs, and JSON output.
 - Durable background task ownership.
-- Background reattach.
+- Background reattach with log/artifact projection.
 - Non-chat task resume.
 - Real checkpoint restore semantics.
+- Runtime API / app-server design alignment: typed messages, bounded queues, generated schemas, localhost default, and auth model, without a second runtime.
 
 **Excluded Until Later:**
 
-- Provider socket freezing, workspace restore/revert, tool execution, sub-agent persistence, swarm scheduling, and learning runtime.
+- Provider socket freezing, workspace restore/revert, tool execution, sub-agent persistence, hook runtime, automation runtime, swarm scheduling, and learning runtime.
 
-**Exit Criteria:** A single-agent loop can run against provider-neutral observations, obey policy/sandbox gates, write trace, stop on no-progress conditions, and be replayed without relying on UI state.
+**Exit Criteria:** A single-agent loop can run against provider-neutral observations, obey policy/sandbox gates, write trace, stop on no-progress conditions, load instruction/skill references through bounded traceable handles, emit machine-readable summaries, and be replayed without relying on UI state.
 
-## 9. v0.6: Persistent Sub-Agents And Structured Review
+## 10. v0.6: Persistent Sub-Agents And Structured Review
 
 **Goal:** Add multiple durable agent sessions only after the single-agent loop and trace contracts are stable.
 
@@ -181,10 +199,13 @@
 - Parent/child task linkage.
 - Agent transcript artifact handles.
 - Per-agent scope, cost, recursion, and concurrency limits.
+- Approval forwarding and inactive-child task handling.
+- Skill-scoped subagent entrypoints.
+- Structured evidence bundles that GUI/TUI can inspect without loading full transcripts.
 
 **Excluded:**
 
-- Swarm scheduler, autonomous file mutation without reviewer gate, invisible child-agent state, unbounded recursion, and cross-agent memory writes without scope schema.
+- Swarm scheduler, autonomous file mutation without reviewer gate, invisible child-agent state, unbounded recursion, background fan-out without owner/cancel semantics, and cross-agent memory writes without scope schema.
 
 **Dependencies:**
 
@@ -192,9 +213,9 @@
 - Stable task lifecycle and trace replay.
 - Tool policy and approval surfaces.
 
-**Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable.
+**Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable; reviewer gate can accept, reject, or request revision without relying on UI-only state.
 
-## 10. v0.7: Project Coding-Agent Workflow
+## 11. v0.7: Project Coding-Agent Workflow
 
 **Goal:** Support codebase modification workflows through explicit diff, test, checkpoint, and rollback contracts.
 
@@ -209,10 +230,14 @@
 - Checkpoint creation before mutating operations.
 - Rollback/restore trace events.
 - Run summary and evidence bundle.
+- Worktree-first mutation mode.
+- Code review command shape and reviewer evidence bundle.
+- TUI/GUI diff, approval, and artifact inspection surfaces.
+- Git stage/commit/push/PR intents only after patch/checkpoint gates are stable.
 
 **Excluded:**
 
-- Unapproved shell/file/git execution, YOLO mode without trace, hidden patch application, and restore/revert without explicit trace events.
+- Unapproved shell/file/git execution, YOLO mode without trace, hidden patch application, GUI Git mutation without policy/checkpoint, and restore/revert without explicit trace events.
 
 **Dependencies:**
 
@@ -220,9 +245,9 @@
 - v0.5 single-agent loop.
 - v0.6 reviewer gate and structured handoff.
 
-**Exit Criteria:** Every file mutation is traceable, reviewable, testable, and recoverable through documented checkpoint semantics.
+**Exit Criteria:** Every file mutation is traceable, reviewable, testable, recoverable through documented checkpoint semantics, and inspectable from CLI/TUI/GUI without any surface owning runtime state.
 
-## 11. v0.8: Swarm Scheduler
+## 12. v0.8: Swarm Scheduler
 
 **Goal:** Add coordinated multi-agent scheduling after single-agent and sub-agent review contracts are stable.
 
@@ -236,19 +261,21 @@
 - Cost and concurrency guardrails.
 - Swarm graph projection.
 - Swarm replay summary.
+- Scheduler policy for task priority, cancellation, retry, and partial results.
+- Optional automation trigger integration after task ownership and setup gates exist.
 
 **Excluded:**
 
-- Swarm before structured handoff, reviewer gate, per-agent scope, and no-progress detection are stable.
+- Swarm before structured handoff, reviewer gate, per-agent scope, no-progress detection, automation setup gates, and cost budgets are stable.
 
 **Dependencies:**
 
 - v0.6 persistent sub-agent sessions and reviewer gate.
 - v0.7 project coding-agent workflow if swarm can mutate code.
 
-**Exit Criteria:** Parallel work can complete out of order internally while trace/model-visible results remain deterministic and review-gated.
+**Exit Criteria:** Parallel work can complete out of order internally while trace/model-visible results remain deterministic, bounded, review-gated, and replayable as a swarm graph.
 
-## 12. v0.9: Learning Proposal System
+## 13. v0.9: Learning Proposal System
 
 **Goal:** Let Tessera learn from traces by proposing improvements, not by silently changing runtime behavior.
 
@@ -263,6 +290,8 @@
 - Eval case generation.
 - Learning ledger.
 - Replay/eval before apply.
+- Documentation update proposals.
+- Hook/automation improvement proposals.
 
 **Excluded:**
 
@@ -274,15 +303,23 @@
 - Stable skill runtime and policy gates.
 - Evaluation and reviewer workflows.
 
-**Exit Criteria:** Learning outputs are auditable proposals with evidence, risk labels, and explicit user or reviewer approval before application.
+**Exit Criteria:** Learning outputs are auditable proposals with evidence, risk labels, replay/eval results, and explicit user or reviewer approval before application.
 
-## 13. Mandatory Cross-Version Gates
+## 14. Mandatory Cross-Version Gates
 
 - No provider behavior expansion without replay fixtures.
 - No file mutation tools without policy gate, sandbox decision, and checkpoint semantics.
 - No shell/git/file runtime without approval UI and trace events.
+- No instruction-file ingestion without precedence rules, byte limits, loaded-source reporting, secret redaction, and trace references.
+- No hook runtime before tool/policy/sandbox/checkpoint exist; hooks may propose or subscribe, not bypass.
+- No automation runtime before task ownership, workspace isolation, setup verification, logs, notifications, and failure reporting exist.
+- No app-server listener before auth, bounded queues, health checks, generated schemas, and localhost-default binding exist.
+- No GUI Git mutation before diff, checkpoint, policy and trace semantics exist.
 - No Auto router execution without usage/cache/cost telemetry and user-visible route reasons.
 - No automatic route escalation without no-progress loop detection.
-- No swarm before structured handoff and reviewer gate.
+- No subagent fan-out before explicit caps, parent/child trace linkage, artifact-backed transcripts, and reviewer gate.
+- No swarm before structured handoff, reviewer gate, cost budget and deterministic result publication.
 - No long-term memory runtime before scope schema, proposal review, and trace-backed apply/reject records.
 - No learning apply path before proposal review and replay/eval evidence.
+- No MCP environment forwarding without explicit env allowlist and secret redaction.
+- No web search or computer-use default-on behavior without policy, source attribution and replay-safe event records.
