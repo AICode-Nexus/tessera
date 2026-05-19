@@ -207,6 +207,7 @@ pub enum CliReplCommand {
     Cancel,
     PauseTask(Option<String>),
     ResumeTask(String),
+    ResumeTasks,
     Paste,
     Profiles,
     SwitchProfile(String),
@@ -283,6 +284,9 @@ impl CliReplSession {
                     "resume requested for {task_id} as metadata-only CLI intent; no runtime execution was invoked"
                 )]))
             }
+            CliReplCommand::ResumeTasks => Ok(CliReplCommandOutcome::continue_with([
+                "/resume-tasks requires an active data directory".to_string(),
+            ])),
             CliReplCommand::Paste => Ok(CliReplCommandOutcome::continue_with([
                 "/paste is only available in the interactive REPL".to_string(),
             ])),
@@ -346,6 +350,7 @@ impl CliReplSession {
     ) -> Result<CliReplCommandOutcome> {
         match command {
             CliReplCommand::Sessions => self.list_sessions(data_dir),
+            CliReplCommand::ResumeTasks => self.list_resume_tasks(data_dir, config),
             CliReplCommand::ResumeSession(trace_id) => self.resume_session(data_dir, &trace_id),
             CliReplCommand::Doctor => self.doctor(data_dir, config),
             other => self.handle_command(config, other),
@@ -368,6 +373,16 @@ impl CliReplSession {
         Ok(CliReplCommandOutcome::continue_with(format_session_lines(
             &list_sessions(data_dir)?,
         )))
+    }
+
+    fn list_resume_tasks(
+        &self,
+        data_dir: impl AsRef<Path>,
+        config: &TesseraConfig,
+    ) -> Result<CliReplCommandOutcome> {
+        Ok(CliReplCommandOutcome::continue_with(
+            format_resume_task_lines(&list_resumable_pause_checkpoints(data_dir, config)?),
+        ))
     }
 
     fn doctor(
@@ -436,6 +451,7 @@ pub fn parse_repl_command(input: &str) -> Option<CliReplCommand> {
             Some(argument.to_string())
         }),
         "/resume-task" if !argument.is_empty() => CliReplCommand::ResumeTask(argument.to_string()),
+        "/resume-tasks" => CliReplCommand::ResumeTasks,
         "/paste" => CliReplCommand::Paste,
         "/profiles" => CliReplCommand::Profiles,
         "/profile" if !argument.is_empty() => CliReplCommand::SwitchProfile(argument.to_string()),
@@ -489,6 +505,71 @@ pub fn format_session_lines(sessions: &[CliSessionSummary]) -> Vec<String> {
                 session.event_count,
                 updated_at,
                 preview
+            )
+        })
+        .collect()
+}
+
+fn list_resumable_pause_checkpoints(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+) -> Result<Vec<RuntimePauseCheckpointSummary>> {
+    let data_dir = data_dir.as_ref();
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    let configured_provider_ids = config
+        .providers
+        .iter()
+        .map(|profile| profile.id.as_str())
+        .collect::<HashSet<_>>();
+    let mut checkpoints = Vec::new();
+
+    for session in reader.list_sessions()? {
+        let tasks = reader.list_tasks(&session.trace_id)?;
+        for checkpoint in reader.list_pause_checkpoints(&session.trace_id)? {
+            let task_is_paused = tasks.iter().any(|task| {
+                task.task_id == checkpoint.task_id && task.status == TaskStatus::Paused
+            });
+            if !task_is_paused
+                || checkpoint.resume_mode != ResumeMode::FromTraceProjection
+                || !configured_provider_ids.contains(checkpoint.provider_id.as_str())
+            {
+                continue;
+            }
+            checkpoints.push(checkpoint);
+        }
+    }
+
+    checkpoints.sort_by(|left, right| {
+        let left_created = left.created_at.as_ref().map(|timestamp| timestamp.as_str());
+        let right_created = right
+            .created_at
+            .as_ref()
+            .map(|timestamp| timestamp.as_str());
+        right_created
+            .cmp(&left_created)
+            .then_with(|| left.task_id.cmp(&right.task_id))
+    });
+    Ok(checkpoints)
+}
+
+fn format_resume_task_lines(checkpoints: &[RuntimePauseCheckpointSummary]) -> Vec<String> {
+    if checkpoints.is_empty() {
+        return vec!["no resumable paused tasks found".to_string()];
+    }
+
+    checkpoints
+        .iter()
+        .enumerate()
+        .map(|(index, checkpoint)| {
+            let reason = checkpoint.reason.as_deref().unwrap_or("none");
+            format!(
+                "{}. {} | trace {} | provider {} | checkpoint {} | reason {}",
+                index + 1,
+                checkpoint.task_id,
+                checkpoint.trace_id,
+                checkpoint.provider_id,
+                checkpoint.checkpoint_id,
+                reason
             )
         })
         .collect()
@@ -1366,6 +1447,7 @@ pub fn chat_command_lines() -> Vec<&'static str> {
         "  /cancel            cancel active paste/run when available",
         "  /pause [task_id]   pause active run when available; otherwise record metadata-only intent",
         "  /resume-task <task_id> resume a paused chat task from its trace checkpoint",
+        "  /resume-tasks      list resumable paused tasks from trace checkpoints",
         "  /paste             enter multiline prompt mode",
         "  /profiles          list configured provider profiles",
         "  /profile <id>      switch active provider profile",
