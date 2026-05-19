@@ -70,7 +70,26 @@ Expected event markers on the paused source trace:
 
 The source trace should remain the event truth. SQLite indexes are rebuildable and should not be treated as the source of truth.
 
-## 5. Negative Checks
+## 5. Top-Level Task Commands
+
+The same mock-only paused task path can be inspected and resumed without entering the REPL:
+
+```bash
+./target/debug/tessera tasks --config "$TEST_ROOT/tessera.toml"
+./target/debug/tessera tasks --config "$TEST_ROOT/tessera.toml" --json
+./target/debug/tessera chat --config "$TEST_ROOT/tessera.toml" --resume-task 1
+```
+
+Expected markers:
+
+- `tessera tasks` prints numbered entries with `task_...`, `trace_...`, provider, checkpoint, and reason fields.
+- `tessera tasks --json` emits the same resumable checkpoint list as structured JSON.
+- `chat --resume-task 1` starts a new chat run from the saved trace projection and prints `resuming task task_...`.
+- The resumed output includes `mock response to: Continue the paused task ...`.
+
+This is still chat-only trace projection resume. It does not keep the original provider connection alive, reattach a background runtime, restore workspace files, or resume tool/agent/non-chat work.
+
+## 6. Negative Checks
 
 Missing checkpoint:
 
@@ -105,7 +124,17 @@ Expected marker:
 
 - `task <old_task_id> is not paused (current status: running)`
 
-## 6. Optional Interactive Check
+Top-level incompatible arguments should fail before any runtime work:
+
+```bash
+./target/debug/tessera chat --config "$TEST_ROOT/tessera.toml" --resume-task 1 --prompt hello
+```
+
+Expected marker:
+
+- `--resume-task cannot be combined`
+
+## 7. Optional Interactive Check
 
 You can also run the REPL manually:
 
@@ -123,7 +152,7 @@ Useful commands:
 - `/sessions`
 - `/events` is not a REPL command; use the top-level `tessera events <trace_id>` command.
 
-## 7. Cleanup
+## 8. Cleanup
 
 ```bash
 rm -rf "$TEST_ROOT"

@@ -73,6 +73,21 @@ pub struct CliEventPage {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliResumableTaskSummary {
+    pub checkpoint_id: String,
+    pub task_id: String,
+    pub trace_id: String,
+    pub event_seq: u64,
+    pub last_seq: u64,
+    pub provider_id: String,
+    pub profile_id: String,
+    pub model: String,
+    pub resume_mode: ResumeMode,
+    pub reason: Option<String>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CliProviderProfile {
     pub id: String,
     pub kind: String,
@@ -139,6 +154,26 @@ impl From<tessera_core::RuntimeEventPage> for CliEventPage {
             trace_id: page.trace_id,
             records: page.records,
             next_since_seq: page.next_since_seq,
+        }
+    }
+}
+
+impl From<RuntimePauseCheckpointSummary> for CliResumableTaskSummary {
+    fn from(checkpoint: RuntimePauseCheckpointSummary) -> Self {
+        Self {
+            checkpoint_id: checkpoint.checkpoint_id.to_string(),
+            task_id: checkpoint.task_id.to_string(),
+            trace_id: checkpoint.trace_id,
+            event_seq: checkpoint.event_seq,
+            last_seq: checkpoint.last_seq,
+            provider_id: checkpoint.provider_id.to_string(),
+            profile_id: checkpoint.profile_id.to_string(),
+            model: checkpoint.model,
+            resume_mode: checkpoint.resume_mode,
+            reason: checkpoint.reason,
+            created_at: checkpoint
+                .created_at
+                .map(|timestamp| timestamp.as_str().to_string()),
         }
     }
 }
@@ -483,6 +518,16 @@ pub fn latest_session_trace_id(data_dir: impl AsRef<Path>) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("no sessions found to continue"))
 }
 
+pub fn list_resumable_tasks(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+) -> Result<Vec<CliResumableTaskSummary>> {
+    Ok(list_resumable_pause_checkpoints(data_dir, config)?
+        .into_iter()
+        .map(CliResumableTaskSummary::from)
+        .collect())
+}
+
 pub fn format_session_lines(sessions: &[CliSessionSummary]) -> Vec<String> {
     if sessions.is_empty() {
         return vec!["no sessions found".to_string()];
@@ -552,27 +597,36 @@ fn list_resumable_pause_checkpoints(
     Ok(checkpoints)
 }
 
-fn format_resume_task_lines(checkpoints: &[RuntimePauseCheckpointSummary]) -> Vec<String> {
-    if checkpoints.is_empty() {
+pub fn format_resumable_task_lines(tasks: &[CliResumableTaskSummary]) -> Vec<String> {
+    if tasks.is_empty() {
         return vec!["no resumable paused tasks found".to_string()];
     }
 
-    checkpoints
+    tasks
         .iter()
         .enumerate()
-        .map(|(index, checkpoint)| {
-            let reason = checkpoint.reason.as_deref().unwrap_or("none");
+        .map(|(index, task)| {
+            let reason = task.reason.as_deref().unwrap_or("none");
             format!(
                 "{}. {} | trace {} | provider {} | checkpoint {} | reason {}",
                 index + 1,
-                checkpoint.task_id,
-                checkpoint.trace_id,
-                checkpoint.provider_id,
-                checkpoint.checkpoint_id,
+                task.task_id,
+                task.trace_id,
+                task.provider_id,
+                task.checkpoint_id,
                 reason
             )
         })
         .collect()
+}
+
+fn format_resume_task_lines(checkpoints: &[RuntimePauseCheckpointSummary]) -> Vec<String> {
+    let tasks = checkpoints
+        .iter()
+        .cloned()
+        .map(CliResumableTaskSummary::from)
+        .collect::<Vec<_>>();
+    format_resumable_task_lines(&tasks)
 }
 
 fn resolve_session_selector(data_dir: &Path, selector: &str) -> Result<String> {
@@ -1337,6 +1391,31 @@ fn project_checkpoint_trace_into_session(
     Ok(())
 }
 
+fn provider_history_for_checkpoint(
+    data_dir: &Path,
+    checkpoint: &RuntimePauseCheckpointSummary,
+) -> Result<Vec<ProviderMessage>> {
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    let page = reader.list_events(RuntimeEventQuery::new(checkpoint.trace_id.as_str()))?;
+    let records = page
+        .records
+        .iter()
+        .filter(|record| record.seq <= checkpoint.last_seq)
+        .collect::<Vec<_>>();
+    if records.is_empty() {
+        return Err(anyhow::anyhow!(
+            "pause checkpoint has no trace records to project: {}",
+            checkpoint.checkpoint_id
+        ));
+    }
+
+    let mut snapshot = ClientSnapshot::new("resume-task");
+    for record in records {
+        snapshot.apply_trace_record(record);
+    }
+    Ok(provider_history_from_snapshot(&snapshot))
+}
+
 fn config_for_resume_checkpoint(
     config: &TesseraConfig,
     checkpoint: &RuntimePauseCheckpointSummary,
@@ -1354,6 +1433,53 @@ fn config_for_resume_checkpoint(
 
 fn resume_task_prompt(task_id: &TaskId) -> String {
     format!("Continue the paused task {task_id} from the saved trace projection.")
+}
+
+pub async fn resume_task_with_config<W>(
+    data_dir: impl AsRef<Path>,
+    config: &TesseraConfig,
+    task_selector: &str,
+    output: &mut W,
+) -> Result<ConversationOutcome>
+where
+    W: Write,
+{
+    let data_dir = data_dir.as_ref();
+    let checkpoint = resolve_resume_task_checkpoint(data_dir, config, task_selector)?;
+    if checkpoint.resume_mode != ResumeMode::FromTraceProjection {
+        return Err(anyhow::anyhow!(
+            "unsupported resume mode for task {}: {:?}",
+            checkpoint.task_id,
+            checkpoint.resume_mode
+        ));
+    }
+    ensure_checkpoint_task_is_paused(data_dir, &checkpoint)?;
+    let provider_id = checkpoint.provider_id.to_string();
+    let resume_config = config_for_resume_checkpoint(config, &checkpoint)?;
+    let history = provider_history_for_checkpoint(data_dir, &checkpoint)?;
+
+    writeln!(
+        output,
+        "resuming task {} from trace {} via checkpoint {}",
+        checkpoint.task_id, checkpoint.trace_id, checkpoint.checkpoint_id
+    )?;
+    let outcome = run_chat_with_config_history_and_events(
+        data_dir,
+        &resume_config,
+        &provider_id,
+        resume_task_prompt(&checkpoint.task_id),
+        history,
+        |_| EventSinkAction::Continue,
+    )
+    .await?;
+    writeln!(output, "{}", outcome.assistant_text)?;
+
+    let mut resumer = RuntimeTaskResumer::new(TraceStore::open(data_dir)?);
+    resumer.mark_task_resumed(
+        &checkpoint,
+        Some(format!("chat resume started in trace {}", outcome.trace_id)),
+    )?;
+    Ok(outcome)
 }
 
 async fn run_repl_prompt_and_write<W>(

@@ -39,6 +39,14 @@ enum Commands {
         #[arg(long)]
         data_dir: Option<PathBuf>,
     },
+    Tasks {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+    },
     Profiles {
         #[arg(long)]
         json: bool,
@@ -93,6 +101,8 @@ enum Commands {
         list_commands: bool,
         #[arg(long)]
         resume: Option<String>,
+        #[arg(long)]
+        resume_task: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long)]
@@ -181,6 +191,22 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        Some(Commands::Tasks {
+            json,
+            config,
+            data_dir,
+        }) => {
+            let config = tessera_cli::resolve_config(config)?;
+            let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
+            let tasks = tessera_cli::list_resumable_tasks(data_dir, &config)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&tasks)?);
+            } else {
+                for line in tessera_cli::format_resumable_task_lines(&tasks) {
+                    println!("{line}");
+                }
+            }
+        }
         Some(Commands::Profiles { json, config }) => {
             let config = tessera_cli::resolve_config(config)?;
             let profiles = tessera_cli::list_profiles(&config);
@@ -251,6 +277,7 @@ async fn main() -> anyhow::Result<()> {
             continue_last,
             list_commands,
             resume,
+            resume_task,
             config,
             data_dir,
         }) => {
@@ -263,6 +290,7 @@ async fn main() -> anyhow::Result<()> {
                 continue_last,
                 list_commands,
                 resume,
+                resume_task,
                 config,
                 data_dir,
             })
@@ -294,6 +322,7 @@ struct ChatCommandOptions {
     continue_last: bool,
     list_commands: bool,
     resume: Option<String>,
+    resume_task: Option<String>,
     config: Option<PathBuf>,
     data_dir: Option<PathBuf>,
 }
@@ -309,6 +338,7 @@ impl ChatCommandOptions {
             continue_last: false,
             list_commands: false,
             resume: None,
+            resume_task: None,
             config: None,
             data_dir: None,
         }
@@ -331,10 +361,24 @@ async fn run_chat_command(options: ChatCommandOptions) -> anyhow::Result<()> {
     if prompt_source_count > 1 {
         anyhow::bail!("--prompt, --stdin, and --file cannot be combined");
     }
-    if options.continue_last && (prompt_source_count > 0 || options.resume.is_some()) {
-        anyhow::bail!("--continue cannot be combined with --prompt, --stdin, --file, or --resume");
+    if options.resume_task.is_some()
+        && (prompt_source_count > 0
+            || options.resume.is_some()
+            || options.continue_last
+            || options.json)
+    {
+        anyhow::bail!(
+            "--resume-task cannot be combined with --prompt, --stdin, --file, --resume, --continue, or --json"
+        );
     }
-    if options.resume.is_some() && prompt_source_count > 0 {
+    if options.continue_last
+        && (prompt_source_count > 0 || options.resume.is_some() || options.resume_task.is_some())
+    {
+        anyhow::bail!(
+            "--continue cannot be combined with --prompt, --stdin, --file, --resume, or --resume-task"
+        );
+    }
+    if options.resume.is_some() && (prompt_source_count > 0 || options.resume_task.is_some()) {
         anyhow::bail!("--resume is only supported in interactive chat mode");
     }
 
@@ -349,7 +393,10 @@ async fn run_chat_command(options: ChatCommandOptions) -> anyhow::Result<()> {
         options.prompt
     };
 
-    if let Some(prompt) = prompt {
+    if let Some(resume_task) = options.resume_task {
+        let mut output = std::io::stdout();
+        tessera_cli::resume_task_with_config(data_dir, &config, &resume_task, &mut output).await?;
+    } else if let Some(prompt) = prompt {
         let outcome =
             tessera_cli::run_chat_with_config(data_dir, &config, &options.provider, prompt).await?;
         if options.json {

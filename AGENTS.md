@@ -1,12 +1,14 @@
 # Tessera Agent Instructions
 
-This repository has entered v0.1 implementation. Architecture documents remain the contract, but source changes are now expected when they follow the scoped checklist.
+This repository has shipped v0.1 and is now roadmap-driven. Architecture documents remain the contract, but source changes are expected when they follow the scoped checklist and version gates.
 
 ## Current Contract
 
 - Keep Tessera Rust-first and quality-first.
 - Preserve a single headless runtime shared by CLI, TUI, replay, future GUI, and future runtime APIs.
-- Treat `docs/technical-architecture.md`, `docs/deepseek-tui-lessons.md`, `docs/global-plan.md`, `docs/v0.1-plan.md`, `docs/protocol-v0.md`, `docs/trace-schema-v0.md`, and `docs/crate-boundaries.md` as the current implementation contract.
+- Treat `docs/technical-architecture.md`, `docs/version-plan.md`, `docs/global-plan.md`, `docs/deepseek-tui-lessons.md`, `docs/reasonix-lessons.md`, `docs/protocol-v0.md`, `docs/trace-schema-v0.md`, and `docs/crate-boundaries.md` as the current implementation contract.
+- Treat `docs/v0.1-plan.md` and `docs/v0.1-release-checklist.md` as historical v0.1 release contract documents.
+- Update `docs/version-plan.md` when a version scope, dependency, exit criterion, or cross-version gate changes.
 - Update `docs/global-plan.md` whenever a staged checklist item is completed, added, removed, or deliberately deferred.
 
 ## Architecture Rules
@@ -18,22 +20,27 @@ This repository has entered v0.1 implementation. Architecture documents remain t
 - Core owns run lifecycle, event routing, and provider/storage coordination.
 - Protocol must stay provider-neutral and UI-neutral.
 - DeepSeek-TUI lessons may inform Tessera design, but DeepSeek-specific capabilities must remain provider extensions.
-- Auto routing, YOLO mode, tool execution, sub-agents, MCP, ACP, sandbox, snapshots, and diagnostics are staged roadmap items unless the user explicitly changes scope.
+- Auto routing, YOLO mode, tool execution, sub-agents, MCP, ACP, sandbox, snapshots, diagnostics, memory, swarm, and learning are staged roadmap items unless the user explicitly changes scope.
 
-## v0.1 Scope
+## Version Scope
 
-Allowed:
+v0.1 has shipped. Future work must follow `docs/version-plan.md` and `docs/global-plan.md`.
+
+Always allowed when scoped by the current plan:
 
 - Protocol, client, core, providers, storage, config, cli, and tui crates.
 - Architecture, protocol, trace schema, and crate boundary documents.
-- Mock runtime, provider adapter skeletons, trace, doctor, and CLI/TUI v0.1 work listed in `docs/global-plan.md`.
+- GUI bridge/bindings and `apps/gui-tauri` only when they remain thin clients over shared runtime semantics.
+- Mock runtime, provider adapter skeletons, trace, doctor, CLI/TUI work, and roadmap-listed foundation work.
 
-Not allowed in v0.1 unless the user changes scope:
+Not allowed unless the active version gate explicitly permits it:
 
 - Tool execution.
 - Automatic shell commands from the model.
 - MCP runtime.
 - Agent runtime.
+- Provider socket freezing.
+- Workspace restore/revert.
 - Swarm scheduler.
 - Long-term memory runtime.
 - Learning runtime.

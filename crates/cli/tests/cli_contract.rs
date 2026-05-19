@@ -5,11 +5,12 @@ use std::{
 };
 
 use tessera_cli::{
-    build_tui_state_with_config, list_events, list_sessions, parse_repl_command, resolve_config,
-    resolve_data_dir_with_config, run_chat_mock, run_chat_repl_with_io_and_resume,
-    run_chat_with_config, run_chat_with_config_and_controls_and_events,
-    run_chat_with_config_and_events, run_doctor, run_repl_prompt_with_writer,
-    write_config_template, CliReplCommand, CliReplSession, DoctorReport,
+    build_tui_state_with_config, format_resumable_task_lines, list_events, list_resumable_tasks,
+    list_sessions, parse_repl_command, resolve_config, resolve_data_dir_with_config, run_chat_mock,
+    run_chat_repl_with_io_and_resume, run_chat_with_config,
+    run_chat_with_config_and_controls_and_events, run_chat_with_config_and_events, run_doctor,
+    run_repl_prompt_with_writer, write_config_template, CliReplCommand, CliReplSession,
+    DoctorReport,
 };
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
@@ -110,6 +111,7 @@ fn chat_help_lists_resume_option() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("--resume <RESUME>"));
+    assert!(stdout.contains("--resume-task <RESUME_TASK>"));
     assert!(stdout.contains("--stdin"));
     assert!(stdout.contains("--file <FILE>"));
     assert!(stdout.contains("--json"));
@@ -172,6 +174,20 @@ fn sessions_help_lists_json_and_data_options() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("--json"));
+    assert!(stdout.contains("--data-dir"));
+}
+
+#[test]
+fn tasks_help_lists_json_config_and_data_options() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["tasks", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--json"));
+    assert!(stdout.contains("--config"));
     assert!(stdout.contains("--data-dir"));
 }
 
@@ -1296,6 +1312,388 @@ async fn repl_resume_tasks_lists_resumable_paused_checkpoints_without_runtime_wo
         .iter()
         .any(|message| message.content == "hello listed paused task"));
     assert_eq!(snapshot.status.active_profile, "offline");
+}
+
+#[tokio::test]
+async fn top_level_task_helpers_list_resumable_paused_checkpoints_without_runtime_work() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = TesseraConfig {
+        data_dir: None,
+        providers: vec![ProviderProfile {
+            id: "offline".to_string(),
+            kind: "mock".to_string(),
+            default_model: "mock-chat".to_string(),
+            base_url: None,
+            api_key_env: None,
+        }],
+    };
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("test pause before top-level helper list");
+    let mut paused_task_id = None;
+    let paused = run_chat_with_config_and_controls_and_events(
+        temp.path(),
+        &config,
+        "offline",
+        "hello top-level listed paused task",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: None,
+            pause_token: Some(pause_token),
+        },
+        |frame| {
+            if let RunEvent::TaskPaused { task_id, .. } = &frame.event {
+                paused_task_id = Some(task_id.clone());
+            }
+            EventSinkAction::Continue
+        },
+    )
+    .await
+    .unwrap();
+    let paused_task_id = paused_task_id.unwrap();
+
+    let tasks = list_resumable_tasks(temp.path(), &config).unwrap();
+    let lines = format_resumable_task_lines(&tasks);
+
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].task_id, paused_task_id.to_string());
+    assert_eq!(tasks[0].trace_id, paused.trace_id);
+    assert_eq!(tasks[0].provider_id, "offline");
+    assert_eq!(
+        tasks[0].resume_mode,
+        tessera_protocol::ResumeMode::FromTraceProjection
+    );
+    assert_eq!(
+        tasks[0].reason.as_deref(),
+        Some("test pause before top-level helper list")
+    );
+    assert!(lines[0].contains(&format!("1. {paused_task_id} | trace {}", paused.trace_id)));
+    assert!(lines[0].contains("provider offline"));
+    assert!(lines[0].contains("checkpoint "));
+}
+
+#[tokio::test]
+async fn top_level_tasks_command_lists_resumable_paused_checkpoints_without_runtime_work() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    let config = resolve_config(Some(config_path.clone())).unwrap();
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("test pause before top-level command list");
+    let mut paused_task_id = None;
+    let paused = run_chat_with_config_and_controls_and_events(
+        &data_dir,
+        &config,
+        "offline",
+        "hello top-level command paused task",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: None,
+            pause_token: Some(pause_token),
+        },
+        |frame| {
+            if let RunEvent::TaskPaused { task_id, .. } = &frame.event {
+                paused_task_id = Some(task_id.clone());
+            }
+            EventSinkAction::Continue
+        },
+    )
+    .await
+    .unwrap();
+    let paused_task_id = paused_task_id.unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["tasks", "--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(&format!("1. {paused_task_id} | trace {}", paused.trace_id)));
+    assert!(stdout.contains("provider offline"));
+    assert!(stdout.contains("checkpoint "));
+    assert!(stdout.contains("reason test pause before top-level command list"));
+    assert!(!stdout.contains("assistant>"));
+}
+
+#[tokio::test]
+async fn top_level_tasks_command_emits_json_for_resumable_paused_checkpoints() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    let config = resolve_config(Some(config_path.clone())).unwrap();
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("test pause before top-level json list");
+    let mut paused_task_id = None;
+    let paused = run_chat_with_config_and_controls_and_events(
+        &data_dir,
+        &config,
+        "offline",
+        "hello top-level json paused task",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: None,
+            pause_token: Some(pause_token),
+        },
+        |frame| {
+            if let RunEvent::TaskPaused { task_id, .. } = &frame.event {
+                paused_task_id = Some(task_id.clone());
+            }
+            EventSinkAction::Continue
+        },
+    )
+    .await
+    .unwrap();
+    let paused_task_id = paused_task_id.unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["tasks", "--config"])
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let tasks: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(tasks[0]["task_id"], paused_task_id.to_string());
+    assert_eq!(tasks[0]["trace_id"], paused.trace_id);
+    assert_eq!(tasks[0]["provider_id"], "offline");
+    assert_eq!(tasks[0]["resume_mode"], "from_trace_projection");
+    assert_eq!(tasks[0]["reason"], "test pause before top-level json list");
+    assert!(tasks[0]["checkpoint_id"]
+        .as_str()
+        .unwrap()
+        .starts_with("task_pause_checkpoint_"));
+}
+
+#[tokio::test]
+async fn top_level_chat_resume_task_runs_chat_from_pause_checkpoint() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    let config = resolve_config(Some(config_path.clone())).unwrap();
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("test pause before top-level resume");
+    let mut paused_task_id = None;
+    let paused = run_chat_with_config_and_controls_and_events(
+        &data_dir,
+        &config,
+        "offline",
+        "hello top-level resumable task",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: None,
+            pause_token: Some(pause_token),
+        },
+        |frame| {
+            if let RunEvent::TaskPaused { task_id, .. } = &frame.event {
+                paused_task_id = Some(task_id.clone());
+            }
+            EventSinkAction::Continue
+        },
+    )
+    .await
+    .unwrap();
+    let paused_task_id = paused_task_id.unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--config"])
+        .arg(&config_path)
+        .args(["--resume-task", paused_task_id.as_str()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(&format!(
+        "resuming task {paused_task_id} from trace {}",
+        paused.trace_id
+    )));
+    assert!(stdout.contains("mock response to: Continue the paused task"));
+    assert!(stdout.contains("history messages: 2"));
+
+    let event_page = list_events(&data_dir, &paused.trace_id, None, None).unwrap();
+    let resumed_count = event_page
+        .records
+        .iter()
+        .filter(|record| record.event_kind == "task_resumed")
+        .count();
+    assert_eq!(resumed_count, 1);
+}
+
+#[tokio::test]
+async fn top_level_chat_resume_task_accepts_numbered_selector() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    let config = resolve_config(Some(config_path.clone())).unwrap();
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("test pause before top-level numbered resume");
+    let mut paused_task_id = None;
+    let paused = run_chat_with_config_and_controls_and_events(
+        &data_dir,
+        &config,
+        "offline",
+        "hello top-level numbered resumable task",
+        RunControls {
+            event_timeout: None,
+            cancellation_token: None,
+            pause_token: Some(pause_token),
+        },
+        |frame| {
+            if let RunEvent::TaskPaused { task_id, .. } = &frame.event {
+                paused_task_id = Some(task_id.clone());
+            }
+            EventSinkAction::Continue
+        },
+    )
+    .await
+    .unwrap();
+    let paused_task_id = paused_task_id.unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["chat", "--config"])
+        .arg(&config_path)
+        .args(["--resume-task", "1"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(&format!("resuming task {paused_task_id}")));
+    assert!(stdout.contains("mock response to: Continue the paused task"));
+
+    let event_page = list_events(&data_dir, &paused.trace_id, None, None).unwrap();
+    let resumed_count = event_page
+        .records
+        .iter()
+        .filter(|record| record.event_kind == "task_resumed")
+        .count();
+    assert_eq!(resumed_count, 1);
+}
+
+#[test]
+fn chat_resume_task_rejects_prompt_resume_continue_and_json_options() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+data_dir = "./data"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+    )
+    .unwrap();
+
+    for args in [
+        vec![
+            "chat",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--resume-task",
+            "1",
+            "--prompt",
+            "hello",
+        ],
+        vec![
+            "chat",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--resume-task",
+            "1",
+            "--resume",
+            "trace_old",
+        ],
+        vec![
+            "chat",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--resume-task",
+            "1",
+            "--continue",
+        ],
+        vec![
+            "chat",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--resume-task",
+            "1",
+            "--json",
+        ],
+    ] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+            .args(args)
+            .output()
+            .unwrap();
+
+        assert!(!output.status.success());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("--resume-task cannot be combined"));
+    }
 }
 
 #[tokio::test]

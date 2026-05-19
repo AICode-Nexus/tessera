@@ -4,7 +4,7 @@ Tessera is a model-agnostic, agent-ready terminal workbench built on typed event
 
 ## Current Status
 
-This repository now has the v0.1 Rust workspace scaffold and a mock-driven runtime slice. The current implementation is intentionally narrow: protocol types, shared client projection, trace storage, provider adapters, core conversation loop with provider-neutral cancellation controls, `doctor` / `doctor --json`, safe config initialization and validation, one-shot and interactive CLI `chat` with trace-backed session listing/resume that continues with restored user/assistant history, provider profile listing, transcript/replay/event inspection commands, a minimal Ratatui terminal chat loop with profile switching, live core event delivery, and Ctrl-C cancellation intent, early v0.2 GUI work over mock/replay projection and generated TypeScript DTOs, plus v0.3/v0.4 foundation metadata/projection for tool policy, approvals, memory proposal review, diagnostics events, MCP tool metadata adaptation, ordered tool results, repair telemetry, workspace guardrail decisions, OS sandbox profile planning, checkpoint metadata planning, and read-only runtime API JSON/SSE shaping without tool execution.
+This repository has shipped the v0.1 trace-first local runtime and is now advancing through foundation work for later versions. The current implementation includes provider-neutral protocol types, shared client projection, trace storage, provider adapters, a core conversation loop with cancellation/pause controls, one-shot and interactive CLI chat, trace-backed session and paused-task resume, transcript/replay/event inspection commands, a minimal Ratatui TUI, mock/replay GUI shell foundations, and v0.2-v0.4 metadata/projection foundations for runtime queries, tool policy, approvals, memory proposal review, diagnostics events, MCP tool metadata adaptation, ordered tool results, repair telemetry, workspace guardrail decisions, OS sandbox profile planning, checkpoint metadata planning, and read-only runtime API JSON/SSE shaping. Tool execution, full agent runtime, MCP runtime, workspace restore, swarm scheduling, and learning apply paths remain gated by the roadmap.
 
 ## Design Goals
 
@@ -26,9 +26,10 @@ This repository now has the v0.1 Rust workspace scaffold and a mock-driven runti
 - [GUI-Ready Architecture](docs/gui-ready-architecture.md)
 - [ADR-001: GUI Architecture and Toolkit Direction](docs/adr/ADR-001-gui-architecture-and-toolkit.md)
 - [Distribution Plan](docs/distribution-plan.md)
+- [Version Plan](docs/version-plan.md)
+- [Global Plan](docs/global-plan.md)
 - [v0.1 Plan](docs/v0.1-plan.md)
 - [v0.1 Release Checklist](docs/v0.1-release-checklist.md)
-- [Global Plan](docs/global-plan.md)
 - [Protocol v0](docs/protocol-v0.md)
 - [Trace Schema v0](docs/trace-schema-v0.md)
 - [Crate Boundaries](docs/crate-boundaries.md)
@@ -39,7 +40,8 @@ This repository now has the v0.1 Rust workspace scaffold and a mock-driven runti
 The current implementation contract is still architecture-led:
 
 - Keep the headless runtime limited to `protocol`, `client`, `core`, `providers`, `storage`, `config`, `cli`, and `tui`, with GUI work entering through `gui-bridge`, `gui-bindings`, and `apps/gui-tauri` shell code only.
-- Keep future tools, agents, memory, skills, learning, and swarm support as protocol-ready extensions, not v0.1 runtime features.
+- Follow `docs/version-plan.md` for v0.1-v0.9 scope, dependencies, and exit criteria; use `docs/global-plan.md` as the current status dashboard.
+- Keep future tools, agents, memory, skills, learning, and swarm support behind their version gates.
 - Keep CLI, TUI, and future GUI on top of the same headless runtime.
 - Keep client UI state in UI-neutral reducers and view models before implementing the Tauri-first GUI path.
 - Treat Tauri 2 + TypeScript/React/Vite as the default product GUI direction, with egui limited to possible internal inspector work and GPUI kept as a watch item.
@@ -105,6 +107,8 @@ cat prompt.md | tessera chat --config ./tessera.toml --provider offline --stdin
 tessera chat --config ./tessera.toml --provider offline --file prompt.md
 tessera sessions --config ./tessera.toml
 tessera sessions --config ./tessera.toml --json
+tessera tasks --config ./tessera.toml
+tessera tasks --config ./tessera.toml --json
 tessera transcript <trace_id> --config ./tessera.toml
 tessera transcript <trace_id> --config ./tessera.toml --json
 tessera replay <trace_id> --config ./tessera.toml
@@ -114,9 +118,10 @@ tessera events <trace_id> --config ./tessera.toml --since 0 --limit 20 --json
 tessera chat --config ./tessera.toml --provider offline
 tessera chat --config ./tessera.toml --provider offline --resume <trace_id>
 tessera chat --config ./tessera.toml --provider offline --continue
+tessera chat --config ./tessera.toml --resume-task <task_id|#>
 ```
 
-Use bare `tessera` to start the default interactive mock REPL. Use `chat --stdin` to pipe a prompt into one-shot chat, or `chat --file <path>` to read a prompt from a UTF-8 file. Add `--json` to a one-shot chat command to emit `trace_id` and `assistant_text` for scripts. Use `tessera doctor` to inspect resolved runtime health, trace writability, SQLite index health, and provider profile IDs in a readable form. Use `tessera config validate` to check provider shape, duplicate IDs, resolved data dir, and configured secret env presence without touching storage or printing secret values. Use `tessera profiles` to inspect configured provider profiles without exposing secret values, `tessera sessions` to list numbered trace-backed sessions, `tessera transcript <trace_id>` to inspect one without entering the REPL, `tessera replay <trace_id>` to reconstruct a trace summary without provider access, and `tessera events <trace_id>` to page raw trace events with `--since` / `--limit`. In interactive `chat` mode, startup output shows the active profile, data dir, and configured profiles; use `/help`, `/commands`, `/new`, `/clear`, `/cancel`, `/paste`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id|#>`, `/doctor`, `/history`, `/status`, `/export`, and `/quit`. `/cancel` discards paste buffers in paste mode, cancels the active provider run while streaming, and reports when there is no active run to cancel. Use `chat --list-commands` to print that slash-command list without resolving config or starting the REPL. You can also start directly from a prior trace with `chat --resume <trace_id>` or resume the most recent trace with `chat --continue`; after checking `/sessions`, `chat --resume <number>` and REPL `/resume <number>` restore the numbered session from the same sorted list. After either resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace.
+Use bare `tessera` to start the default interactive mock REPL. Use `chat --stdin` to pipe a prompt into one-shot chat, or `chat --file <path>` to read a prompt from a UTF-8 file. Add `--json` to a one-shot chat command to emit `trace_id` and `assistant_text` for scripts. Use `tessera doctor` to inspect resolved runtime health, trace writability, SQLite index health, and provider profile IDs in a readable form. Use `tessera config validate` to check provider shape, duplicate IDs, resolved data dir, and configured secret env presence without touching storage or printing secret values. Use `tessera profiles` to inspect configured provider profiles without exposing secret values, `tessera sessions` to list numbered trace-backed sessions, `tessera tasks` to list currently resumable paused chat checkpoints, `tessera transcript <trace_id>` to inspect one without entering the REPL, `tessera replay <trace_id>` to reconstruct a trace summary without provider access, and `tessera events <trace_id>` to page raw trace events with `--since` / `--limit`. In interactive `chat` mode, startup output shows the active profile, data dir, and configured profiles; use `/help`, `/commands`, `/new`, `/clear`, `/cancel`, `/paste`, `/profiles`, `/profile <id>`, `/sessions`, `/resume <trace_id|#>`, `/resume-tasks`, `/resume-task <task_id|#>`, `/doctor`, `/history`, `/status`, `/export`, and `/quit`. `/cancel` discards paste buffers in paste mode, cancels the active provider run while streaming, and reports when there is no active run to cancel. Use `chat --list-commands` to print that slash-command list without resolving config or starting the REPL. You can also start directly from a prior trace with `chat --resume <trace_id>` or resume the most recent trace with `chat --continue`; after checking `/sessions`, `chat --resume <number>` and REPL `/resume <number>` restore the numbered session from the same sorted list. After either session resume path, the next prompt uses the restored user/assistant transcript as provider-visible chat history while writing only the new turn to trace. For paused chat tasks, `tessera tasks` lists resumable checkpoints and `chat --resume-task <task_id|#>` starts a new chat run from the saved trace projection, then appends `task_resumed` to the source trace. This does not freeze provider sockets, reattach background runtimes, restore workspace files, or resume non-chat tasks.
 
 Run the GUI shell spike:
 

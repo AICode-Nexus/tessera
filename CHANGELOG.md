@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added `tessera-gui-bindings` to generate GUI TypeScript DTOs from Rust `protocol` / `client` / `gui-bridge` types, plus a contract test that keeps `apps/gui-tauri/src/generated/bindings.ts` in sync.
 - Added a deterministic GUI smoke test for the Tauri shell covering mock/replay load, prompt submission, cancellation, new-thread reset, and toolbar action accessibility names.
 - Added a v0.2 distribution plan covering GitHub Releases, Cargo, Homebrew, npm wrapper, Docker, checksums, publish ordering, mirror knobs, and v0.3+ acceptance gates.
+- Added a roadmap governance refresh with `docs/version-plan.md` as the v0.1-v0.9 source of truth and `docs/global-plan.md` as the current progress dashboard.
 - Added release identity metadata so `tessera --version` reports both the crate version and build git SHA.
 - Added a provider-neutral `ToolDescriptor` schema and read-only `ToolRegistry` for tool metadata, with `parallel_safe` defaulting to false and no tool execution path.
 - Added tool call request, policy decision, and approval trace metadata plus a draft `PolicyGate` that produces `allow` / `ask_user` / `deny` decisions without executing tools.
@@ -52,6 +53,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added a CLI `/resume-task` provider-profile preflight so missing checkpoint providers fail before trace projection mutates the visible session.
 - Added CLI `/resume-task` missing-checkpoint coverage and a read-only `/resume-tasks` list for currently resumable paused trace checkpoints.
 - Added `/resume-task <number|#number>` support so CLI users can resume from the `/resume-tasks` list without copying full task ids.
+- Added top-level `tessera tasks [--json]` and `tessera chat --resume-task <task_id|#>` for script-friendly paused chat checkpoint discovery and chat-only trace projection resume without background reattach or workspace restore.
 - Added a v0.1 manual testing guide for deterministic mock pause, checkpoint listing, numbered resume, trace inspection, and negative-path checks without live provider credentials.
 - Added a real provider Chinese test-question guide covering conversation quality, structure, context continuity, safety boundaries, trace inspection, and pause/resume prompts.
 - Added default config discovery so CLI commands can reuse `TESSERA_CONFIG` or the current directory `tessera.toml` without passing `--config` on every manual test run.
