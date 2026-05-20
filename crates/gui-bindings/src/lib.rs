@@ -10,8 +10,10 @@ use tessera_client::{
 };
 use tessera_gui_bridge::{GuiCommandOutcome, GuiEvent, GuiProfile, GuiRuntimeMode, GuiShellState};
 use tessera_protocol::{
-    ApprovalId, ArtifactId, ArtifactKind, ContextId, EventId, ItemId, MemoryProposalId, TaskId,
-    TaskKind, TaskStatus, ThreadId, Timestamp, ToolCallId, ToolId, TraceRecord, TurnId,
+    ApprovalId, ArtifactId, ArtifactKind, ClientInstanceId, ContextId, EventId, ItemId,
+    MemoryProposalId, RuntimeInstanceId, TaskId, TaskKind, TaskOwnerKind, TaskOwnerStatus,
+    TaskOwnershipId, TaskReattachMode, TaskStatus, ThreadId, Timestamp, ToolCallId, ToolId,
+    TraceRecord, TurnId,
 };
 use ts_rs::{Config, TS};
 
@@ -24,7 +26,7 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 ";
 
 const TRACE_EVENT_KIND_DECL: &str = "\
-export type TraceEventKind = \"thread_created\" | \"turn_started\" | \"user_message_recorded\" | \"provider_request_started\" | \"assistant_message_started\" | \"assistant_delta\" | \"assistant_reasoning_delta\" | \"assistant_message_completed\" | \"usage_reported\" | \"provider_capability_reported\" | \"route_decision_recorded\" | \"provider_request_completed\" | \"turn_completed\" | \"task_created\" | \"task_started\" | \"task_completed\" | \"task_failed\" | \"task_cancelled\" | \"task_paused\" | \"task_resumed\" | \"no_progress_loop_detected\" | \"diagnostics_reported\" | \"memory_write_proposed\" | \"memory_write_applied\" | \"memory_write_rejected\" | \"artifact_created\" | \"snapshot_created\" | \"tool_call_requested\" | \"tool_policy_decision_recorded\" | \"sandbox_decision_recorded\" | \"os_sandbox_profile_selected\" | \"tool_dispatch_started\" | \"tool_dispatch_completed\" | \"tool_result\" | \"tool_repair_reported\" | \"tool_call_approved\" | \"tool_call_denied\" | \"error\" | \"done\";
+export type TraceEventKind = \"thread_created\" | \"turn_started\" | \"user_message_recorded\" | \"provider_request_started\" | \"assistant_message_started\" | \"assistant_delta\" | \"assistant_reasoning_delta\" | \"assistant_message_completed\" | \"usage_reported\" | \"provider_capability_reported\" | \"route_decision_recorded\" | \"provider_request_completed\" | \"turn_completed\" | \"task_created\" | \"task_started\" | \"task_completed\" | \"task_failed\" | \"task_cancelled\" | \"task_pause_checkpoint_created\" | \"task_paused\" | \"task_resumed\" | \"runtime_instance_started\" | \"task_owner_attached\" | \"task_owner_heartbeat\" | \"task_owner_detached\" | \"task_owner_lost\" | \"task_reattach_recorded\" | \"agent_run_started\" | \"agent_step_started\" | \"agent_step_completed\" | \"agent_run_completed\" | \"no_progress_loop_detected\" | \"diagnostics_reported\" | \"memory_write_proposed\" | \"memory_write_applied\" | \"memory_write_rejected\" | \"artifact_created\" | \"snapshot_created\" | \"tool_call_requested\" | \"tool_policy_decision_recorded\" | \"sandbox_decision_recorded\" | \"os_sandbox_profile_selected\" | \"tool_dispatch_started\" | \"tool_dispatch_completed\" | \"tool_result\" | \"tool_repair_reported\" | \"tool_call_approved\" | \"tool_call_denied\" | \"error\" | \"done\";
 ";
 
 pub fn generate_bindings() -> String {
@@ -37,6 +39,7 @@ pub fn generate_bindings() -> String {
     push_decl::<ClientApproval>(&mut output, &cfg);
     push_decl::<ClientApprovalStatus>(&mut output, &cfg);
     push_decl::<ClientArtifact>(&mut output, &cfg);
+    push_decl::<ClientInstanceId>(&mut output, &cfg);
     push_decl::<ClientContextBudgetSummary>(&mut output, &cfg);
     push_decl::<ClientContextHandle>(&mut output, &cfg);
     push_decl::<ClientContextPlacement>(&mut output, &cfg);
@@ -60,8 +63,13 @@ pub fn generate_bindings() -> String {
     push_decl::<GuiShellState>(&mut output, &cfg);
     push_decl::<ItemId>(&mut output, &cfg);
     push_decl::<MemoryProposalId>(&mut output, &cfg);
+    push_decl::<RuntimeInstanceId>(&mut output, &cfg);
     push_decl::<TaskId>(&mut output, &cfg);
     push_decl::<TaskKind>(&mut output, &cfg);
+    push_decl::<TaskOwnerKind>(&mut output, &cfg);
+    push_decl::<TaskOwnerStatus>(&mut output, &cfg);
+    push_decl::<TaskOwnershipId>(&mut output, &cfg);
+    push_decl::<TaskReattachMode>(&mut output, &cfg);
     push_decl::<TaskStatus>(&mut output, &cfg);
     push_decl::<ThreadId>(&mut output, &cfg);
     push_decl::<Timestamp>(&mut output, &cfg);

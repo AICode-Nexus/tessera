@@ -15,6 +15,8 @@ export type ClientApprovalStatus = "pending" | "approved" | "denied";
 
 export type ClientArtifact = { artifact_id: ArtifactId, kind: ArtifactKind | null, thread_id: ThreadId | null, turn_id: TurnId | null, task_id: TaskId | null, item_id: ItemId | null, created_at: Timestamp | null, referenced_by_event_kinds: Array<string>, };
 
+export type ClientInstanceId = string;
+
 export type ClientContextBudgetSummary = { max_tokens: number, reserved_output_tokens: number, available_tokens: number, used_tokens: number, remaining_tokens: number, stable_prefix_tokens: number, append_only_transcript_tokens: number, volatile_scratch_tokens: number, over_budget: boolean, };
 
 export type ClientContextHandle = { context_id: ContextId, source_kind: ClientContextSourceKind, source_uri: string | null, label: string | null, placement: ClientContextPlacement, estimated_tokens: number, pinned: boolean, summary: string | null, };
@@ -39,7 +41,7 @@ export type ClientSnapshot = { status: ClientStatus, projection: ClientProjectio
 
 export type ClientStatus = { active_profile: string, available_profiles: Array<string>, reasoning_visible: boolean, task_summary: string, artifact_summary: string, approval_summary: string, memory_summary: string, usage_summary: string, cache_summary: string, cost_summary: string, context_summary: string, context_handles_summary: string, telemetry: ClientTelemetrySummary, };
 
-export type ClientTask = { task_id: TaskId, kind: TaskKind | null, status: TaskStatus, thread_id: ThreadId | null, turn_id: TurnId | null, created_at: Timestamp | null, started_at: Timestamp | null, finished_at: Timestamp | null, cancel_reason: string | null, error_code: string | null, error_message: string | null, };
+export type ClientTask = { task_id: TaskId, kind: TaskKind | null, status: TaskStatus, thread_id: ThreadId | null, turn_id: TurnId | null, created_at: Timestamp | null, started_at: Timestamp | null, finished_at: Timestamp | null, cancel_reason: string | null, error_code: string | null, error_message: string | null, owner_lease_id: TaskOwnershipId | null, owner_runtime_id: RuntimeInstanceId | null, owner_client_id: ClientInstanceId | null, owner_kind: TaskOwnerKind | null, owner_status: TaskOwnerStatus | null, owner_reattach_mode: TaskReattachMode | null, owner_last_heartbeat_at: Timestamp | null, owner_expires_at: Timestamp | null, owner_last_seq: number | null, owner_reason: string | null, };
 
 export type ClientTelemetrySummary = { input_tokens: number, output_tokens: number, total_tokens: number, cache_read_tokens: number, cache_write_tokens: number, cache_miss_tokens: number, cache_total_tokens: number, latest_context_tokens: number | null, max_context_tokens: number | null, estimated_cost: number | null, cost_currency: string | null, cost_currency_mixed: boolean, };
 
@@ -61,9 +63,19 @@ export type ItemId = string;
 
 export type MemoryProposalId = string;
 
+export type RuntimeInstanceId = string;
+
 export type TaskId = string;
 
 export type TaskKind = "chat" | "replay" | "tool_run" | "agent_run" | "multi_agent_run" | "swarm_run" | "learning_job";
+
+export type TaskOwnerKind = "execution" | "observer";
+
+export type TaskOwnerStatus = "attached" | "heartbeat" | "detached" | "lost";
+
+export type TaskOwnershipId = string;
+
+export type TaskReattachMode = "observe_existing_owner" | "resume_from_checkpoint" | "terminal_projection" | "owner_lost";
 
 export type TaskStatus = "pending" | "running" | "waiting_for_approval" | "paused" | "completed" | "failed" | "cancelled";
 
@@ -75,7 +87,7 @@ export type ToolCallId = string;
 
 export type ToolId = string;
 
-export type TraceEventKind = "thread_created" | "turn_started" | "user_message_recorded" | "provider_request_started" | "assistant_message_started" | "assistant_delta" | "assistant_reasoning_delta" | "assistant_message_completed" | "usage_reported" | "provider_capability_reported" | "route_decision_recorded" | "provider_request_completed" | "turn_completed" | "task_created" | "task_started" | "task_completed" | "task_failed" | "task_cancelled" | "task_paused" | "task_resumed" | "no_progress_loop_detected" | "diagnostics_reported" | "memory_write_proposed" | "memory_write_applied" | "memory_write_rejected" | "artifact_created" | "snapshot_created" | "tool_call_requested" | "tool_policy_decision_recorded" | "sandbox_decision_recorded" | "os_sandbox_profile_selected" | "tool_dispatch_started" | "tool_dispatch_completed" | "tool_result" | "tool_repair_reported" | "tool_call_approved" | "tool_call_denied" | "error" | "done";
+export type TraceEventKind = "thread_created" | "turn_started" | "user_message_recorded" | "provider_request_started" | "assistant_message_started" | "assistant_delta" | "assistant_reasoning_delta" | "assistant_message_completed" | "usage_reported" | "provider_capability_reported" | "route_decision_recorded" | "provider_request_completed" | "turn_completed" | "task_created" | "task_started" | "task_completed" | "task_failed" | "task_cancelled" | "task_pause_checkpoint_created" | "task_paused" | "task_resumed" | "runtime_instance_started" | "task_owner_attached" | "task_owner_heartbeat" | "task_owner_detached" | "task_owner_lost" | "task_reattach_recorded" | "agent_run_started" | "agent_step_started" | "agent_step_completed" | "agent_run_completed" | "no_progress_loop_detected" | "diagnostics_reported" | "memory_write_proposed" | "memory_write_applied" | "memory_write_rejected" | "artifact_created" | "snapshot_created" | "tool_call_requested" | "tool_policy_decision_recorded" | "sandbox_decision_recorded" | "os_sandbox_profile_selected" | "tool_dispatch_started" | "tool_dispatch_completed" | "tool_result" | "tool_repair_reported" | "tool_call_approved" | "tool_call_denied" | "error" | "done";
 
 
 export type TraceRecord = { schema_version: number, trace_id: string, seq: number, event_id: EventId, timestamp: Timestamp, thread_id: ThreadId | null, turn_id: TurnId | null, item_id: ItemId | null, task_id: TaskId | null, event_kind: string, payload: JsonValue, extension: { [key in string]: JsonValue } | null, artifact_refs: Array<ArtifactId>, };
