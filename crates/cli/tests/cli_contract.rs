@@ -586,6 +586,60 @@ fn instructions_inspect_json_reports_sources_without_content() {
 }
 
 #[test]
+fn skills_inspect_json_reports_manifests_without_content() {
+    let workspace = tempfile::tempdir().unwrap();
+    let skill_dir = workspace.path().join(".tessera/skills/reviewer");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: reviewer\ndescription: Review safely\n---\n\nUse this skill.\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["skills", "inspect", "--workspace"])
+        .arg(workspace.path())
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    assert_eq!(payload["skill_count"], 1);
+    assert_eq!(payload["source_count"], 1);
+    assert_eq!(payload["skills"][0]["id"], "skill_reviewer");
+    assert_eq!(payload["skills"][0]["name"], "reviewer");
+    assert_eq!(payload["sources"][0]["status"], "loaded");
+    assert!(!stdout.contains("Use this skill."));
+}
+
+#[test]
+fn skills_inspect_text_summarizes_sources_without_content() {
+    let workspace = tempfile::tempdir().unwrap();
+    let skill_dir = workspace.path().join(".tessera/skills/reviewer");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: reviewer\ndescription: Review safely\n---\n\nUse this skill.\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["skills", "inspect", "--workspace"])
+        .arg(workspace.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("skills: 1 loadable / 1 sources"));
+    assert!(stdout.contains("- skill_reviewer reviewer .tessera/skills/reviewer/SKILL.md loaded"));
+    assert!(!stdout.contains("Use this skill."));
+}
+
+#[test]
 fn instructions_inspect_text_summarizes_sources_without_content() {
     let workspace = tempfile::tempdir().unwrap();
     std::fs::write(workspace.path().join("AGENTS.md"), "Local rules\n").unwrap();
@@ -675,6 +729,62 @@ fn agent_run_with_instructions_reports_sources_and_traces_metadata() {
 }
 
 #[test]
+fn agent_run_with_skill_reports_activation_and_traces_metadata() {
+    let workspace = tempfile::tempdir().unwrap();
+    let data_dir = tempfile::tempdir().unwrap();
+    let skill_dir = workspace.path().join(".tessera/skills/reviewer");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: reviewer\ndescription: Review safely\n---\n\nUse this skill.\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args([
+            "agent",
+            "run",
+            "--provider",
+            "mock",
+            "--goal",
+            "Review this repository",
+            "--skill",
+            "skill_reviewer",
+            "--workspace",
+        ])
+        .arg(workspace.path())
+        .args(["--json", "--data-dir"])
+        .arg(data_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let trace_id = payload["trace_id"].as_str().unwrap();
+
+    assert_eq!(
+        payload["skill_activations"][0]["skill_id"],
+        "skill_reviewer"
+    );
+    assert_eq!(payload["skill_warning_count"], 0);
+    assert!(!stdout.contains("Use this skill."));
+
+    let event_page = list_events(data_dir.path(), trace_id, None, None).unwrap();
+    let record = event_page
+        .records
+        .iter()
+        .find(|record| record.event_kind == "skill_activated")
+        .unwrap();
+    assert_eq!(
+        record.payload["activation"]["skill_id"],
+        "skill_reviewer"
+    );
+    let encoded_payload = serde_json::to_string(&record.payload).unwrap();
+    assert!(!encoded_payload.contains("Use this skill."));
+}
+
+#[test]
 fn agent_run_rejects_workspace_without_instructions() {
     let workspace = tempfile::tempdir().unwrap();
     let data_dir = tempfile::tempdir().unwrap();
@@ -698,6 +808,64 @@ fn agent_run_rejects_workspace_without_instructions() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("--workspace and --target-dir require --instructions"));
+    assert!(!data_dir.path().join("traces").exists());
+}
+
+#[test]
+fn agent_run_rejects_skill_reference_without_skill() {
+    let workspace = tempfile::tempdir().unwrap();
+    let data_dir = tempfile::tempdir().unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args([
+            "agent",
+            "run",
+            "--provider",
+            "mock",
+            "--goal",
+            "summarize",
+            "--skill-reference",
+            "skill_reviewer:references/checklist.md",
+            "--workspace",
+        ])
+        .arg(workspace.path())
+        .args(["--data-dir"])
+        .arg(data_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("--skill-reference requires --skill"));
+    assert!(!data_dir.path().join("traces").exists());
+}
+
+#[test]
+fn agent_run_rejects_missing_skill_before_provider_execution() {
+    let workspace = tempfile::tempdir().unwrap();
+    let data_dir = tempfile::tempdir().unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args([
+            "agent",
+            "run",
+            "--provider",
+            "mock",
+            "--goal",
+            "summarize",
+            "--skill",
+            "skill_missing",
+            "--workspace",
+        ])
+        .arg(workspace.path())
+        .args(["--data-dir"])
+        .arg(data_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("requested skill not found: skill_missing"));
     assert!(!data_dir.path().join("traces").exists());
 }
 

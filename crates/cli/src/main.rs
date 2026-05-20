@@ -92,6 +92,10 @@ enum Commands {
         #[command(subcommand)]
         command: InstructionsCommands,
     },
+    Skills {
+        #[command(subcommand)]
+        command: SkillsCommands,
+    },
     Chat {
         #[arg(long, default_value = "mock")]
         provider: String,
@@ -149,6 +153,10 @@ enum AgentCommands {
         json: bool,
         #[arg(long)]
         instructions: bool,
+        #[arg(long = "skill")]
+        skills: Vec<String>,
+        #[arg(long = "skill-reference")]
+        skill_references: Vec<String>,
         #[arg(long)]
         workspace: Option<PathBuf>,
         #[arg(long)]
@@ -162,6 +170,18 @@ enum AgentCommands {
 
 #[derive(Subcommand)]
 enum InstructionsCommands {
+    Inspect {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        target_dir: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SkillsCommands {
     Inspect {
         #[arg(long)]
         workspace: PathBuf,
@@ -316,20 +336,57 @@ async fn main() -> anyhow::Result<()> {
                 goal,
                 json,
                 instructions,
+                skills,
+                skill_references,
                 workspace,
                 target_dir,
                 config,
                 data_dir,
             } => {
-                if !instructions && (workspace.is_some() || target_dir.is_some()) {
-                    anyhow::bail!("--workspace and --target-dir require --instructions");
+                if !skill_references.is_empty() && skills.is_empty() {
+                    anyhow::bail!("--skill-reference requires --skill");
+                }
+                if !instructions
+                    && skills.is_empty()
+                    && (workspace.is_some() || target_dir.is_some())
+                {
+                    anyhow::bail!("--workspace and --target-dir require --instructions or --skill");
                 }
                 let config = tessera_cli::resolve_config(config)?;
                 let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
+                let context_workspace = if instructions || !skills.is_empty() {
+                    Some(workspace.unwrap_or(std::env::current_dir()?))
+                } else {
+                    None
+                };
+                let parsed_skill_references = skill_references
+                    .into_iter()
+                    .map(|reference| {
+                        let (skill, path) = reference.split_once(':').ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "--skill-reference must use <skill_id_or_name>:<relative/path>"
+                            )
+                        })?;
+                        Ok((skill.to_string(), path.to_string()))
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
                 let instruction_options = if instructions {
                     Some(tessera_cli::CliInstructionContextOptions {
-                        workspace: workspace.unwrap_or(std::env::current_dir()?),
+                        workspace: context_workspace
+                            .clone()
+                            .expect("context workspace is set when instructions are enabled"),
+                        target_dir: target_dir.clone(),
+                    })
+                } else {
+                    None
+                };
+                let skill_options = if !skills.is_empty() {
+                    Some(tessera_cli::CliSkillContextOptions {
+                        workspace: context_workspace
+                            .expect("context workspace is set when skills are enabled"),
                         target_dir,
+                        skills,
+                        references: parsed_skill_references,
                     })
                 } else {
                     None
@@ -340,6 +397,7 @@ async fn main() -> anyhow::Result<()> {
                     &provider,
                     goal,
                     instruction_options,
+                    skill_options,
                 )
                 .await?;
                 if json {
@@ -364,6 +422,23 @@ async fn main() -> anyhow::Result<()> {
                     println!("{}", serde_json::to_string_pretty(&output)?);
                 } else {
                     for line in tessera_cli::format_instruction_discovery_lines(&set) {
+                        println!("{line}");
+                    }
+                }
+            }
+        },
+        Some(Commands::Skills { command }) => match command {
+            SkillsCommands::Inspect {
+                workspace,
+                target_dir,
+                json,
+            } => {
+                let report = tessera_cli::inspect_skills(workspace, target_dir)?;
+                if json {
+                    let output = tessera_cli::CliSkillDiscoveryOutput::from(&report);
+                    println!("{}", serde_json::to_string_pretty(&output)?);
+                } else {
+                    for line in tessera_cli::format_skill_discovery_lines(&report) {
                         println!("{line}");
                     }
                 }

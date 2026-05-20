@@ -12,13 +12,15 @@ use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
     AgentLoop, AgentRunOutcome, AgentRunRequest, ConversationEngine, ConversationOutcome,
     ConversationRequest, EventSinkAction, InstructionDiscoveryOptions, InstructionDiscoveryPlanner,
-    LoadedInstructionSet, ReplayRunner, ReplaySummary, RunCancellationToken, RunControls,
-    RunPauseToken, RuntimeEventQuery, RuntimePauseCheckpointSummary, RuntimeReader,
-    RuntimeSessionSummary, RuntimeTaskResumer,
+    LoadedInstructionSet, LoadedSkillSet, ReplayRunner, ReplaySummary, RunCancellationToken,
+    RunControls, RunPauseToken, RuntimeEventQuery, RuntimePauseCheckpointSummary, RuntimeReader,
+    RuntimeSessionSummary, RuntimeTaskResumer, SkillActivationRequest, SkillDiscoveryOptions,
+    SkillDiscoveryReport, SkillRuntimeOptions, SkillRuntimePlanner,
 };
 use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentRunSummary, ContextReference, EventFrame, InstructionSource,
-    ModelProfileId, ProviderId, ResumeMode, RunEvent, TaskId, TaskStatus, TraceRecord,
+    ModelProfileId, ProviderId, ResumeMode, RunEvent, SkillActivation, SkillManifest,
+    SkillReferenceSource, TaskId, TaskStatus, TraceRecord,
 };
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
@@ -70,6 +72,8 @@ pub struct CliAgentRunOutput {
     pub assistant_text: String,
     pub instruction_sources: Vec<InstructionSource>,
     pub instruction_warning_count: usize,
+    pub skill_activations: Vec<SkillActivation>,
+    pub skill_warning_count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -82,10 +86,28 @@ pub struct CliInstructionDiscoveryOutput {
     pub warnings: Vec<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliSkillDiscoveryOutput {
+    pub skill_count: usize,
+    pub source_count: usize,
+    pub warning_count: usize,
+    pub skills: Vec<SkillManifest>,
+    pub sources: Vec<SkillReferenceSource>,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CliInstructionContextOptions {
     pub workspace: PathBuf,
     pub target_dir: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CliSkillContextOptions {
+    pub workspace: PathBuf,
+    pub target_dir: Option<PathBuf>,
+    pub skills: Vec<String>,
+    pub references: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -172,6 +194,8 @@ impl From<AgentRunOutcome> for CliAgentRunOutput {
     fn from(outcome: AgentRunOutcome) -> Self {
         let (instruction_sources, instruction_warning_count) =
             instruction_report_from_trace(&outcome.store, &outcome.trace_id);
+        let (skill_activations, skill_warning_count) =
+            skill_report_from_trace(&outcome.store, &outcome.trace_id);
         Self {
             trace_id: outcome.trace_id,
             task_id: outcome.task_id.to_string(),
@@ -181,6 +205,8 @@ impl From<AgentRunOutcome> for CliAgentRunOutput {
             assistant_text: outcome.assistant_text,
             instruction_sources,
             instruction_warning_count,
+            skill_activations,
+            skill_warning_count,
         }
     }
 }
@@ -194,6 +220,19 @@ impl From<&LoadedInstructionSet> for CliInstructionDiscoveryOutput {
             sources: set.sources.clone(),
             context_references: set.context_references.clone(),
             warnings: set.warnings.clone(),
+        }
+    }
+}
+
+impl From<&SkillDiscoveryReport> for CliSkillDiscoveryOutput {
+    fn from(report: &SkillDiscoveryReport) -> Self {
+        Self {
+            skill_count: report.manifests.len(),
+            source_count: report.sources.len(),
+            warning_count: report.warnings.len(),
+            skills: report.manifests.clone(),
+            sources: report.sources.clone(),
+            warnings: report.warnings.clone(),
         }
     }
 }
@@ -1462,6 +1501,43 @@ fn instruction_report_from_trace(
     (sources, warning_count)
 }
 
+fn skill_report_from_trace(store: &TraceStore, trace_id: &str) -> (Vec<SkillActivation>, usize) {
+    let activations = store
+        .read_trace_records(trace_id)
+        .ok()
+        .map(|records| {
+            records
+                .into_iter()
+                .filter(|record| record.event_kind == "skill_activated")
+                .filter_map(|record| {
+                    serde_json::from_value::<SkillActivation>(
+                        record.payload.get("activation")?.clone(),
+                    )
+                    .ok()
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let warning_count = activations
+        .iter()
+        .map(|activation| {
+            activation.warnings.len()
+                + activation.entrypoint.warnings.len()
+                + activation
+                    .references
+                    .iter()
+                    .map(|source| source.warnings.len())
+                    .sum::<usize>()
+                + activation
+                    .steps
+                    .iter()
+                    .map(|step| step.warnings.len())
+                    .sum::<usize>()
+        })
+        .sum::<usize>();
+    (activations, warning_count)
+}
+
 fn project_checkpoint_trace_into_session(
     data_dir: &Path,
     session: &mut CliReplSession,
@@ -1987,7 +2063,8 @@ pub async fn run_agent_with_config(
     provider_id: &str,
     goal: impl Into<String>,
 ) -> Result<AgentRunOutcome> {
-    run_agent_with_config_and_instruction_options(data_dir, config, provider_id, goal, None).await
+    run_agent_with_config_and_instruction_options(data_dir, config, provider_id, goal, None, None)
+        .await
 }
 
 pub fn inspect_instructions(
@@ -2026,12 +2103,94 @@ pub fn format_instruction_discovery_lines(set: &LoadedInstructionSet) -> Vec<Str
     lines
 }
 
+pub fn inspect_skills(
+    workspace: impl AsRef<Path>,
+    target_dir: Option<PathBuf>,
+) -> Result<SkillDiscoveryReport> {
+    let workspace = workspace.as_ref().to_path_buf();
+    let target_dir = target_dir.unwrap_or_else(|| workspace.clone());
+    let options = SkillDiscoveryOptions::new(workspace, target_dir);
+    SkillRuntimePlanner.discover(options).map_err(Into::into)
+}
+
+pub fn format_skill_discovery_lines(report: &SkillDiscoveryReport) -> Vec<String> {
+    let mut lines = vec![format!(
+        "skills: {} loadable / {} sources",
+        report.manifests.len(),
+        report.sources.len()
+    )];
+
+    for source in &report.sources {
+        let manifest = report
+            .manifests
+            .iter()
+            .find(|manifest| manifest.source.uri.as_deref() == Some(source.relative_path.as_str()));
+        if let Some(manifest) = manifest {
+            lines.push(format!(
+                "- {} {} {} {}",
+                manifest.id.as_str(),
+                manifest.name,
+                source.relative_path,
+                snake_json_label(&source.status)
+            ));
+        } else {
+            lines.push(format!(
+                "- {} {}",
+                source.relative_path,
+                snake_json_label(&source.status)
+            ));
+        }
+    }
+    if !report.warnings.is_empty() {
+        lines.push(format!("warnings: {}", report.warnings.len()));
+    }
+
+    lines
+}
+
+pub fn load_skill_context(options: CliSkillContextOptions) -> Result<LoadedSkillSet> {
+    let requested_skills = options.skills.iter().cloned().collect::<HashSet<_>>();
+    for (skill, _) in &options.references {
+        if !requested_skills.contains(skill) {
+            return Err(anyhow::anyhow!(
+                "--skill-reference references `{skill}` but that skill was not requested"
+            ));
+        }
+    }
+
+    let requests = options
+        .skills
+        .into_iter()
+        .map(|skill| {
+            let references = options
+                .references
+                .iter()
+                .filter_map(|(reference_skill, reference)| {
+                    if reference_skill == &skill {
+                        Some(reference.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            SkillActivationRequest { skill, references }
+        })
+        .collect::<Vec<_>>();
+    let target_dir = options
+        .target_dir
+        .clone()
+        .unwrap_or_else(|| options.workspace.clone());
+    let runtime_options = SkillRuntimeOptions::new(options.workspace, target_dir, requests);
+    SkillRuntimePlanner.activate(runtime_options).map_err(Into::into)
+}
+
 pub async fn run_agent_with_config_and_instruction_options(
     data_dir: impl AsRef<Path>,
     config: &TesseraConfig,
     provider_id: &str,
     goal: impl Into<String>,
     instruction_options: Option<CliInstructionContextOptions>,
+    skill_options: Option<CliSkillContextOptions>,
 ) -> Result<AgentRunOutcome> {
     let goal = goal.into();
     let profile = config
@@ -2043,6 +2202,10 @@ pub async fn run_agent_with_config_and_instruction_options(
         Some(options) => Some(inspect_instructions(options.workspace, options.target_dir)?),
         None => None,
     };
+    let skill_context = match skill_options {
+        Some(options) => Some(load_skill_context(options)?),
+        None => None,
+    };
 
     match profile.kind.as_str() {
         "mock" => {
@@ -2052,6 +2215,7 @@ pub async fn run_agent_with_config_and_instruction_options(
                 MockProvider::default(),
                 goal,
                 instruction_context,
+                skill_context,
             )
             .await
         }
@@ -2065,7 +2229,15 @@ pub async fn run_agent_with_config_and_instruction_options(
                 api_key,
                 ProviderId::from(profile.id.as_str()),
             );
-            run_agent_for_provider(data_dir, profile, provider, goal, instruction_context).await
+            run_agent_for_provider(
+                data_dir,
+                profile,
+                provider,
+                goal,
+                instruction_context,
+                skill_context,
+            )
+            .await
         }
         "ollama" => {
             let base_url = profile
@@ -2073,7 +2245,15 @@ pub async fn run_agent_with_config_and_instruction_options(
                 .as_deref()
                 .unwrap_or("http://localhost:11434");
             let provider = OllamaProvider::new(base_url, ProviderId::from(profile.id.as_str()));
-            run_agent_for_provider(data_dir, profile, provider, goal, instruction_context).await
+            run_agent_for_provider(
+                data_dir,
+                profile,
+                provider,
+                goal,
+                instruction_context,
+                skill_context,
+            )
+            .await
         }
         other => Err(anyhow::anyhow!(
             "unsupported provider kind `{other}` for profile `{}`",
@@ -2097,6 +2277,19 @@ pub fn format_agent_run_lines(outcome: &AgentRunOutcome) -> Vec<String> {
     if !instruction_sources.is_empty() {
         lines.push(format!("instruction_sources {}", instruction_sources.len()));
         lines.push(format!("instruction_warnings {instruction_warning_count}"));
+    }
+    let (skill_activations, skill_warning_count) =
+        skill_report_from_trace(&outcome.store, &outcome.trace_id);
+    if !skill_activations.is_empty() {
+        lines.push(format!("skills {}", skill_activations.len()));
+        lines.push(format!("skill_warnings {skill_warning_count}"));
+        for activation in skill_activations {
+            lines.push(format!(
+                "- {} {}",
+                activation.skill_id.as_str(),
+                snake_json_label(&activation.status)
+            ));
+        }
     }
     lines
 }
@@ -2280,6 +2473,7 @@ async fn run_agent_for_provider<P>(
     provider: P,
     goal: String,
     instruction_context: Option<LoadedInstructionSet>,
+    skill_context: Option<LoadedSkillSet>,
 ) -> Result<AgentRunOutcome>
 where
     P: ChatProvider,
@@ -2297,7 +2491,7 @@ where
             objective: goal,
             context_references: Vec::new(),
             instruction_context,
-            skill_context: None,
+            skill_context,
             history: Vec::new(),
             max_steps: agent_profile.max_steps,
         })
