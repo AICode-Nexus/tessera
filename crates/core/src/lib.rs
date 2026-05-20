@@ -7,21 +7,23 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ArtifactId,
-    ArtifactKind, ContextBudget, ContextId, ContextPlacement, ContextReference, ContextSource,
-    ContextSourceKind, Diagnostic, DiagnosticReport, DiagnosticReportId, EventFrame, EventRange,
-    ExtensionMap, InstructionLoadStatus, InstructionRedactionStatus, InstructionSource,
+    ArtifactKind, ClientInstanceId, ContextBudget, ContextId, ContextPlacement, ContextReference,
+    ContextSource, ContextSourceKind, Diagnostic, DiagnosticReport, DiagnosticReportId, EventFrame,
+    EventRange, ExtensionMap, InstructionLoadStatus, InstructionRedactionStatus, InstructionSource,
     InstructionSourceKind, ItemId, ModelProfileId, NoProgressAction, NoProgressLoop,
     NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
     OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
     ProviderId, ResumeMode, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent,
-    SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillActivation,
+    RuntimeInstanceId, SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillActivation,
     SkillActivationStatus, SkillActivationStep, SkillEntrypoint, SkillEntrypointFormat, SkillId,
     SkillLoadStatus, SkillManifest, SkillPolicy, SkillRedactionStatus, SkillReferenceSource,
     SkillRequirements, SkillSource, SkillSourceKind, SkillStepKind, SkillStepStatus, SnapshotId,
-    SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus,
-    ThreadId, Timestamp, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId, ToolPermission,
-    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolSideEffect,
-    TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    SnapshotKind, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease,
+    TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskReattachMode,
+    TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolCallRequest, ToolDescriptor,
+    ToolDispatch, ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind,
+    ToolRepairReport, ToolResult, ToolSideEffect, TraceRecord, TurnId, WorkspaceAccess,
+    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderMessage, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -3010,6 +3012,60 @@ impl RuntimePauseCheckpointSummary {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeTaskOwnerSummary {
+    pub lease_id: TaskOwnershipId,
+    pub task_id: TaskId,
+    pub trace_id: String,
+    pub event_seq: u64,
+    pub runtime_id: RuntimeInstanceId,
+    pub client_id: Option<ClientInstanceId>,
+    pub owner_kind: TaskOwnerKind,
+    pub status: TaskOwnerStatus,
+    pub acquired_at: Timestamp,
+    pub heartbeat_interval_ms: u64,
+    pub expires_at: Option<Timestamp>,
+    pub last_heartbeat_at: Option<Timestamp>,
+    pub last_seq: Option<u64>,
+    pub reattach_mode: TaskReattachMode,
+    pub checkpoint_id: Option<TaskPauseCheckpointId>,
+    pub reason: Option<String>,
+}
+
+impl RuntimeTaskOwnerSummary {
+    fn from_lease(record: &TraceRecord, lease: TaskOwnerLease) -> Self {
+        Self {
+            lease_id: lease.lease_id,
+            task_id: lease.task_id,
+            trace_id: lease.trace_id,
+            event_seq: record.seq,
+            runtime_id: lease.runtime_id,
+            client_id: lease.client_id,
+            owner_kind: lease.owner_kind,
+            status: lease.status,
+            acquired_at: lease.acquired_at,
+            heartbeat_interval_ms: lease.heartbeat_interval_ms,
+            expires_at: lease.expires_at,
+            last_heartbeat_at: lease.last_heartbeat_at,
+            last_seq: lease.last_seq,
+            reattach_mode: task_owner_default_reattach_mode(lease.status),
+            checkpoint_id: None,
+            reason: lease.reason,
+        }
+    }
+
+    fn apply_heartbeat(&mut self, record: &TraceRecord, heartbeat: TaskOwnerHeartbeat) {
+        self.event_seq = record.seq;
+        self.task_id = heartbeat.task_id;
+        self.runtime_id = heartbeat.runtime_id;
+        self.status = TaskOwnerStatus::Heartbeat;
+        self.last_heartbeat_at = Some(heartbeat.heartbeat_at);
+        self.expires_at = Some(heartbeat.expires_at);
+        self.last_seq = Some(heartbeat.last_seq);
+        self.reattach_mode = TaskReattachMode::ObserveExistingOwner;
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuntimeSessionSummary {
     pub trace_id: String,
     pub event_count: usize,
@@ -3105,6 +3161,23 @@ impl RuntimeReader {
             apply_task_record(&mut tasks, &record);
         }
         Ok(tasks)
+    }
+
+    pub fn list_task_owners(&self, trace_id: &str) -> Result<Vec<RuntimeTaskOwnerSummary>> {
+        let records = self.store.read_trace_records(trace_id)?;
+        let mut owners = Vec::new();
+        let mut tasks = Vec::new();
+        let mut checkpoints = Vec::new();
+
+        for record in &records {
+            apply_task_record(&mut tasks, record);
+            apply_pause_checkpoint_record(&mut checkpoints, record)?;
+            apply_task_owner_record(&mut owners, record)?;
+        }
+
+        reconcile_task_owner_reattach_modes(&mut owners, &tasks, &checkpoints);
+        owners.sort_by_key(|owner| owner.event_seq);
+        Ok(owners)
     }
 
     pub fn list_artifacts(&self, trace_id: &str) -> Result<Vec<RuntimeArtifactSummary>> {
@@ -3402,6 +3475,148 @@ fn trace_record_task_id(record: &TraceRecord) -> Option<TaskId> {
             .and_then(|value| value.as_str())
             .map(TaskId::from)
     })
+}
+
+fn apply_task_owner_record(
+    owners: &mut Vec<RuntimeTaskOwnerSummary>,
+    record: &TraceRecord,
+) -> Result<()> {
+    match record.event_kind.as_str() {
+        "task_owner_attached" => {
+            let Some(lease_payload) = record.payload.get("lease") else {
+                return Ok(());
+            };
+            let lease: TaskOwnerLease = serde_json::from_value(lease_payload.clone())?;
+            let summary = RuntimeTaskOwnerSummary::from_lease(record, lease);
+            if let Some(index) = owners
+                .iter()
+                .position(|owner| owner.lease_id == summary.lease_id)
+            {
+                owners[index] = summary;
+            } else {
+                owners.push(summary);
+            }
+        }
+        "task_owner_heartbeat" => {
+            let Some(heartbeat_payload) = record.payload.get("heartbeat") else {
+                return Ok(());
+            };
+            let heartbeat: TaskOwnerHeartbeat = serde_json::from_value(heartbeat_payload.clone())?;
+            let Some(owner) = task_owner_mut(owners, &heartbeat.lease_id) else {
+                return Ok(());
+            };
+            owner.apply_heartbeat(record, heartbeat);
+        }
+        "task_owner_detached" | "task_owner_lost" => {
+            let Some(lease_id) = trace_record_task_ownership_id(record) else {
+                return Ok(());
+            };
+            let Some(owner) = task_owner_mut(owners, &lease_id) else {
+                return Ok(());
+            };
+            owner.event_seq = record.seq;
+            owner.status = if record.event_kind == "task_owner_detached" {
+                TaskOwnerStatus::Detached
+            } else {
+                TaskOwnerStatus::Lost
+            };
+            owner.reattach_mode = TaskReattachMode::OwnerLost;
+            owner.reason = record
+                .payload
+                .get("reason")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+        }
+        "task_reattach_recorded" => {
+            let Some(reattach_payload) = record.payload.get("record") else {
+                return Ok(());
+            };
+            let reattach: TaskReattachRecord = serde_json::from_value(reattach_payload.clone())?;
+            apply_task_reattach_record(owners, reattach);
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn task_owner_mut<'a>(
+    owners: &'a mut [RuntimeTaskOwnerSummary],
+    lease_id: &TaskOwnershipId,
+) -> Option<&'a mut RuntimeTaskOwnerSummary> {
+    owners.iter_mut().find(|owner| &owner.lease_id == lease_id)
+}
+
+fn trace_record_task_ownership_id(record: &TraceRecord) -> Option<TaskOwnershipId> {
+    record
+        .payload
+        .get("lease_id")
+        .and_then(|value| value.as_str())
+        .map(TaskOwnershipId::from)
+}
+
+fn apply_task_reattach_record(
+    owners: &mut [RuntimeTaskOwnerSummary],
+    reattach: TaskReattachRecord,
+) {
+    let lease_ids = [
+        reattach.previous_lease_id.as_ref(),
+        reattach.new_lease_id.as_ref(),
+    ];
+    for lease_id in lease_ids.into_iter().flatten() {
+        if let Some(owner) = task_owner_mut(owners, lease_id) {
+            owner.reattach_mode = reattach.mode;
+            owner.checkpoint_id = reattach.checkpoint_id.clone();
+            owner.last_seq = reattach.since_seq;
+            owner.reason = reattach.reason.clone();
+        }
+    }
+}
+
+fn reconcile_task_owner_reattach_modes(
+    owners: &mut [RuntimeTaskOwnerSummary],
+    tasks: &[RuntimeTaskSummary],
+    checkpoints: &[RuntimePauseCheckpointSummary],
+) {
+    for owner in owners {
+        owner.checkpoint_id = None;
+
+        if let Some(task) = tasks.iter().find(|task| task.task_id == owner.task_id) {
+            if task_status_is_terminal(&task.status) {
+                owner.reattach_mode = TaskReattachMode::TerminalProjection;
+                continue;
+            }
+
+            if task.status == TaskStatus::Paused {
+                if let Some(checkpoint) = checkpoints
+                    .iter()
+                    .find(|checkpoint| checkpoint.task_id == owner.task_id)
+                {
+                    owner.reattach_mode = TaskReattachMode::ResumeFromCheckpoint;
+                    owner.checkpoint_id = Some(checkpoint.checkpoint_id.clone());
+                    continue;
+                }
+            }
+        }
+
+        owner.reattach_mode = task_owner_default_reattach_mode(owner.status);
+    }
+}
+
+fn task_status_is_terminal(status: &TaskStatus) -> bool {
+    matches!(
+        status,
+        TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled
+    )
+}
+
+fn task_owner_default_reattach_mode(status: TaskOwnerStatus) -> TaskReattachMode {
+    match status {
+        TaskOwnerStatus::Attached | TaskOwnerStatus::Heartbeat => {
+            TaskReattachMode::ObserveExistingOwner
+        }
+        TaskOwnerStatus::Detached | TaskOwnerStatus::Lost => TaskReattachMode::OwnerLost,
+    }
 }
 
 fn apply_artifact_record(artifacts: &mut Vec<RuntimeArtifactSummary>, record: &TraceRecord) {

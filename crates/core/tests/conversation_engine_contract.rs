@@ -14,19 +14,20 @@ use tessera_core::{
     WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
 };
 use tessera_protocol::{
-    AgentProfile, AgentProfileId, AgentStepStatus, ArtifactId, ArtifactKind, ContextBudget,
-    ContextId, ContextPlacement, ContextReference, ContextSource, ContextSourceKind, Diagnostic,
-    DiagnosticRange, DiagnosticSeverity, ErrorSource, EventFrame, EventRange,
+    AgentProfile, AgentProfileId, AgentStepStatus, ArtifactId, ArtifactKind, ClientInstanceId,
+    ContextBudget, ContextId, ContextPlacement, ContextReference, ContextSource, ContextSourceKind,
+    Diagnostic, DiagnosticRange, DiagnosticSeverity, ErrorSource, EventFrame, EventRange,
     InstructionLoadStatus, InstructionRedactionStatus, InstructionSourceKind, ItemId,
     ModelProfileId, NoProgressAction, NoProgressSignalKind, NormalizedError, OsSandboxFilesystem,
     OsSandboxMode, OsSandboxNetwork, OsSandboxShell, PolicyOutcome, ProviderCapability, ProviderId,
-    ResumeMode, RouteStrategy, RunEvent, SandboxDecisionKind, SkillEntrypoint,
+    ResumeMode, RouteStrategy, RunEvent, RuntimeInstanceId, SandboxDecisionKind, SkillEntrypoint,
     SkillEntrypointFormat, SkillId, SkillLoadStatus, SkillManifest, SkillPolicy,
     SkillRedactionStatus, SkillRequirements, SkillSource, SkillSourceKind, SnapshotId,
-    SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus,
-    ThreadId, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId,
-    ToolPermission, ToolRepairKind, ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect,
-    TurnId, WorkspaceCheckpoint, WorkspaceScope,
+    SnapshotKind, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease,
+    TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskReattachMode,
+    TaskStatus, ThreadId, Timestamp, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch,
+    ToolDispatchId, ToolId, ToolPermission, ToolRepairKind, ToolResult, ToolResultId,
+    ToolResultStatus, ToolSideEffect, TurnId, WorkspaceCheckpoint, WorkspaceScope,
 };
 use tessera_providers::{
     mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderMessage,
@@ -1167,6 +1168,221 @@ fn runtime_reader_lists_latest_pause_checkpoints_from_trace() {
     assert_eq!(checkpoints[0].last_seq, 6);
     assert_eq!(checkpoints[0].resume_mode, ResumeMode::FromTraceProjection);
     assert_eq!(checkpoints[0].reason.as_deref(), Some("new pause"));
+}
+
+fn owner_lease(trace_id: &str, task_id: TaskId, lease_id: &'static str) -> TaskOwnerLease {
+    TaskOwnerLease {
+        lease_id: TaskOwnershipId::from_static(lease_id),
+        task_id,
+        trace_id: trace_id.to_string(),
+        runtime_id: RuntimeInstanceId::from_static("runtime_reader_owner"),
+        client_id: Some(ClientInstanceId::from_static("client_reader_owner")),
+        owner_kind: TaskOwnerKind::Execution,
+        status: TaskOwnerStatus::Attached,
+        acquired_at: Timestamp::now_utc(),
+        heartbeat_interval_ms: 5_000,
+        expires_at: None,
+        last_heartbeat_at: None,
+        last_seq: None,
+        reason: Some("run started".to_string()),
+    }
+}
+
+#[test]
+fn runtime_reader_projects_task_owner_heartbeat_from_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = TraceStore::open(temp.path()).unwrap();
+    let trace_id = "trace_reader_owner_heartbeat";
+    let task_id = TaskId::from_static("task_reader_owner_heartbeat");
+    let lease = owner_lease(trace_id, task_id.clone(), "task_owner_reader_heartbeat");
+    let heartbeat_at = Timestamp::now_utc();
+    let expires_at = Timestamp::now_utc();
+
+    store
+        .append(
+            &EventFrame::new(
+                trace_id,
+                1,
+                RunEvent::TaskOwnerAttached {
+                    lease: Box::new(lease.clone()),
+                },
+            )
+            .with_task_id(task_id.clone()),
+        )
+        .unwrap();
+    store
+        .append(
+            &EventFrame::new(
+                trace_id,
+                2,
+                RunEvent::TaskOwnerHeartbeat {
+                    heartbeat: TaskOwnerHeartbeat {
+                        lease_id: lease.lease_id.clone(),
+                        task_id: task_id.clone(),
+                        runtime_id: lease.runtime_id.clone(),
+                        heartbeat_at: heartbeat_at.clone(),
+                        expires_at: expires_at.clone(),
+                        last_seq: 41,
+                    },
+                },
+            )
+            .with_task_id(task_id.clone()),
+        )
+        .unwrap();
+
+    let reader = RuntimeReader::new(store);
+    let owners = reader.list_task_owners(trace_id).unwrap();
+
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].lease_id, lease.lease_id);
+    assert_eq!(owners[0].task_id, task_id);
+    assert_eq!(owners[0].status, TaskOwnerStatus::Heartbeat);
+    assert_eq!(owners[0].last_heartbeat_at, Some(heartbeat_at));
+    assert_eq!(owners[0].expires_at, Some(expires_at));
+    assert_eq!(owners[0].last_seq, Some(41));
+    assert_eq!(
+        owners[0].reattach_mode,
+        TaskReattachMode::ObserveExistingOwner
+    );
+}
+
+#[test]
+fn runtime_reader_projects_task_owner_detached_from_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = TraceStore::open(temp.path()).unwrap();
+    let trace_id = "trace_reader_owner_detached";
+    let task_id = TaskId::from_static("task_reader_owner_detached");
+    let lease = owner_lease(trace_id, task_id.clone(), "task_owner_reader_detached");
+
+    store
+        .append(
+            &EventFrame::new(
+                trace_id,
+                1,
+                RunEvent::TaskOwnerAttached {
+                    lease: Box::new(lease.clone()),
+                },
+            )
+            .with_task_id(task_id.clone()),
+        )
+        .unwrap();
+    store
+        .append(
+            &EventFrame::new(
+                trace_id,
+                2,
+                RunEvent::TaskOwnerDetached {
+                    lease_id: lease.lease_id.clone(),
+                    task_id: task_id.clone(),
+                    reason: Some("client closed".to_string()),
+                },
+            )
+            .with_task_id(task_id.clone()),
+        )
+        .unwrap();
+
+    let reader = RuntimeReader::new(store);
+    let owners = reader.list_task_owners(trace_id).unwrap();
+
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].status, TaskOwnerStatus::Detached);
+    assert_eq!(owners[0].reattach_mode, TaskReattachMode::OwnerLost);
+    assert_eq!(owners[0].reason.as_deref(), Some("client closed"));
+}
+
+#[test]
+fn runtime_reader_projects_task_owner_lost_from_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = TraceStore::open(temp.path()).unwrap();
+    let trace_id = "trace_reader_owner_lost";
+    let task_id = TaskId::from_static("task_reader_owner_lost");
+    let lease = owner_lease(trace_id, task_id.clone(), "task_owner_reader_lost");
+
+    store
+        .append(
+            &EventFrame::new(
+                trace_id,
+                1,
+                RunEvent::TaskOwnerAttached {
+                    lease: Box::new(lease.clone()),
+                },
+            )
+            .with_task_id(task_id.clone()),
+        )
+        .unwrap();
+    store
+        .append(
+            &EventFrame::new(
+                trace_id,
+                2,
+                RunEvent::TaskOwnerLost {
+                    lease_id: lease.lease_id.clone(),
+                    task_id: task_id.clone(),
+                    reason: Some("heartbeat expired".to_string()),
+                },
+            )
+            .with_task_id(task_id.clone()),
+        )
+        .unwrap();
+
+    let reader = RuntimeReader::new(store);
+    let owners = reader.list_task_owners(trace_id).unwrap();
+
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].status, TaskOwnerStatus::Lost);
+    assert_eq!(owners[0].reattach_mode, TaskReattachMode::OwnerLost);
+    assert_eq!(owners[0].reason.as_deref(), Some("heartbeat expired"));
+}
+
+#[test]
+fn runtime_reader_terminal_task_supersedes_owner_reattach_mode() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = TraceStore::open(temp.path()).unwrap();
+    let trace_id = "trace_reader_owner_terminal";
+    let task_id = TaskId::from_static("task_reader_owner_terminal");
+    let lease = owner_lease(trace_id, task_id.clone(), "task_owner_reader_terminal");
+
+    for (seq, event) in [
+        (
+            1,
+            RunEvent::TaskCreated {
+                task_id: task_id.clone(),
+                kind: TaskKind::Chat,
+            },
+        ),
+        (
+            2,
+            RunEvent::TaskStarted {
+                task_id: task_id.clone(),
+            },
+        ),
+        (
+            3,
+            RunEvent::TaskOwnerAttached {
+                lease: Box::new(lease.clone()),
+            },
+        ),
+        (
+            4,
+            RunEvent::TaskCompleted {
+                task_id: task_id.clone(),
+            },
+        ),
+    ] {
+        store
+            .append(&EventFrame::new(trace_id, seq, event).with_task_id(task_id.clone()))
+            .unwrap();
+    }
+
+    let reader = RuntimeReader::new(store);
+    let owners = reader.list_task_owners(trace_id).unwrap();
+
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].status, TaskOwnerStatus::Attached);
+    assert_eq!(
+        owners[0].reattach_mode,
+        TaskReattachMode::TerminalProjection
+    );
 }
 
 #[test]
