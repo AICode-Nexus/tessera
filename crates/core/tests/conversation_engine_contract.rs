@@ -9,8 +9,8 @@ use tessera_core::{
     McpToolSpec, ModelRouteRequest, ModelRouter, NoProgressDetector, NoProgressObservation,
     OrderedToolResultBuffer, OsSandboxPlanner, PolicyGate, ReplayRunner, RunCancellationToken,
     RunControls, RunPauseToken, RuntimeEventQuery, RuntimeHttpApi, RuntimeHttpEventRequest,
-    RuntimeReader, SkillRegistry, ToolRegistry, ToolRepairTelemetry, WorkspaceCheckpointPlanner,
-    WorkspaceGuardrailChecker,
+    RuntimeReader, SkillDiscoveryOptions, SkillRegistry, SkillRuntimePlanner, ToolRegistry,
+    ToolRepairTelemetry, WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
 };
 use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentStepStatus, ArtifactId, ArtifactKind, ContextBudget,
@@ -20,11 +20,12 @@ use tessera_protocol::{
     ModelProfileId, NoProgressAction, NoProgressSignalKind, NormalizedError, OsSandboxFilesystem,
     OsSandboxMode, OsSandboxNetwork, OsSandboxShell, PolicyOutcome, ProviderCapability, ProviderId,
     ResumeMode, RouteStrategy, RunEvent, SandboxDecisionKind, SkillEntrypoint,
-    SkillEntrypointFormat, SkillId, SkillManifest, SkillPolicy, SkillRequirements, SkillSource,
-    SkillSourceKind, SnapshotId, SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint,
-    TaskPauseCheckpointId, TaskStatus, ThreadId, ToolCallId, ToolCallRequest, ToolDescriptor,
-    ToolDispatch, ToolDispatchId, ToolId, ToolPermission, ToolRepairKind, ToolResult, ToolResultId,
-    ToolResultStatus, ToolSideEffect, TurnId, WorkspaceCheckpoint, WorkspaceScope,
+    SkillEntrypointFormat, SkillId, SkillLoadStatus, SkillManifest, SkillPolicy,
+    SkillRequirements, SkillSource, SkillSourceKind, SnapshotId, SnapshotKind, TaskId, TaskKind,
+    TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, ThreadId, ToolCallId, ToolCallRequest,
+    ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission, ToolRepairKind,
+    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, TurnId, WorkspaceCheckpoint,
+    WorkspaceScope,
 };
 use tessera_providers::{
     mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderMessage,
@@ -308,6 +309,167 @@ fn skill_registry_lists_and_finds_manifests_without_runtime_activation() {
 
     assert_eq!(registry.list_skills(), vec![manifest.clone()]);
     assert_eq!(registry.find_skill(&manifest.id), Some(&manifest));
+}
+
+#[test]
+fn skill_runtime_discovers_workspace_skill_manifests_without_body_content() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path();
+    let skill_dir = workspace.join(".tessera/skills/code-review");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: code-review\ndescription: Review code changes\nversion: 0.1.0\n---\n\nDo the review.\n",
+    )
+    .unwrap();
+
+    let options = SkillDiscoveryOptions::new(workspace, workspace);
+    let report = SkillRuntimePlanner.discover(options).unwrap();
+
+    assert_eq!(report.manifests.len(), 1);
+    assert_eq!(report.manifests[0].id, SkillId::from_static("skill_code_review"));
+    assert_eq!(report.manifests[0].name, "code-review");
+    assert_eq!(report.manifests[0].version.as_deref(), Some("0.1.0"));
+    assert_eq!(report.sources.len(), 1);
+    assert_eq!(report.sources[0].status, SkillLoadStatus::Loaded);
+    assert_eq!(
+        report.sources[0].relative_path,
+        ".tessera/skills/code-review/SKILL.md"
+    );
+
+    let encoded = serde_json::to_string(&report.sources).unwrap();
+    assert!(!encoded.contains("Do the review."));
+}
+
+#[test]
+fn skill_runtime_rejects_target_outside_workspace() {
+    let workspace = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+
+    let error = SkillRuntimePlanner
+        .discover(SkillDiscoveryOptions::new(workspace.path(), outside.path()))
+        .unwrap_err();
+
+    assert!(
+        matches!(error, CoreError::InvalidRequest(message) if message.contains("target_dir must be within workspace_root"))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn skill_runtime_rejects_symlink_entrypoints() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_skill = outside.path().join("SKILL.md");
+    std::fs::write(
+        &outside_skill,
+        "---\nname: outside\ndescription: Outside skill\n---\n\noutside\n",
+    )
+    .unwrap();
+    let skill_dir = workspace.join(".tessera/skills/outside");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::os::unix::fs::symlink(&outside_skill, skill_dir.join("SKILL.md")).unwrap();
+
+    let report = SkillRuntimePlanner
+        .discover(SkillDiscoveryOptions::new(workspace, workspace))
+        .unwrap();
+
+    assert!(report.manifests.is_empty());
+    assert_eq!(report.sources.len(), 1);
+    assert_eq!(report.sources[0].status, SkillLoadStatus::SkippedSymlink);
+    assert_eq!(
+        report.sources[0].relative_path,
+        ".tessera/skills/outside/SKILL.md"
+    );
+}
+
+#[test]
+fn skill_runtime_reports_invalid_and_non_utf8_entrypoints() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path();
+    let invalid_dir = workspace.join(".tessera/skills/invalid");
+    let non_utf8_dir = workspace.join(".tessera/skills/non-utf8");
+    std::fs::create_dir_all(&invalid_dir).unwrap();
+    std::fs::create_dir_all(&non_utf8_dir).unwrap();
+    std::fs::write(
+        invalid_dir.join("SKILL.md"),
+        "---\nname: invalid\n---\n\nmissing description\n",
+    )
+    .unwrap();
+    std::fs::write(non_utf8_dir.join("SKILL.md"), [0xff, 0xfe, 0xfd]).unwrap();
+
+    let report = SkillRuntimePlanner
+        .discover(SkillDiscoveryOptions::new(workspace, workspace))
+        .unwrap();
+
+    assert!(report.manifests.is_empty());
+    let invalid = report
+        .sources
+        .iter()
+        .find(|source| source.relative_path == ".tessera/skills/invalid/SKILL.md")
+        .unwrap();
+    assert_eq!(invalid.status, SkillLoadStatus::InvalidManifest);
+    let non_utf8 = report
+        .sources
+        .iter()
+        .find(|source| source.relative_path == ".tessera/skills/non-utf8/SKILL.md")
+        .unwrap();
+    assert_eq!(non_utf8.status, SkillLoadStatus::SkippedNonUtf8);
+}
+
+#[test]
+fn skill_runtime_skips_entrypoints_over_byte_limit() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path();
+    let skill_dir = workspace.join(".tessera/skills/large");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: large\ndescription: Large skill\n---\n\nlarger than limit\n",
+    )
+    .unwrap();
+    let mut options = SkillDiscoveryOptions::new(workspace, workspace);
+    options.entrypoint_byte_limit = 8;
+
+    let report = SkillRuntimePlanner.discover(options).unwrap();
+
+    assert!(report.manifests.is_empty());
+    assert_eq!(report.sources[0].status, SkillLoadStatus::SkippedTooLarge);
+    assert_eq!(report.sources[0].loaded_bytes, 0);
+}
+
+#[test]
+fn skill_runtime_marks_duplicate_skill_ids() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path();
+    let first_dir = workspace.join(".tessera/skills/a-reviewer");
+    let second_dir = workspace.join(".tessera/skills/b-reviewer");
+    std::fs::create_dir_all(&first_dir).unwrap();
+    std::fs::create_dir_all(&second_dir).unwrap();
+    std::fs::write(
+        first_dir.join("SKILL.md"),
+        "---\nname: reviewer\ndescription: First reviewer\n---\n\nfirst\n",
+    )
+    .unwrap();
+    std::fs::write(
+        second_dir.join("SKILL.md"),
+        "---\nname: reviewer\ndescription: Second reviewer\n---\n\nsecond\n",
+    )
+    .unwrap();
+
+    let report = SkillRuntimePlanner
+        .discover(SkillDiscoveryOptions::new(workspace, workspace))
+        .unwrap();
+
+    assert_eq!(report.manifests.len(), 1);
+    assert_eq!(report.manifests[0].description, "First reviewer");
+    let duplicate = report
+        .sources
+        .iter()
+        .find(|source| source.relative_path == ".tessera/skills/b-reviewer/SKILL.md")
+        .unwrap();
+    assert_eq!(duplicate.status, SkillLoadStatus::SkippedDuplicate);
 }
 
 #[test]

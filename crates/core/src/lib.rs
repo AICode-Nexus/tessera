@@ -14,11 +14,14 @@ use tessera_protocol::{
     NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
     OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
     ProviderId, ResumeMode, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent,
-    SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillId, SkillManifest, SnapshotId,
-    SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus,
-    ThreadId, Timestamp, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId, ToolPermission,
-    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolSideEffect,
-    TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillEntrypoint,
+    SkillEntrypointFormat, SkillId, SkillLoadStatus, SkillManifest, SkillPolicy,
+    SkillRedactionStatus, SkillReferenceSource, SkillRequirements, SkillSource, SkillSourceKind,
+    SnapshotId, SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint, TaskPauseCheckpointId,
+    TaskStatus, ThreadId, Timestamp, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId,
+    ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
+    ToolResult, ToolSideEffect, TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint,
+    WorkspaceGuardrail, WorkspaceScope,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderMessage, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -399,6 +402,28 @@ pub struct SkillRegistry {
     manifests: Vec<SkillManifest>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SkillDiscoveryOptions {
+    pub workspace_root: PathBuf,
+    pub target_dir: PathBuf,
+    pub skill_roots: Vec<PathBuf>,
+    pub entrypoint_name: String,
+    pub entrypoint_byte_limit: usize,
+    pub reference_byte_limit: usize,
+    pub combined_byte_limit: usize,
+    pub placement: ContextPlacement,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SkillDiscoveryReport {
+    pub manifests: Vec<SkillManifest>,
+    pub sources: Vec<SkillReferenceSource>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SkillRuntimePlanner;
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AgentRegistry {
     profiles: Vec<AgentProfile>,
@@ -619,6 +644,416 @@ impl ContextWorkbench {
             volatile_scratch_tokens,
             over_budget: used_tokens > available_tokens,
         }
+    }
+}
+
+impl SkillDiscoveryOptions {
+    pub fn new(workspace_root: impl Into<PathBuf>, target_dir: impl Into<PathBuf>) -> Self {
+        let workspace_root = workspace_root.into();
+        Self {
+            skill_roots: vec![workspace_root.join(".tessera").join("skills")],
+            workspace_root,
+            target_dir: target_dir.into(),
+            entrypoint_name: "SKILL.md".to_string(),
+            entrypoint_byte_limit: 64 * 1024,
+            reference_byte_limit: 32 * 1024,
+            combined_byte_limit: 128 * 1024,
+            placement: ContextPlacement::StablePrefix,
+        }
+    }
+}
+
+impl SkillRuntimePlanner {
+    pub fn discover(&self, options: SkillDiscoveryOptions) -> Result<SkillDiscoveryReport> {
+        if options.entrypoint_byte_limit == 0 {
+            return Err(CoreError::InvalidRequest(
+                "entrypoint_byte_limit must be at least 1".to_string(),
+            ));
+        }
+        if options.reference_byte_limit == 0 {
+            return Err(CoreError::InvalidRequest(
+                "reference_byte_limit must be at least 1".to_string(),
+            ));
+        }
+        if options.combined_byte_limit == 0 {
+            return Err(CoreError::InvalidRequest(
+                "combined_byte_limit must be at least 1".to_string(),
+            ));
+        }
+
+        let workspace_root = canonicalize_existing_dir("workspace_root", &options.workspace_root)?;
+        let target_dir = canonicalize_existing_dir("target_dir", &options.target_dir)?;
+        if !target_dir.starts_with(&workspace_root) {
+            return Err(CoreError::InvalidRequest(
+                "target_dir must be within workspace_root".to_string(),
+            ));
+        }
+
+        let mut report = SkillDiscoveryReport::default();
+        let mut seen_skill_ids = BTreeMap::<SkillId, String>::new();
+
+        for skill_root in &options.skill_roots {
+            let root_metadata = match std::fs::symlink_metadata(skill_root) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    report.warnings.push(format!(
+                        "skill_root_missing: {}",
+                        path_to_string(skill_root)
+                    ));
+                    continue;
+                }
+                Err(error) => {
+                    report.warnings.push(format!(
+                        "skill_root_read_failed: {}: {}",
+                        path_to_string(skill_root),
+                        error.kind()
+                    ));
+                    continue;
+                }
+            };
+            if root_metadata.file_type().is_symlink() {
+                report.warnings.push(format!(
+                    "skill_root_symlink_skipped: {}",
+                    path_to_string(skill_root)
+                ));
+                continue;
+            }
+            if !root_metadata.is_dir() {
+                report.warnings.push(format!(
+                    "skill_root_not_directory: {}",
+                    path_to_string(skill_root)
+                ));
+                continue;
+            }
+
+            let skill_root = std::fs::canonicalize(skill_root).map_err(|error| {
+                CoreError::InvalidRequest(format!("failed to resolve skill_root: {error}"))
+            })?;
+            if !skill_root.starts_with(&workspace_root) {
+                return Err(CoreError::InvalidRequest(
+                    "skill_root must be within workspace_root".to_string(),
+                ));
+            }
+
+            let mut skill_dirs = std::fs::read_dir(&skill_root)
+                .map_err(|error| {
+                    CoreError::InvalidRequest(format!("failed to read skill_root: {error}"))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|error| {
+                    CoreError::InvalidRequest(format!("failed to read skill_root entry: {error}"))
+                })?;
+            skill_dirs.sort_by_key(|entry| path_to_string(&entry.path()));
+
+            for entry in skill_dirs {
+                let skill_dir = entry.path();
+                let metadata = match std::fs::symlink_metadata(&skill_dir) {
+                    Ok(metadata) => metadata,
+                    Err(error) => {
+                        report.warnings.push(format!(
+                            "skill_dir_read_failed: {}: {}",
+                            path_to_string(&skill_dir),
+                            error.kind()
+                        ));
+                        continue;
+                    }
+                };
+                if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                    continue;
+                }
+
+                let entrypoint = skill_dir.join(&options.entrypoint_name);
+                if !skill_candidate_exists(&entrypoint) {
+                    continue;
+                }
+                let mut evaluation = inspect_skill_entrypoint(
+                    &workspace_root,
+                    &entrypoint,
+                    &options.entrypoint_name,
+                    options.entrypoint_byte_limit,
+                );
+
+                if let Some(manifest) = &evaluation.manifest {
+                    if let Some(first_source) = seen_skill_ids.get(&manifest.id) {
+                        evaluation.source.status = SkillLoadStatus::SkippedDuplicate;
+                        evaluation.source.loaded_bytes = 0;
+                        evaluation.source.warnings.push(format!(
+                            "skipped_duplicate_skill_id: first_source={first_source}"
+                        ));
+                        evaluation.manifest = None;
+                    } else {
+                        seen_skill_ids
+                            .insert(manifest.id.clone(), evaluation.source.relative_path.clone());
+                    }
+                }
+
+                report.warnings.extend(evaluation.source.warnings.clone());
+                if let Some(manifest) = evaluation.manifest {
+                    report.manifests.push(manifest);
+                }
+                report.sources.push(evaluation.source);
+            }
+        }
+
+        Ok(report)
+    }
+}
+
+struct SkillEntrypointEvaluation {
+    source: SkillReferenceSource,
+    manifest: Option<SkillManifest>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ParsedSkillMd {
+    name: String,
+    description: String,
+    version: Option<String>,
+    body: String,
+}
+
+fn skill_candidate_exists(path: &Path) -> bool {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => true,
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
+fn inspect_skill_entrypoint(
+    workspace_root: &Path,
+    path: &Path,
+    entrypoint_name: &str,
+    entrypoint_byte_limit: usize,
+) -> SkillEntrypointEvaluation {
+    let mut source = base_skill_source(workspace_root, path);
+
+    if !path.starts_with(workspace_root) {
+        source.status = SkillLoadStatus::SkippedOutsideWorkspace;
+        source
+            .warnings
+            .push("skipped_outside_workspace".to_string());
+        return SkillEntrypointEvaluation {
+            source,
+            manifest: None,
+        };
+    }
+
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            source.status = SkillLoadStatus::ReadFailed;
+            source
+                .warnings
+                .push(format!("read_failed: {}", error.kind()));
+            return SkillEntrypointEvaluation {
+                source,
+                manifest: None,
+            };
+        }
+    };
+    source.original_bytes = metadata.len();
+
+    if metadata.file_type().is_symlink() {
+        source.status = SkillLoadStatus::SkippedSymlink;
+        source.warnings.push("skipped_symlink_source".to_string());
+        return SkillEntrypointEvaluation {
+            source,
+            manifest: None,
+        };
+    }
+    if !metadata.is_file() {
+        source.status = SkillLoadStatus::ReadFailed;
+        source.warnings.push("not_a_regular_file".to_string());
+        return SkillEntrypointEvaluation {
+            source,
+            manifest: None,
+        };
+    }
+    if metadata_len_exceeds(metadata.len(), entrypoint_byte_limit) {
+        source.status = SkillLoadStatus::SkippedTooLarge;
+        source.warnings.push("skipped_too_large_source".to_string());
+        return SkillEntrypointEvaluation {
+            source,
+            manifest: None,
+        };
+    }
+
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            source.status = SkillLoadStatus::ReadFailed;
+            source
+                .warnings
+                .push(format!("read_failed: {}", error.kind()));
+            return SkillEntrypointEvaluation {
+                source,
+                manifest: None,
+            };
+        }
+    };
+    source.original_bytes = bytes.len() as u64;
+    source.sha256 = Some(sha256_hex(&bytes));
+
+    let text = match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(_) => {
+            source.status = SkillLoadStatus::SkippedNonUtf8;
+            source.warnings.push("skipped_non_utf8_source".to_string());
+            return SkillEntrypointEvaluation {
+                source,
+                manifest: None,
+            };
+        }
+    };
+
+    let parsed = match parse_skill_md(&text) {
+        Ok(parsed) => parsed,
+        Err(reason) => {
+            source.status = SkillLoadStatus::InvalidManifest;
+            source.warnings.push(format!("invalid_manifest: {reason}"));
+            return SkillEntrypointEvaluation {
+                source,
+                manifest: None,
+            };
+        }
+    };
+
+    let skill_id = skill_id_from_name(&parsed.name);
+    let manifest = SkillManifest {
+        id: skill_id,
+        name: parsed.name,
+        version: parsed.version,
+        description: parsed.description,
+        source: SkillSource {
+            kind: SkillSourceKind::Workspace,
+            uri: Some(source.relative_path.clone()),
+        },
+        entrypoint: SkillEntrypoint {
+            format: SkillEntrypointFormat::SkillMd,
+            path: entrypoint_name.to_string(),
+        },
+        requirements: SkillRequirements::default(),
+        policy: SkillPolicy {
+            default_permission: "ask".to_string(),
+            network: "deny".to_string(),
+            write_files: "deny".to_string(),
+        },
+        metadata: None,
+    };
+
+    source.status = SkillLoadStatus::Loaded;
+    source.loaded_bytes = 0;
+    source.redaction_status = SkillRedactionStatus::Clean;
+
+    SkillEntrypointEvaluation {
+        source,
+        manifest: Some(manifest),
+    }
+}
+
+fn base_skill_source(workspace_root: &Path, path: &Path) -> SkillReferenceSource {
+    let relative_path = relative_instruction_path(workspace_root, path);
+    SkillReferenceSource {
+        source_id: ContextId::from(format!(
+            "context_skill_{}",
+            sanitize_mcp_id_fragment(&relative_path)
+        )),
+        path: path_to_string(path),
+        relative_path,
+        status: SkillLoadStatus::ReadFailed,
+        original_bytes: 0,
+        loaded_bytes: 0,
+        sha256: None,
+        redaction_status: SkillRedactionStatus::Clean,
+        warnings: Vec::new(),
+    }
+}
+
+fn parse_skill_md(text: &str) -> std::result::Result<ParsedSkillMd, String> {
+    let mut lines = text.split_inclusive('\n');
+    let first = lines
+        .next()
+        .ok_or_else(|| "missing_frontmatter".to_string())?;
+    if trim_line_ending(first).trim() != "---" {
+        return Err("missing_frontmatter_start".to_string());
+    }
+
+    let mut frontmatter = Vec::new();
+    let mut body = String::new();
+    let mut found_end = false;
+    for line in lines {
+        if !found_end && trim_line_ending(line).trim() == "---" {
+            found_end = true;
+            continue;
+        }
+
+        if found_end {
+            body.push_str(line);
+        } else {
+            frontmatter.push(line.to_string());
+        }
+    }
+    if !found_end {
+        return Err("missing_frontmatter_end".to_string());
+    }
+
+    let mut name = None;
+    let mut description = None;
+    let mut version = None;
+
+    for line in frontmatter {
+        let line = trim_line_ending(&line).trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = trim_frontmatter_value(value);
+        match key {
+            "name" => name = Some(value),
+            "description" => description = Some(value),
+            "version" => version = Some(value),
+            _ => {}
+        }
+    }
+
+    let name = name
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "missing_name".to_string())?;
+    let description = description
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "missing_description".to_string())?;
+
+    Ok(ParsedSkillMd {
+        name,
+        description,
+        version: version.filter(|value| !value.is_empty()),
+        body,
+    })
+}
+
+fn trim_line_ending(line: &str) -> &str {
+    line.trim_end_matches(['\r', '\n'])
+}
+
+fn trim_frontmatter_value(value: &str) -> String {
+    let value = value.trim();
+    value
+        .strip_prefix('"')
+        .and_then(|stripped| stripped.strip_suffix('"'))
+        .unwrap_or(value)
+        .trim()
+        .to_string()
+}
+
+fn skill_id_from_name(name: &str) -> SkillId {
+    let fragment = sanitize_mcp_id_fragment(name);
+    if fragment.starts_with("skill_") {
+        SkillId::from(fragment)
+    } else {
+        SkillId::from(format!("skill_{fragment}"))
     }
 }
 
