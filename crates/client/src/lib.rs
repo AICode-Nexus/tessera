@@ -1,12 +1,14 @@
 //! UI-neutral client model for Tessera shells.
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tessera_protocol::{
-    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, ContextId, ContextPlacement,
-    ContextReference, ContextSourceKind, EventFrame, ItemId, MemoryProposal, MemoryProposalId,
-    MemoryProposalStatus, RunEvent, TaskId, TaskKind, TaskStatus, ThreadId, Timestamp,
-    ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect,
-    TraceRecord, TurnId,
+    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, ClientInstanceId, ContextId,
+    ContextPlacement, ContextReference, ContextSourceKind, EventFrame, ItemId, MemoryProposal,
+    MemoryProposalId, MemoryProposalStatus, RunEvent, RuntimeInstanceId, TaskId, TaskKind,
+    TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
+    TaskReattachMode, TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolApproval,
+    ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect, TraceRecord, TurnId,
 };
 
 /// User intent shared by CLI/TUI/GUI surfaces before it reaches runtime code.
@@ -64,6 +66,26 @@ pub struct ClientTask {
     pub cancel_reason: Option<String>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+    #[serde(default)]
+    pub owner_lease_id: Option<TaskOwnershipId>,
+    #[serde(default)]
+    pub owner_runtime_id: Option<RuntimeInstanceId>,
+    #[serde(default)]
+    pub owner_client_id: Option<ClientInstanceId>,
+    #[serde(default)]
+    pub owner_kind: Option<TaskOwnerKind>,
+    #[serde(default)]
+    pub owner_status: Option<TaskOwnerStatus>,
+    #[serde(default)]
+    pub owner_reattach_mode: Option<TaskReattachMode>,
+    #[serde(default)]
+    pub owner_last_heartbeat_at: Option<Timestamp>,
+    #[serde(default)]
+    pub owner_expires_at: Option<Timestamp>,
+    #[serde(default)]
+    pub owner_last_seq: Option<u64>,
+    #[serde(default)]
+    pub owner_reason: Option<String>,
 }
 
 impl ClientTask {
@@ -80,6 +102,16 @@ impl ClientTask {
             cancel_reason: None,
             error_code: None,
             error_message: None,
+            owner_lease_id: None,
+            owner_runtime_id: None,
+            owner_client_id: None,
+            owner_kind: None,
+            owner_status: None,
+            owner_reattach_mode: None,
+            owner_last_heartbeat_at: None,
+            owner_expires_at: None,
+            owner_last_seq: None,
+            owner_reason: None,
         }
     }
 
@@ -89,6 +121,64 @@ impl ClientTask {
         }
         if turn_id.is_some() {
             self.turn_id = turn_id;
+        }
+    }
+
+    fn apply_owner_lease(&mut self, lease: &TaskOwnerLease) {
+        self.owner_lease_id = Some(lease.lease_id.clone());
+        self.owner_runtime_id = Some(lease.runtime_id.clone());
+        self.owner_client_id = lease.client_id.clone();
+        self.owner_kind = Some(lease.owner_kind);
+        self.owner_status = Some(lease.status);
+        self.owner_reattach_mode = Some(task_owner_default_reattach_mode(lease.status));
+        self.owner_last_heartbeat_at = lease.last_heartbeat_at.clone();
+        self.owner_expires_at = lease.expires_at.clone();
+        self.owner_last_seq = lease.last_seq;
+        self.owner_reason = lease.reason.clone();
+    }
+
+    fn apply_owner_heartbeat(&mut self, heartbeat: &TaskOwnerHeartbeat) {
+        self.owner_lease_id = Some(heartbeat.lease_id.clone());
+        self.owner_runtime_id = Some(heartbeat.runtime_id.clone());
+        self.owner_status = Some(TaskOwnerStatus::Heartbeat);
+        self.owner_reattach_mode = Some(TaskReattachMode::ObserveExistingOwner);
+        self.owner_last_heartbeat_at = Some(heartbeat.heartbeat_at.clone());
+        self.owner_expires_at = Some(heartbeat.expires_at.clone());
+        self.owner_last_seq = Some(heartbeat.last_seq);
+    }
+
+    fn apply_owner_status(
+        &mut self,
+        lease_id: TaskOwnershipId,
+        status: TaskOwnerStatus,
+        reason: Option<String>,
+    ) {
+        self.owner_lease_id = Some(lease_id);
+        self.owner_status = Some(status);
+        self.owner_reattach_mode = Some(task_owner_default_reattach_mode(status));
+        self.owner_reason = reason;
+    }
+
+    fn apply_reattach_record(&mut self, record: &TaskReattachRecord) {
+        self.owner_reattach_mode = Some(record.mode);
+        if let Some(lease_id) = record
+            .new_lease_id
+            .clone()
+            .or_else(|| record.previous_lease_id.clone())
+        {
+            self.owner_lease_id = Some(lease_id);
+        }
+        if record.since_seq.is_some() {
+            self.owner_last_seq = record.since_seq;
+        }
+        if record.reason.is_some() {
+            self.owner_reason = record.reason.clone();
+        }
+    }
+
+    fn apply_terminal_projection_to_owner(&mut self) {
+        if self.owner_status.is_some() {
+            self.owner_reattach_mode = Some(TaskReattachMode::TerminalProjection);
         }
     }
 }
@@ -952,6 +1042,7 @@ impl ClientSnapshot {
                 let task = self.task_mut_or_insert(task_id);
                 task.status = TaskStatus::Completed;
                 task.finished_at = Some(timestamp);
+                task.apply_terminal_projection_to_owner();
                 self.status.update_task_summary(&self.tasks);
             }
             RunEvent::TaskFailed { task_id, error } => {
@@ -961,6 +1052,7 @@ impl ClientSnapshot {
                 task.finished_at = Some(timestamp);
                 task.error_code = Some(error.code.clone());
                 task.error_message = Some(error.message.clone());
+                task.apply_terminal_projection_to_owner();
                 self.status.update_task_summary(&self.tasks);
             }
             RunEvent::TaskCancelled { task_id, reason } => {
@@ -969,6 +1061,7 @@ impl ClientSnapshot {
                 task.status = TaskStatus::Cancelled;
                 task.finished_at = Some(timestamp);
                 task.cancel_reason = reason.clone();
+                task.apply_terminal_projection_to_owner();
                 self.status.update_task_summary(&self.tasks);
             }
             RunEvent::TaskPaused { task_id, .. } => {
@@ -1016,6 +1109,38 @@ impl ClientSnapshot {
             | RunEvent::MemoryWriteApplied { proposal }
             | RunEvent::MemoryWriteRejected { proposal } => {
                 self.record_memory_proposal(proposal);
+            }
+            RunEvent::TaskOwnerAttached { lease } => {
+                let task = self.task_mut_or_insert(&lease.task_id);
+                task.apply_owner_lease(lease);
+            }
+            RunEvent::TaskOwnerHeartbeat { heartbeat } => {
+                let task = self.task_mut_or_insert(&heartbeat.task_id);
+                task.apply_owner_heartbeat(heartbeat);
+            }
+            RunEvent::TaskOwnerDetached {
+                lease_id,
+                task_id,
+                reason,
+            } => {
+                let task = self.task_mut_or_insert(task_id);
+                task.apply_owner_status(
+                    lease_id.clone(),
+                    TaskOwnerStatus::Detached,
+                    reason.clone(),
+                );
+            }
+            RunEvent::TaskOwnerLost {
+                lease_id,
+                task_id,
+                reason,
+            } => {
+                let task = self.task_mut_or_insert(task_id);
+                task.apply_owner_status(lease_id.clone(), TaskOwnerStatus::Lost, reason.clone());
+            }
+            RunEvent::TaskReattachRecorded { record } => {
+                let task = self.task_mut_or_insert(&record.task_id);
+                task.apply_reattach_record(record);
             }
             RunEvent::ProviderCapabilityReported { capability, .. } => self
                 .status
@@ -1087,6 +1212,7 @@ impl ClientSnapshot {
                 let task = self.task_mut_or_insert(&task_id);
                 task.status = TaskStatus::Completed;
                 task.finished_at = Some(record.timestamp.clone());
+                task.apply_terminal_projection_to_owner();
                 self.status.update_task_summary(&self.tasks);
             }
             "task_failed" => {
@@ -1108,6 +1234,7 @@ impl ClientSnapshot {
                     .and_then(|error| error.get("message"))
                     .and_then(|value| value.as_str())
                     .map(str::to_string);
+                task.apply_terminal_projection_to_owner();
                 self.status.update_task_summary(&self.tasks);
             }
             "task_cancelled" => {
@@ -1122,6 +1249,7 @@ impl ClientSnapshot {
                     .get("reason")
                     .and_then(|value| value.as_str())
                     .map(str::to_string);
+                task.apply_terminal_projection_to_owner();
                 self.status.update_task_summary(&self.tasks);
             }
             "task_paused" => {
@@ -1268,6 +1396,52 @@ impl ClientSnapshot {
                     source_item_id,
                     reason,
                 });
+            }
+            "task_owner_attached" => {
+                let Some(lease) = trace_payload::<TaskOwnerLease>(record.payload.get("lease"))
+                else {
+                    return;
+                };
+                let task = self.task_mut_or_insert(&lease.task_id);
+                task.apply_owner_lease(&lease);
+            }
+            "task_owner_heartbeat" => {
+                let Some(heartbeat) =
+                    trace_payload::<TaskOwnerHeartbeat>(record.payload.get("heartbeat"))
+                else {
+                    return;
+                };
+                let task = self.task_mut_or_insert(&heartbeat.task_id);
+                task.apply_owner_heartbeat(&heartbeat);
+            }
+            "task_owner_detached" | "task_owner_lost" => {
+                let (Some(task_id), Some(lease_id)) = (
+                    trace_record_task_id(record),
+                    trace_record_task_ownership_id(record),
+                ) else {
+                    return;
+                };
+                let reason = record
+                    .payload
+                    .get("reason")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                let status = if record.event_kind == "task_owner_detached" {
+                    TaskOwnerStatus::Detached
+                } else {
+                    TaskOwnerStatus::Lost
+                };
+                let task = self.task_mut_or_insert(&task_id);
+                task.apply_owner_status(lease_id, status, reason);
+            }
+            "task_reattach_recorded" => {
+                let Some(reattach) =
+                    trace_payload::<TaskReattachRecord>(record.payload.get("record"))
+                else {
+                    return;
+                };
+                let task = self.task_mut_or_insert(&reattach.task_id);
+                task.apply_reattach_record(&reattach);
             }
             "provider_capability_reported" => self.status.update_provider_capability(
                 record
@@ -1572,6 +1746,14 @@ fn trace_record_task_id(record: &TraceRecord) -> Option<TaskId> {
     })
 }
 
+fn trace_record_task_ownership_id(record: &TraceRecord) -> Option<TaskOwnershipId> {
+    record
+        .payload
+        .get("lease_id")
+        .and_then(|value| value.as_str())
+        .map(TaskOwnershipId::from)
+}
+
 fn trace_record_artifact_id(record: &TraceRecord) -> Option<ArtifactId> {
     record
         .payload
@@ -1699,6 +1881,12 @@ fn client_memory_proposal_status_from_str(value: &str) -> Option<ClientMemoryPro
     }
 }
 
+fn trace_payload<T: DeserializeOwned>(value: Option<&serde_json::Value>) -> Option<T> {
+    value
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+}
+
 fn string_values(values: &[serde_json::Value]) -> Vec<String> {
     values
         .iter()
@@ -1734,5 +1922,14 @@ fn task_status_label(status: &TaskStatus) -> &'static str {
         TaskStatus::Completed => "completed",
         TaskStatus::Failed => "failed",
         TaskStatus::Cancelled => "cancelled",
+    }
+}
+
+fn task_owner_default_reattach_mode(status: TaskOwnerStatus) -> TaskReattachMode {
+    match status {
+        TaskOwnerStatus::Attached | TaskOwnerStatus::Heartbeat => {
+            TaskReattachMode::ObserveExistingOwner
+        }
+        TaskOwnerStatus::Detached | TaskOwnerStatus::Lost => TaskReattachMode::OwnerLost,
     }
 }

@@ -4,12 +4,13 @@ use tessera_client::{
     ClientProjection, ClientSnapshot, ClientStatus,
 };
 use tessera_protocol::{
-    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, ContextId, ContextPlacement,
-    ContextReference, ContextSource, ContextSourceKind, CostEstimate, ErrorSource, EventFrame,
-    ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus, NormalizedError,
-    PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, RunEvent, TaskId, TaskKind,
-    TaskStatus, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
-    ToolSideEffect,
+    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, ClientInstanceId, ContextId,
+    ContextPlacement, ContextReference, ContextSource, ContextSourceKind, CostEstimate,
+    ErrorSource, EventFrame, ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus,
+    NormalizedError, PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, RunEvent,
+    RuntimeInstanceId, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease,
+    TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, Timestamp, ToolApproval,
+    ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect,
 };
 
 #[test]
@@ -729,6 +730,153 @@ fn client_snapshot_updates_task_registry_from_live_task_events() {
     assert!(snapshot.tasks[0].started_at.is_some());
     assert!(snapshot.tasks[0].finished_at.is_some());
     assert_eq!(snapshot.status.task_summary, "task completed");
+}
+
+fn client_owner_lease(trace_id: &str, task_id: TaskId, lease_id: &'static str) -> TaskOwnerLease {
+    TaskOwnerLease {
+        lease_id: TaskOwnershipId::from_static(lease_id),
+        task_id,
+        trace_id: trace_id.to_string(),
+        runtime_id: RuntimeInstanceId::from_static("runtime_client_owner"),
+        client_id: Some(ClientInstanceId::from_static("client_client_owner")),
+        owner_kind: TaskOwnerKind::Execution,
+        status: TaskOwnerStatus::Attached,
+        acquired_at: Timestamp::now_utc(),
+        heartbeat_interval_ms: 5_000,
+        expires_at: None,
+        last_heartbeat_at: None,
+        last_seq: None,
+        reason: Some("client owner attached".to_string()),
+    }
+}
+
+#[test]
+fn client_snapshot_projects_live_task_owner_status_without_runtime_work() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let trace_id = "trace_client_owner_live";
+    let task_id = TaskId::from_static("task_client_owner_live");
+    let lease = client_owner_lease(trace_id, task_id.clone(), "task_owner_client_live");
+    let heartbeat_at = Timestamp::now_utc();
+    let expires_at = Timestamp::now_utc();
+
+    snapshot.apply_event(&EventFrame::new(
+        trace_id,
+        1,
+        RunEvent::TaskCreated {
+            task_id: task_id.clone(),
+            kind: TaskKind::Chat,
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        trace_id,
+        2,
+        RunEvent::TaskOwnerAttached {
+            lease: Box::new(lease.clone()),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        trace_id,
+        3,
+        RunEvent::TaskOwnerHeartbeat {
+            heartbeat: TaskOwnerHeartbeat {
+                lease_id: lease.lease_id.clone(),
+                task_id: task_id.clone(),
+                runtime_id: lease.runtime_id.clone(),
+                heartbeat_at: heartbeat_at.clone(),
+                expires_at: expires_at.clone(),
+                last_seq: 9,
+            },
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        trace_id,
+        4,
+        RunEvent::TaskOwnerLost {
+            lease_id: lease.lease_id.clone(),
+            task_id: task_id.clone(),
+            reason: Some("heartbeat expired".to_string()),
+        },
+    ));
+
+    assert_eq!(snapshot.tasks.len(), 1);
+    assert_eq!(snapshot.tasks[0].owner_lease_id, Some(lease.lease_id));
+    assert_eq!(
+        snapshot.tasks[0].owner_runtime_id,
+        Some(RuntimeInstanceId::from_static("runtime_client_owner"))
+    );
+    assert_eq!(snapshot.tasks[0].owner_status, Some(TaskOwnerStatus::Lost));
+    assert_eq!(
+        snapshot.tasks[0].owner_reattach_mode,
+        Some(TaskReattachMode::OwnerLost)
+    );
+    assert_eq!(
+        snapshot.tasks[0].owner_last_heartbeat_at,
+        Some(heartbeat_at)
+    );
+    assert_eq!(snapshot.tasks[0].owner_expires_at, Some(expires_at));
+    assert_eq!(snapshot.tasks[0].owner_last_seq, Some(9));
+    assert_eq!(
+        snapshot.tasks[0].owner_reason.as_deref(),
+        Some("heartbeat expired")
+    );
+}
+
+#[test]
+fn client_snapshot_projects_replayed_task_owner_detach_and_terminal_mode() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let trace_id = "trace_client_owner_replay";
+    let task_id = TaskId::from_static("task_client_owner_replay");
+    let lease = client_owner_lease(trace_id, task_id.clone(), "task_owner_client_replay");
+
+    for frame in [
+        EventFrame::new(
+            trace_id,
+            1,
+            RunEvent::TaskCreated {
+                task_id: task_id.clone(),
+                kind: TaskKind::Chat,
+            },
+        ),
+        EventFrame::new(
+            trace_id,
+            2,
+            RunEvent::TaskOwnerAttached {
+                lease: Box::new(lease.clone()),
+            },
+        ),
+        EventFrame::new(
+            trace_id,
+            3,
+            RunEvent::TaskOwnerDetached {
+                lease_id: lease.lease_id.clone(),
+                task_id: task_id.clone(),
+                reason: Some("terminal cleanup".to_string()),
+            },
+        ),
+        EventFrame::new(
+            trace_id,
+            4,
+            RunEvent::TaskCompleted {
+                task_id: task_id.clone(),
+            },
+        ),
+    ] {
+        snapshot.apply_trace_record(&frame.to_trace_record());
+    }
+
+    assert_eq!(snapshot.tasks.len(), 1);
+    assert_eq!(
+        snapshot.tasks[0].owner_status,
+        Some(TaskOwnerStatus::Detached)
+    );
+    assert_eq!(
+        snapshot.tasks[0].owner_reattach_mode,
+        Some(TaskReattachMode::TerminalProjection)
+    );
+    assert_eq!(
+        snapshot.tasks[0].owner_reason.as_deref(),
+        Some("terminal cleanup")
+    );
 }
 
 #[test]

@@ -43,6 +43,10 @@ enum Commands {
         #[arg(long)]
         json: bool,
         #[arg(long)]
+        owners: bool,
+        #[arg(long)]
+        trace: Option<String>,
+        #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long)]
         data_dir: Option<PathBuf>,
@@ -255,17 +259,32 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Tasks {
             json,
+            owners,
+            trace,
             config,
             data_dir,
         }) => {
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
-            let tasks = tessera_cli::list_resumable_tasks(data_dir, &config)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&tasks)?);
+            if owners {
+                let trace_id =
+                    trace.ok_or_else(|| anyhow::anyhow!("--trace is required with --owners"))?;
+                let owners = tessera_cli::list_task_owners(data_dir, &trace_id)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&owners)?);
+                } else {
+                    for line in tessera_cli::format_task_owner_lines(&owners) {
+                        println!("{line}");
+                    }
+                }
             } else {
-                for line in tessera_cli::format_resumable_task_lines(&tasks) {
-                    println!("{line}");
+                let tasks = tessera_cli::list_resumable_tasks(data_dir, &config)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&tasks)?);
+                } else {
+                    for line in tessera_cli::format_resumable_task_lines(&tasks) {
+                        println!("{line}");
+                    }
                 }
             }
         }

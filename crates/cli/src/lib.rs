@@ -14,13 +14,14 @@ use tessera_core::{
     ConversationRequest, EventSinkAction, InstructionDiscoveryOptions, InstructionDiscoveryPlanner,
     LoadedInstructionSet, LoadedSkillSet, ReplayRunner, ReplaySummary, RunCancellationToken,
     RunControls, RunPauseToken, RuntimeEventQuery, RuntimePauseCheckpointSummary, RuntimeReader,
-    RuntimeSessionSummary, RuntimeTaskResumer, SkillActivationRequest, SkillDiscoveryOptions,
-    SkillDiscoveryReport, SkillRuntimeOptions, SkillRuntimePlanner,
+    RuntimeSessionSummary, RuntimeTaskOwnerSummary, RuntimeTaskResumer, SkillActivationRequest,
+    SkillDiscoveryOptions, SkillDiscoveryReport, SkillRuntimeOptions, SkillRuntimePlanner,
 };
 use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentRunSummary, ContextReference, EventFrame, InstructionSource,
     ModelProfileId, ProviderId, ResumeMode, RunEvent, SkillActivation, SkillManifest,
-    SkillReferenceSource, TaskId, TaskStatus, TraceRecord,
+    SkillReferenceSource, TaskId, TaskOwnerKind, TaskOwnerStatus, TaskReattachMode, TaskStatus,
+    TraceRecord,
 };
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
@@ -48,6 +49,20 @@ pub struct CliSessionSummary {
     pub last_event_kind: Option<String>,
     pub user_preview: String,
     pub assistant_preview: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliTaskOwnerSummary {
+    pub lease_id: String,
+    pub task_id: String,
+    pub trace_id: String,
+    pub runtime_id: String,
+    pub client_id: Option<String>,
+    pub owner_kind: TaskOwnerKind,
+    pub status: TaskOwnerStatus,
+    pub reattach_mode: TaskReattachMode,
+    pub last_seq: Option<u64>,
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -254,6 +269,23 @@ impl From<tessera_core::RuntimeEventPage> for CliEventPage {
             trace_id: page.trace_id,
             records: page.records,
             next_since_seq: page.next_since_seq,
+        }
+    }
+}
+
+impl From<RuntimeTaskOwnerSummary> for CliTaskOwnerSummary {
+    fn from(owner: RuntimeTaskOwnerSummary) -> Self {
+        Self {
+            lease_id: owner.lease_id.to_string(),
+            task_id: owner.task_id.to_string(),
+            trace_id: owner.trace_id,
+            runtime_id: owner.runtime_id.to_string(),
+            client_id: owner.client_id.map(|client_id| client_id.to_string()),
+            owner_kind: owner.owner_kind,
+            status: owner.status,
+            reattach_mode: owner.reattach_mode,
+            last_seq: owner.last_seq,
+            reason: owner.reason,
         }
     }
 }
@@ -628,6 +660,18 @@ pub fn list_resumable_tasks(
         .collect())
 }
 
+pub fn list_task_owners(
+    data_dir: impl AsRef<Path>,
+    trace_id: &str,
+) -> Result<Vec<CliTaskOwnerSummary>> {
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    Ok(reader
+        .list_task_owners(trace_id)?
+        .into_iter()
+        .map(CliTaskOwnerSummary::from)
+        .collect())
+}
+
 pub fn format_session_lines(sessions: &[CliSessionSummary]) -> Vec<String> {
     if sessions.is_empty() {
         return vec!["no sessions found".to_string()];
@@ -650,6 +694,36 @@ pub fn format_session_lines(sessions: &[CliSessionSummary]) -> Vec<String> {
                 session.event_count,
                 updated_at,
                 preview
+            )
+        })
+        .collect()
+}
+
+pub fn format_task_owner_lines(owners: &[CliTaskOwnerSummary]) -> Vec<String> {
+    if owners.is_empty() {
+        return vec!["no task owners found".to_string()];
+    }
+
+    owners
+        .iter()
+        .enumerate()
+        .map(|(index, owner)| {
+            let reason = owner.reason.as_deref().unwrap_or("none");
+            let last_seq = owner
+                .last_seq
+                .map(|seq| seq.to_string())
+                .unwrap_or_else(|| "none".to_string());
+            format!(
+                "{}. {} | lease {} | runtime {} | kind {} | status {} | reattach {} | last_seq {} | reason {}",
+                index + 1,
+                owner.task_id,
+                owner.lease_id,
+                owner.runtime_id,
+                task_owner_kind_label(owner.owner_kind),
+                task_owner_status_label(owner.status),
+                task_reattach_mode_label(owner.reattach_mode),
+                last_seq,
+                reason
             )
         })
         .collect()
@@ -1462,6 +1536,31 @@ fn task_status_label(status: TaskStatus) -> &'static str {
         TaskStatus::Failed => "failed",
         TaskStatus::Cancelled => "cancelled",
         TaskStatus::Paused => "paused",
+    }
+}
+
+fn task_owner_kind_label(kind: TaskOwnerKind) -> &'static str {
+    match kind {
+        TaskOwnerKind::Execution => "execution",
+        TaskOwnerKind::Observer => "observer",
+    }
+}
+
+fn task_owner_status_label(status: TaskOwnerStatus) -> &'static str {
+    match status {
+        TaskOwnerStatus::Attached => "attached",
+        TaskOwnerStatus::Heartbeat => "heartbeat",
+        TaskOwnerStatus::Detached => "detached",
+        TaskOwnerStatus::Lost => "lost",
+    }
+}
+
+fn task_reattach_mode_label(mode: TaskReattachMode) -> &'static str {
+    match mode {
+        TaskReattachMode::ObserveExistingOwner => "observe_existing_owner",
+        TaskReattachMode::ResumeFromCheckpoint => "resume_from_checkpoint",
+        TaskReattachMode::TerminalProjection => "terminal_projection",
+        TaskReattachMode::OwnerLost => "owner_lost",
     }
 }
 

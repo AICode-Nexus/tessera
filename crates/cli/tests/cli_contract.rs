@@ -5,18 +5,21 @@ use std::{
 };
 
 use tessera_cli::{
-    build_tui_state_with_config, format_resumable_task_lines, list_events, list_resumable_tasks,
-    list_sessions, parse_repl_command, resolve_config, resolve_data_dir_with_config, run_chat_mock,
-    run_chat_repl_with_io_and_resume, run_chat_with_config,
-    run_chat_with_config_and_controls_and_events, run_chat_with_config_and_events, run_doctor,
-    run_repl_prompt_with_writer, write_config_template, CliReplCommand, CliReplSession,
-    DoctorReport,
+    build_tui_state_with_config, format_resumable_task_lines, format_task_owner_lines, list_events,
+    list_resumable_tasks, list_sessions, list_task_owners, parse_repl_command, resolve_config,
+    resolve_data_dir_with_config, run_chat_mock, run_chat_repl_with_io_and_resume,
+    run_chat_with_config, run_chat_with_config_and_controls_and_events,
+    run_chat_with_config_and_events, run_doctor, run_repl_prompt_with_writer,
+    write_config_template, CliReplCommand, CliReplSession, DoctorReport,
 };
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
     EventSinkAction, RunCancellationToken, RunControls, RunPauseToken, RuntimeReader,
 };
-use tessera_protocol::{RunEvent, TaskStatus};
+use tessera_protocol::{
+    ClientInstanceId, EventFrame, RunEvent, RuntimeInstanceId, TaskId, TaskOwnerKind,
+    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskStatus, Timestamp,
+};
 use tessera_storage::TraceStore;
 
 struct DelayedLineReader {
@@ -1841,6 +1844,117 @@ default_model = "mock-chat"
     assert!(stdout.contains("provider offline"));
     assert!(stdout.contains("checkpoint "));
     assert!(stdout.contains("reason test pause before top-level command list"));
+    assert!(!stdout.contains("assistant>"));
+}
+
+fn write_task_owner_trace(data_dir: &std::path::Path, trace_id: &str) -> (TaskId, TaskOwnershipId) {
+    let mut store = TraceStore::open(data_dir).unwrap();
+    let task_id = TaskId::from_static("task_cli_owner");
+    let lease_id = TaskOwnershipId::from_static("task_owner_cli");
+    let lease = TaskOwnerLease {
+        lease_id: lease_id.clone(),
+        task_id: task_id.clone(),
+        trace_id: trace_id.to_string(),
+        runtime_id: RuntimeInstanceId::from_static("runtime_cli_owner"),
+        client_id: Some(ClientInstanceId::from_static("client_cli_owner")),
+        owner_kind: TaskOwnerKind::Execution,
+        status: TaskOwnerStatus::Attached,
+        acquired_at: Timestamp::now_utc(),
+        heartbeat_interval_ms: 5_000,
+        expires_at: None,
+        last_heartbeat_at: None,
+        last_seq: Some(3),
+        reason: Some("cli owner test".to_string()),
+    };
+
+    store
+        .append(
+            &EventFrame::new(
+                trace_id,
+                1,
+                RunEvent::TaskOwnerAttached {
+                    lease: Box::new(lease.clone()),
+                },
+            )
+            .with_task_id(task_id.clone()),
+        )
+        .unwrap();
+    store
+        .append(
+            &EventFrame::new(
+                trace_id,
+                2,
+                RunEvent::TaskOwnerLost {
+                    lease_id: lease_id.clone(),
+                    task_id: task_id.clone(),
+                    reason: Some("heartbeat expired".to_string()),
+                },
+            )
+            .with_task_id(task_id.clone()),
+        )
+        .unwrap();
+
+    (task_id, lease_id)
+}
+
+#[test]
+fn top_level_task_owner_helpers_project_trace_without_runtime_work() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let trace_id = "trace_cli_owner_helpers";
+    let (task_id, lease_id) = write_task_owner_trace(&data_dir, trace_id);
+
+    let owners = list_task_owners(&data_dir, trace_id).unwrap();
+    let lines = format_task_owner_lines(&owners);
+
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].task_id, task_id.to_string());
+    assert_eq!(owners[0].lease_id, lease_id.to_string());
+    assert_eq!(owners[0].status, TaskOwnerStatus::Lost);
+    assert_eq!(
+        owners[0].reattach_mode,
+        tessera_protocol::TaskReattachMode::OwnerLost
+    );
+    assert!(lines[0].contains(&format!("1. {task_id} | lease {lease_id}")));
+    assert!(lines[0].contains("runtime runtime_cli_owner"));
+    assert!(lines[0].contains("status lost"));
+    assert!(lines[0].contains("reattach owner_lost"));
+}
+
+#[test]
+fn top_level_tasks_command_lists_task_owners_without_runtime_work() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let config_path = temp.path().join("tessera.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"
+data_dir = "{}"
+
+[[providers]]
+id = "offline"
+kind = "mock"
+default_model = "mock-chat"
+"#,
+            data_dir.display()
+        ),
+    )
+    .unwrap();
+    let trace_id = "trace_cli_owner_command";
+    let (task_id, lease_id) = write_task_owner_trace(&data_dir, trace_id);
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["tasks", "--owners", "--trace", trace_id, "--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(&format!("1. {task_id} | lease {lease_id}")));
+    assert!(stdout.contains("status lost"));
+    assert!(stdout.contains("reason heartbeat expired"));
     assert!(!stdout.contains("assistant>"));
 }
 
