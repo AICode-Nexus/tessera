@@ -170,12 +170,13 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Non-interactive `tessera agent run --provider <id> --goal <text> [--json]` envelope for script/CI use.
 - Opt-in project-local `AGENTS.md` / `CLAUDE.md` instruction discovery with source reporting, byte limits, symlink rejection, UTF-8 handling, secret-line redaction, `instructions_discovered` trace metadata, `tessera instructions inspect`, and `agent run --instructions`.
 - Explicit read-only Skill Runtime v1 with project-local `SKILL.md` discovery, strict flat frontmatter parsing, byte limits, symlink rejection, duplicate/invalid source reporting, secret-line redaction, `skill_activated` trace metadata, `tessera skills inspect`, and opt-in `agent run --skill`.
+- Background task ownership design spec and implementation plan for trace-backed owner leases, heartbeat metadata, lost-owner projection, and explicit reattach outcomes.
 
 **Remaining:**
 
 - Executable skills, automatic/default/global skill loading, skill install/update/delete, model-driven reference selection, and script/tool skill execution remain staged.
 - Default-on/global/user instruction loading, Claude imports, and `.claude/` rule compatibility remain staged until their precedence, scope, source-reporting and redaction rules are designed.
-- Durable background task ownership.
+- Trace-backed durable background task ownership implementation.
 - Background reattach with log/artifact projection.
 - Non-chat task resume.
 - Real checkpoint restore semantics.

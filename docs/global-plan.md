@@ -106,6 +106,7 @@
 - [x] Project-local `AGENTS.md` / `CLAUDE.md` instruction discovery with source reporting, byte limits, symlink rejection, UTF-8 handling, redaction, `instructions_discovered` trace metadata, `tessera instructions inspect`, and opt-in `agent run --instructions`.
 - [x] v0.5 Skill Runtime v1 design spec and implementation plan.
 - [x] Explicit Skill Runtime v1 implementation with project-local `SKILL.md` discovery, strict flat frontmatter parsing, trace-safe `skill_activated` metadata, read-only references, `tessera skills inspect`, and opt-in `agent run --skill`.
+- [x] v0.5 background task ownership design spec and implementation plan for trace-backed owner leases, heartbeat metadata, lost-owner projection, and explicit reattach outcomes.
 
 ## 6. Current Gaps
 
@@ -118,7 +119,7 @@
 
 - [ ] Executable skills, automatic/default/global skill loading, skill install/update/delete, model-driven reference selection, and script/tool skill execution.
 - [ ] Default-on/global/user instruction loading, Claude imports, and `.claude/` rule compatibility.
-- [ ] Durable background task ownership.
+- [ ] Trace-backed background task ownership implementation from `docs/superpowers/plans/2026-05-20-v0.5-background-task-ownership-v1.md`.
 - [ ] Background reattach.
 - [ ] Runtime API / app-server design alignment with auth, bounded queues, generated schema and localhost default.
 - [ ] Non-chat task resume.
@@ -149,13 +150,14 @@ The next implementation slices should stay conservative and preserve the current
 5. [x] Implement opt-in project instruction discovery and source reporting before skill runtime.
 6. [x] Design skill runtime v1 after single-agent loop is trace-stable: `SKILL.md` discovery, activation events, read-only references, no unchecked scripts.
 7. [x] Implement Skill Runtime v1 foundation from `docs/superpowers/plans/2026-05-20-v0.5-skill-runtime-v1.md`.
-8. [ ] Design durable background task ownership and reattach before any long-running agent task.
-9. [ ] Align runtime API / app-server shape before GUI live-provider path: auth, bounded queues, generated schemas, localhost default, no duplicate runtime.
-10. [ ] Only after v0.5 is stable, design v0.6 structured handoff and reviewer gate.
-11. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-12. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
-13. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
-14. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
+8. [x] Design durable background task ownership and reattach before any long-running agent task.
+9. [ ] Implement trace-backed background task ownership foundation from `docs/superpowers/plans/2026-05-20-v0.5-background-task-ownership-v1.md`.
+10. [ ] Align runtime API / app-server shape before GUI live-provider path: auth, bounded queues, generated schemas, localhost default, no duplicate runtime.
+11. [ ] Only after v0.5 is stable, design v0.6 structured handoff and reviewer gate.
+12. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+13. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
+14. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
+15. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
 
 ## 8. Mandatory Gates
 

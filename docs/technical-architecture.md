@@ -15,7 +15,7 @@ Tessera 是一个 Rust-first、AI-friendly、agent-ready 的本地终端大模�
 - Replayable：所有运行都能通过 JSONL trace 回放和审计。
 - Auditable：未来所有工具调用必须经过 policy gate。
 - AI-friendly：代码边界小、协议清晰、fixture/replay 完整，方便 AI 稳定参与开发。
-- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已加入 no-tool single-agent loop、opt-in project instruction discovery/source reporting 和 explicit read-only Skill Runtime v1，但工具、executable skills、默认/全局指令加载、后台所有权和多 agent 仍必须按门禁推进。
+- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已加入 no-tool single-agent loop、opt-in project instruction discovery/source reporting、explicit read-only Skill Runtime v1，并完成 background task ownership 的 trace-backed 设计；工具、executable skills、默认/全局指令加载、后台 ownership 实现和多 agent 仍必须按门禁推进。
 
 ## 2. 技术选型
 
@@ -185,6 +185,7 @@ Tessera 的长期目标不是只做一个聊天终端，而是形成 CLI、TUI�
 
 - `Thread` / `Turn` / `Item`：对话、推理、工具、审批、诊断和学习都挂在统一时间线。
 - `Task`：chat run、agent run、subagent、tool run、automation job、learning job 都必须有可取消、可暂停、可恢复或可解释失败的生命周期。
+- `TaskOwnership`：future background tasks must have execution owner, observer, heartbeat, lost-owner and reattach metadata in trace before GUI/app-server/automation can control them.
 - `Artifact`：diff、patch、test report、terminal output、browser evidence、subagent transcript、large provider metadata 都不应直接塞进上下文。
 - `Approval`：用户审批、reviewer gate、policy decision、GUI diff review 都必须 trace-backed。
 - `InstructionSource` / `ContextReference`：`AGENTS.md`、未来 `CLAUDE.md`、skills、hook output、MCP metadata 都只能作为有来源、有上限、可审计的 context 输入。

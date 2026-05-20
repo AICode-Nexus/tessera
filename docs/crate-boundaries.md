@@ -579,6 +579,25 @@ HTTP/SSE 和未来 ACP/editor integration 都不能拥有第二套 runtime。
 - 默认只绑定 localhost。
 - v0.4 foundation 可以在 `core` 提供 `RuntimeHttpApi`，把 `RuntimeReader` event page 形状化为 JSON 和 SSE frames；真正 HTTP server 仍必须是薄壳，不能拥有第二套 runtime。
 
+### task_ownership
+
+Background task ownership is a core/trace contract, not a GUI, CLI, daemon, or app-server side table.
+
+推荐边界：
+
+- `protocol` 定义 runtime instance、client instance、task ownership lease、heartbeat、lost-owner 和 reattach outcome metadata。
+- `core` 是唯一能 attach execution owner 的层；CLI/TUI/GUI/app-server 只能请求、观察或投影 ownership。
+- `RuntimeReader` 从 JSONL trace 重建 owner state、heartbeat、lost-owner 和 reattach mode；SQLite 只做可重建索引。
+- `client` 可以投影 owner status 给 TUI/GUI，但不能决定任务是否真实 running。
+- future app-server 只能使用同一套 ownership events 和 bounded `since_seq` event stream，不能持有独立 scheduler 或 mutable task database。
+
+禁止：
+
+- GUI/TUI/CLI 自己维护 background task truth。
+- app-server 直接标记 task running/lost/resumed 而不写 trace。
+- owner metadata 保存 provider socket、headers、API key、cookie、env、command line secret、tool output 或文件内容。
+- 在 ownership contract 落地前启动 hook/automation/background daemon runtime。
+
 ### app_server
 
 Codex App Server / Claude Desktop-Web style clients 需要比 read-only HTTP/SSE 更完整的控制协议，但 app server 仍然只是 runtime API 的传输壳。
