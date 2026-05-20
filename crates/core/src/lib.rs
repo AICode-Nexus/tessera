@@ -14,14 +14,14 @@ use tessera_protocol::{
     NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
     OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
     ProviderId, ResumeMode, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent,
-    SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillEntrypoint,
-    SkillEntrypointFormat, SkillId, SkillLoadStatus, SkillManifest, SkillPolicy,
-    SkillRedactionStatus, SkillReferenceSource, SkillRequirements, SkillSource, SkillSourceKind,
-    SnapshotId, SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint, TaskPauseCheckpointId,
-    TaskStatus, ThreadId, Timestamp, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId,
-    ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
-    ToolResult, ToolSideEffect, TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint,
-    WorkspaceGuardrail, WorkspaceScope,
+    SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillActivation,
+    SkillActivationStatus, SkillActivationStep, SkillEntrypoint, SkillEntrypointFormat, SkillId,
+    SkillLoadStatus, SkillManifest, SkillPolicy, SkillRedactionStatus, SkillReferenceSource,
+    SkillRequirements, SkillSource, SkillSourceKind, SkillStepKind, SkillStepStatus, SnapshotId,
+    SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus,
+    ThreadId, Timestamp, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId, ToolPermission,
+    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolSideEffect,
+    TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderMessage, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -279,6 +279,7 @@ pub struct AgentRunRequest {
     pub objective: String,
     pub context_references: Vec<ContextReference>,
     pub instruction_context: Option<LoadedInstructionSet>,
+    pub skill_context: Option<LoadedSkillSet>,
     pub history: Vec<ProviderMessage>,
     pub max_steps: u32,
 }
@@ -291,6 +292,13 @@ impl AgentRunRequest {
                 messages.push(ProviderMessage::system(render_instruction_system_message(
                     instruction_context,
                 )));
+            }
+        }
+        if let Some(skill_context) = &self.skill_context {
+            if !skill_context.skills.is_empty() {
+                messages.push(ProviderMessage::system(
+                    skill_context.render_system_message(),
+                ));
             }
         }
         messages.extend(self.history.clone());
@@ -418,6 +426,41 @@ pub struct SkillDiscoveryOptions {
 pub struct SkillDiscoveryReport {
     pub manifests: Vec<SkillManifest>,
     pub sources: Vec<SkillReferenceSource>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SkillActivationRequest {
+    pub skill: String,
+    pub references: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SkillRuntimeOptions {
+    pub discovery: SkillDiscoveryOptions,
+    pub requests: Vec<SkillActivationRequest>,
+    pub best_effort_references: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LoadedSkillReference {
+    pub source: SkillReferenceSource,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LoadedSkill {
+    pub manifest: SkillManifest,
+    pub entrypoint: SkillReferenceSource,
+    pub text: String,
+    pub references: Vec<LoadedSkillReference>,
+    pub activation: SkillActivation,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LoadedSkillSet {
+    pub activations: Vec<SkillActivation>,
+    pub skills: Vec<LoadedSkill>,
     pub warnings: Vec<String>,
 }
 
@@ -663,6 +706,63 @@ impl SkillDiscoveryOptions {
     }
 }
 
+impl SkillRuntimeOptions {
+    pub fn new(
+        workspace_root: impl Into<PathBuf>,
+        target_dir: impl Into<PathBuf>,
+        requests: Vec<SkillActivationRequest>,
+    ) -> Self {
+        Self {
+            discovery: SkillDiscoveryOptions::new(workspace_root, target_dir),
+            requests,
+            best_effort_references: false,
+        }
+    }
+}
+
+impl LoadedSkillSet {
+    pub fn render_system_message(&self) -> String {
+        let mut message = "Skills selected explicitly for this Tessera run. Treat them as stable behavior guidance. Do not execute scripts or tools from skill directories.".to_string();
+
+        for loaded in &self.skills {
+            message.push_str("\n\n--- Skill: ");
+            message.push_str(&loaded.manifest.name);
+            message.push_str(" (");
+            message.push_str(&loaded.entrypoint.relative_path);
+            message.push_str(") ---\n");
+            message.push_str(&loaded.text);
+            if !loaded.text.ends_with('\n') {
+                message.push('\n');
+            }
+
+            for reference in &loaded.references {
+                message.push_str("\n--- Skill reference: ");
+                message.push_str(&loaded.manifest.name);
+                message.push(' ');
+                message.push_str(&reference.source.relative_path);
+                message.push_str(" ---\n");
+                message.push_str(&reference.text);
+                if !reference.text.ends_with('\n') {
+                    message.push('\n');
+                }
+            }
+        }
+
+        message
+    }
+
+    fn activations_for_task(&self, task_id: &TaskId) -> Vec<SkillActivation> {
+        self.activations
+            .iter()
+            .cloned()
+            .map(|mut activation| {
+                activation.task_id = task_id.clone();
+                activation
+            })
+            .collect()
+    }
+}
+
 impl SkillRuntimePlanner {
     pub fn discover(&self, options: SkillDiscoveryOptions) -> Result<SkillDiscoveryReport> {
         if options.entrypoint_byte_limit == 0 {
@@ -797,6 +897,134 @@ impl SkillRuntimePlanner {
 
         Ok(report)
     }
+
+    pub fn activate(&self, options: SkillRuntimeOptions) -> Result<LoadedSkillSet> {
+        if options.requests.is_empty() {
+            return Ok(LoadedSkillSet::default());
+        }
+
+        let workspace_root =
+            canonicalize_existing_dir("workspace_root", &options.discovery.workspace_root)?;
+        let target_dir = canonicalize_existing_dir("target_dir", &options.discovery.target_dir)?;
+        if !target_dir.starts_with(&workspace_root) {
+            return Err(CoreError::InvalidRequest(
+                "target_dir must be within workspace_root".to_string(),
+            ));
+        }
+
+        let discovery = self.discover(options.discovery.clone())?;
+        let mut loaded_set = LoadedSkillSet {
+            warnings: discovery.warnings.clone(),
+            ..LoadedSkillSet::default()
+        };
+        let mut remaining_budget = options.discovery.combined_byte_limit;
+
+        for request in options.requests {
+            let (manifest, discovered_source) =
+                resolve_skill_request(&discovery, &request.skill).ok_or_else(|| {
+                    CoreError::InvalidRequest(format!("requested skill not found: {}", request.skill))
+                })?;
+            let entrypoint_path = workspace_root.join(&discovered_source.relative_path);
+            let skill_dir = entrypoint_path.parent().ok_or_else(|| {
+                CoreError::InvalidRequest("skill entrypoint must have a parent directory".to_string())
+            })?;
+
+            let mut steps = Vec::new();
+            steps.push(SkillActivationStep {
+                step_index: steps.len() as u32,
+                kind: SkillStepKind::DiscoverEntrypoint,
+                status: SkillStepStatus::Completed,
+                source_id: Some(discovered_source.source_id.clone()),
+                warnings: Vec::new(),
+            });
+
+            let loaded_entrypoint = load_skill_text_source(
+                &workspace_root,
+                &entrypoint_path,
+                options.discovery.entrypoint_byte_limit,
+                &mut remaining_budget,
+                true,
+            )?;
+            steps.push(SkillActivationStep {
+                step_index: steps.len() as u32,
+                kind: SkillStepKind::LoadEntrypoint,
+                status: SkillStepStatus::Completed,
+                source_id: Some(loaded_entrypoint.source.source_id.clone()),
+                warnings: loaded_entrypoint.source.warnings.clone(),
+            });
+
+            let mut references = Vec::new();
+            for reference in request.references {
+                match load_skill_reference(
+                    &workspace_root,
+                    skill_dir,
+                    &reference,
+                    options.discovery.reference_byte_limit,
+                    &mut remaining_budget,
+                ) {
+                    Ok(loaded_reference) => {
+                        steps.push(SkillActivationStep {
+                            step_index: steps.len() as u32,
+                            kind: SkillStepKind::LoadReference,
+                            status: SkillStepStatus::Completed,
+                            source_id: Some(loaded_reference.source.source_id.clone()),
+                            warnings: loaded_reference.source.warnings.clone(),
+                        });
+                        references.push(loaded_reference);
+                    }
+                    Err(error) if options.best_effort_references => {
+                        let warning = format!("reference_load_failed: {error}");
+                        loaded_set.warnings.push(warning.clone());
+                        steps.push(SkillActivationStep {
+                            step_index: steps.len() as u32,
+                            kind: SkillStepKind::LoadReference,
+                            status: SkillStepStatus::Failed,
+                            source_id: None,
+                            warnings: vec![warning],
+                        });
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+
+            steps.push(SkillActivationStep {
+                step_index: steps.len() as u32,
+                kind: SkillStepKind::RenderContext,
+                status: SkillStepStatus::Completed,
+                source_id: None,
+                warnings: Vec::new(),
+            });
+
+            let activation = SkillActivation {
+                task_id: TaskId::from_static("task_skill_activation_pending"),
+                skill_id: manifest.id.clone(),
+                manifest: manifest.clone(),
+                status: SkillActivationStatus::Activated,
+                entrypoint: loaded_entrypoint.source.clone(),
+                references: references
+                    .iter()
+                    .map(|reference| reference.source.clone())
+                    .collect(),
+                steps,
+                warnings: Vec::new(),
+            };
+            let loaded_skill = LoadedSkill {
+                manifest,
+                entrypoint: loaded_entrypoint.source.clone(),
+                text: loaded_entrypoint.text,
+                references,
+                activation: activation.clone(),
+            };
+            loaded_set.warnings.extend(activation.entrypoint.warnings.clone());
+            for reference in &loaded_skill.references {
+                loaded_set.warnings.extend(reference.source.warnings.clone());
+            }
+            loaded_set.activations.push(activation);
+            loaded_set.skills.push(loaded_skill);
+        }
+
+        Ok(loaded_set)
+    }
 }
 
 struct SkillEntrypointEvaluation {
@@ -810,6 +1038,188 @@ struct ParsedSkillMd {
     description: String,
     version: Option<String>,
     body: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LoadedSkillTextSource {
+    source: SkillReferenceSource,
+    text: String,
+}
+
+fn resolve_skill_request(
+    discovery: &SkillDiscoveryReport,
+    requested: &str,
+) -> Option<(SkillManifest, SkillReferenceSource)> {
+    let by_id = discovery
+        .manifests
+        .iter()
+        .find(|manifest| manifest.id.as_str() == requested);
+    let manifest = by_id.or_else(|| {
+        discovery
+            .manifests
+            .iter()
+            .find(|manifest| manifest.name == requested)
+    })?;
+    let uri = manifest.source.uri.as_deref()?;
+    let source = discovery
+        .sources
+        .iter()
+        .find(|source| source.relative_path == uri && source.status == SkillLoadStatus::Loaded)?;
+    Some((manifest.clone(), source.clone()))
+}
+
+fn load_skill_text_source(
+    workspace_root: &Path,
+    path: &Path,
+    byte_limit: usize,
+    remaining_budget: &mut usize,
+    use_skill_body: bool,
+) -> Result<LoadedSkillTextSource> {
+    if *remaining_budget == 0 {
+        return Err(CoreError::InvalidRequest(
+            "skill context byte budget exhausted".to_string(),
+        ));
+    }
+
+    let mut source = base_skill_source(workspace_root, path);
+    if !path.starts_with(workspace_root) {
+        source.status = SkillLoadStatus::SkippedOutsideWorkspace;
+        return Err(CoreError::InvalidRequest(
+            "skill source must be within workspace_root".to_string(),
+        ));
+    }
+
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+        CoreError::InvalidRequest(format!("failed to read skill source metadata: {error}"))
+    })?;
+    source.original_bytes = metadata.len();
+    if metadata.file_type().is_symlink() {
+        source.status = SkillLoadStatus::SkippedSymlink;
+        return Err(CoreError::InvalidRequest(
+            "skill source symlinks are not allowed".to_string(),
+        ));
+    }
+    if !metadata.is_file() {
+        source.status = SkillLoadStatus::ReadFailed;
+        return Err(CoreError::InvalidRequest(
+            "skill source must be a regular file".to_string(),
+        ));
+    }
+    if metadata_len_exceeds(metadata.len(), byte_limit) {
+        source.status = SkillLoadStatus::SkippedTooLarge;
+        return Err(CoreError::InvalidRequest(
+            "skill source exceeds byte limit".to_string(),
+        ));
+    }
+
+    let bytes = std::fs::read(path)
+        .map_err(|error| CoreError::InvalidRequest(format!("failed to read skill source: {error}")))?;
+    source.original_bytes = bytes.len() as u64;
+    source.sha256 = Some(sha256_hex(&bytes));
+
+    let text = String::from_utf8(bytes).map_err(|_| {
+        source.status = SkillLoadStatus::SkippedNonUtf8;
+        CoreError::InvalidRequest("skill source must be UTF-8".to_string())
+    })?;
+    let text = if use_skill_body {
+        parse_skill_md(&text)
+            .map_err(|reason| CoreError::InvalidRequest(format!("invalid skill manifest: {reason}")))?
+            .body
+    } else {
+        text
+    };
+
+    let (redacted, redaction_status, mut warnings) = redact_skill_text(&text);
+    let loaded_text = truncate_to_utf8_boundary(&redacted, *remaining_budget);
+    if loaded_text.len() < redacted.len() {
+        warnings.push("truncated_to_combined_byte_limit".to_string());
+    }
+
+    *remaining_budget = remaining_budget.saturating_sub(loaded_text.len());
+    source.status = SkillLoadStatus::Loaded;
+    source.loaded_bytes = loaded_text.len() as u64;
+    source.redaction_status = redaction_status;
+    source.warnings.append(&mut warnings);
+
+    Ok(LoadedSkillTextSource {
+        source,
+        text: loaded_text,
+    })
+}
+
+fn load_skill_reference(
+    workspace_root: &Path,
+    skill_dir: &Path,
+    reference: &str,
+    byte_limit: usize,
+    remaining_budget: &mut usize,
+) -> Result<LoadedSkillReference> {
+    let reference_path = Path::new(reference);
+    if reference_path.as_os_str().is_empty() || reference_path.is_absolute() {
+        return Err(CoreError::InvalidRequest(
+            "skill reference must be a relative path".to_string(),
+        ));
+    }
+    if reference_path.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return Err(CoreError::InvalidRequest(
+            "skill reference must stay inside the skill directory".to_string(),
+        ));
+    }
+    if reference_path
+        .components()
+        .next()
+        .is_some_and(|component| component.as_os_str() == "scripts")
+    {
+        return Err(CoreError::InvalidRequest(
+            "skill references under scripts/ are not loadable in v0.5".to_string(),
+        ));
+    }
+
+    let canonical_skill_dir = std::fs::canonicalize(skill_dir)
+        .map_err(|error| CoreError::InvalidRequest(format!("failed to resolve skill dir: {error}")))?;
+    let path = canonical_skill_dir.join(reference_path);
+    let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+        CoreError::InvalidRequest(format!("failed to read skill reference metadata: {error}"))
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(CoreError::InvalidRequest(
+            "skill reference symlinks are not allowed".to_string(),
+        ));
+    }
+    let canonical_path = std::fs::canonicalize(&path).map_err(|error| {
+        CoreError::InvalidRequest(format!("failed to resolve skill reference: {error}"))
+    })?;
+    if !canonical_path.starts_with(&canonical_skill_dir) {
+        return Err(CoreError::InvalidRequest(
+            "skill reference must stay inside the skill directory".to_string(),
+        ));
+    }
+
+    let loaded = load_skill_text_source(
+        workspace_root,
+        &canonical_path,
+        byte_limit,
+        remaining_budget,
+        false,
+    )?;
+    Ok(LoadedSkillReference {
+        source: loaded.source,
+        text: loaded.text,
+    })
+}
+
+fn redact_skill_text(text: &str) -> (String, SkillRedactionStatus, Vec<String>) {
+    let (redacted, status, warnings) = redact_instruction_text(text);
+    let status = match status {
+        InstructionRedactionStatus::Clean => SkillRedactionStatus::Clean,
+        InstructionRedactionStatus::Redacted => SkillRedactionStatus::Redacted,
+    };
+    (redacted, status, warnings)
 }
 
 fn skill_candidate_exists(path: &Path) -> bool {
@@ -3224,6 +3634,11 @@ where
             .as_ref()
             .map(|context| context.sources.clone())
             .unwrap_or_default();
+        let skill_activations = request
+            .skill_context
+            .as_ref()
+            .map(|context| context.activations_for_task(&task_id))
+            .unwrap_or_default();
         let objective = request.objective.clone();
         let agent_profile_id = request.agent_profile.id.clone();
         let cancellation_token = controls.cancellation_token.clone();
@@ -3276,6 +3691,12 @@ where
             append_event!(RunEvent::InstructionsDiscovered {
                 task_id: task_id.clone(),
                 sources: instruction_sources,
+            });
+        }
+        for activation in skill_activations {
+            append_event!(RunEvent::SkillActivated {
+                task_id: task_id.clone(),
+                activation,
             });
         }
         append_event!(RunEvent::AgentRunStarted {

@@ -2297,6 +2297,7 @@ where
             objective: goal,
             context_references: Vec::new(),
             instruction_context,
+            skill_context: None,
             history: Vec::new(),
             max_steps: agent_profile.max_steps,
         })

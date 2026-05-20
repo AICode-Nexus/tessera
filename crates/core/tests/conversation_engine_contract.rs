@@ -9,8 +9,9 @@ use tessera_core::{
     McpToolSpec, ModelRouteRequest, ModelRouter, NoProgressDetector, NoProgressObservation,
     OrderedToolResultBuffer, OsSandboxPlanner, PolicyGate, ReplayRunner, RunCancellationToken,
     RunControls, RunPauseToken, RuntimeEventQuery, RuntimeHttpApi, RuntimeHttpEventRequest,
-    RuntimeReader, SkillDiscoveryOptions, SkillRegistry, SkillRuntimePlanner, ToolRegistry,
-    ToolRepairTelemetry, WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
+    RuntimeReader, SkillActivationRequest, SkillDiscoveryOptions, SkillRegistry,
+    SkillRuntimeOptions, SkillRuntimePlanner, ToolRegistry, ToolRepairTelemetry,
+    WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
 };
 use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentStepStatus, ArtifactId, ArtifactKind, ContextBudget,
@@ -21,11 +22,11 @@ use tessera_protocol::{
     OsSandboxMode, OsSandboxNetwork, OsSandboxShell, PolicyOutcome, ProviderCapability, ProviderId,
     ResumeMode, RouteStrategy, RunEvent, SandboxDecisionKind, SkillEntrypoint,
     SkillEntrypointFormat, SkillId, SkillLoadStatus, SkillManifest, SkillPolicy,
-    SkillRequirements, SkillSource, SkillSourceKind, SnapshotId, SnapshotKind, TaskId, TaskKind,
-    TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, ThreadId, ToolCallId, ToolCallRequest,
-    ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission, ToolRepairKind,
-    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, TurnId, WorkspaceCheckpoint,
-    WorkspaceScope,
+    SkillRedactionStatus, SkillRequirements, SkillSource, SkillSourceKind, SnapshotId,
+    SnapshotKind, TaskId, TaskKind, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus,
+    ThreadId, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId,
+    ToolPermission, ToolRepairKind, ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect,
+    TurnId, WorkspaceCheckpoint, WorkspaceScope,
 };
 use tessera_providers::{
     mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderMessage,
@@ -191,6 +192,7 @@ fn mock_agent_request(objective: &str) -> AgentRunRequest {
         objective: objective.to_string(),
         context_references: Vec::new(),
         instruction_context: None,
+        skill_context: None,
         history: Vec::new(),
         max_steps: 1,
     }
@@ -470,6 +472,46 @@ fn skill_runtime_marks_duplicate_skill_ids() {
         .find(|source| source.relative_path == ".tessera/skills/b-reviewer/SKILL.md")
         .unwrap();
     assert_eq!(duplicate.status, SkillLoadStatus::SkippedDuplicate);
+}
+
+#[test]
+fn skill_runtime_activates_requested_skill_with_redacted_context() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path();
+    let skill_dir = workspace.join(".tessera/skills/reviewer");
+    std::fs::create_dir_all(skill_dir.join("references")).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: reviewer\ndescription: Review safely\n---\n\nUse this skill.\napi_key = secret\n",
+    )
+    .unwrap();
+    std::fs::write(skill_dir.join("references/checklist.md"), "Check tests.\n").unwrap();
+
+    let request = SkillActivationRequest {
+        skill: "skill_reviewer".to_string(),
+        references: vec!["references/checklist.md".to_string()],
+    };
+    let options = SkillRuntimeOptions::new(workspace, workspace, vec![request]);
+    let loaded = SkillRuntimePlanner.activate(options).unwrap();
+    let rendered = loaded.render_system_message();
+
+    assert_eq!(loaded.skills.len(), 1);
+    assert_eq!(
+        loaded.skills[0].manifest.id,
+        SkillId::from_static("skill_reviewer")
+    );
+    assert!(rendered.contains("Use this skill."));
+    assert!(rendered.contains("[REDACTED: possible secret]"));
+    assert!(rendered.contains("Check tests."));
+    assert_eq!(
+        loaded.skills[0].entrypoint.redaction_status,
+        SkillRedactionStatus::Redacted
+    );
+
+    let encoded = serde_json::to_string(&loaded.activations).unwrap();
+    assert!(!encoded.contains("Use this skill."));
+    assert!(!encoded.contains("Check tests."));
+    assert!(!encoded.contains("api_key = secret"));
 }
 
 #[test]
@@ -1574,6 +1616,76 @@ async fn agent_loop_includes_instruction_context_and_traces_metadata_without_con
         .content
         .contains("[REDACTED: possible secret]"));
     assert!(!provider_request.messages[0].content.contains("sk-test"));
+    assert_eq!(
+        provider_request.messages.last().map(|message| message.role),
+        Some(ProviderMessageRole::User)
+    );
+}
+
+#[tokio::test]
+async fn agent_loop_emits_skill_activation_before_agent_run_started() {
+    let workspace = tempfile::tempdir().unwrap();
+    let skill_dir = workspace.path().join(".tessera/skills/reviewer");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: reviewer\ndescription: Review safely\n---\n\nUse this skill.\n",
+    )
+    .unwrap();
+    let skill_context = SkillRuntimePlanner
+        .activate(SkillRuntimeOptions::new(
+            workspace.path(),
+            workspace.path(),
+            vec![SkillActivationRequest {
+                skill: "skill_reviewer".to_string(),
+                references: Vec::new(),
+            }],
+        ))
+        .unwrap();
+
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let captured_request = Arc::new(Mutex::new(None));
+    let loop_runner = AgentLoop::new(
+        CapturingProvider {
+            captured_request: captured_request.clone(),
+        },
+        store,
+    );
+    let mut request = mock_agent_request("Review this repository");
+    request.skill_context = Some(skill_context);
+
+    let outcome = loop_runner.run_agent(request).await.unwrap();
+
+    let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let skill_index = records
+        .iter()
+        .position(|record| record.event_kind == "skill_activated")
+        .unwrap();
+    let agent_started_index = records
+        .iter()
+        .position(|record| record.event_kind == "agent_run_started")
+        .unwrap();
+    assert!(skill_index < agent_started_index);
+
+    let skill_record = &records[skill_index];
+    assert_eq!(
+        skill_record.payload["activation"]["skill_id"],
+        "skill_reviewer"
+    );
+    assert_eq!(skill_record.payload["activation"]["status"], "activated");
+    let encoded_payload = serde_json::to_string(&skill_record.payload).unwrap();
+    assert!(!encoded_payload.contains("Use this skill."));
+
+    let provider_request = captured_request.lock().unwrap().clone().unwrap();
+    assert_eq!(
+        provider_request.messages[0].role,
+        ProviderMessageRole::System
+    );
+    assert!(provider_request.messages[0]
+        .content
+        .contains("Skills selected explicitly"));
+    assert!(provider_request.messages[0].content.contains("Use this skill."));
     assert_eq!(
         provider_request.messages.last().map(|message| message.role),
         Some(ProviderMessageRole::User)
