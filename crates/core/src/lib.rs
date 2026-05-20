@@ -3085,6 +3085,11 @@ pub struct RuntimeTaskResumer {
     store: TraceStore,
 }
 
+pub struct TaskOwnershipRecorder {
+    store: TraceStore,
+    trace_id: String,
+}
+
 pub struct RuntimeHttpApi {
     reader: RuntimeReader,
 }
@@ -3274,6 +3279,130 @@ impl RuntimeTaskResumer {
         self.store.append(&frame)?;
         Ok(())
     }
+}
+
+impl TaskOwnershipRecorder {
+    const DEFAULT_HEARTBEAT_INTERVAL_MS: u64 = 10_000;
+
+    pub fn new(store: TraceStore, trace_id: impl Into<String>) -> Self {
+        Self {
+            store,
+            trace_id: trace_id.into(),
+        }
+    }
+
+    pub fn attach_execution(
+        &mut self,
+        task_id: TaskId,
+        runtime_id: RuntimeInstanceId,
+        client_id: Option<ClientInstanceId>,
+        last_seq: Option<u64>,
+        reason: Option<String>,
+    ) -> Result<TaskOwnerLease> {
+        let lease = TaskOwnerLease {
+            lease_id: TaskOwnershipId::new(),
+            task_id: task_id.clone(),
+            trace_id: self.trace_id.clone(),
+            runtime_id,
+            client_id,
+            owner_kind: TaskOwnerKind::Execution,
+            status: TaskOwnerStatus::Attached,
+            acquired_at: Timestamp::now_utc(),
+            heartbeat_interval_ms: Self::DEFAULT_HEARTBEAT_INTERVAL_MS,
+            expires_at: None,
+            last_heartbeat_at: None,
+            last_seq,
+            reason,
+        };
+        self.append_task_event(
+            RunEvent::TaskOwnerAttached {
+                lease: Box::new(lease.clone()),
+            },
+            &task_id,
+        )?;
+        Ok(lease)
+    }
+
+    pub fn heartbeat(
+        &mut self,
+        lease: &TaskOwnerLease,
+        last_seq: u64,
+    ) -> Result<TaskOwnerHeartbeat> {
+        let heartbeat_at = Timestamp::now_utc();
+        let heartbeat = TaskOwnerHeartbeat {
+            lease_id: lease.lease_id.clone(),
+            task_id: lease.task_id.clone(),
+            runtime_id: lease.runtime_id.clone(),
+            heartbeat_at: heartbeat_at.clone(),
+            expires_at: heartbeat_at,
+            last_seq,
+        };
+        self.append_task_event(
+            RunEvent::TaskOwnerHeartbeat {
+                heartbeat: heartbeat.clone(),
+            },
+            &lease.task_id,
+        )?;
+        Ok(heartbeat)
+    }
+
+    pub fn detach(&mut self, lease: &TaskOwnerLease, reason: Option<String>) -> Result<()> {
+        self.append_task_event(
+            RunEvent::TaskOwnerDetached {
+                lease_id: lease.lease_id.clone(),
+                task_id: lease.task_id.clone(),
+                reason,
+            },
+            &lease.task_id,
+        )
+    }
+
+    pub fn mark_lost(
+        &mut self,
+        lease_id: TaskOwnershipId,
+        task_id: TaskId,
+        reason: Option<String>,
+    ) -> Result<()> {
+        self.append_task_event(
+            RunEvent::TaskOwnerLost {
+                lease_id,
+                task_id: task_id.clone(),
+                reason,
+            },
+            &task_id,
+        )
+    }
+
+    pub fn record_reattach(&mut self, record: TaskReattachRecord) -> Result<()> {
+        let task_id = record.task_id.clone();
+        self.append_task_event(RunEvent::TaskReattachRecorded { record }, &task_id)
+    }
+
+    fn append_task_event(&mut self, event: RunEvent, task_id: &TaskId) -> Result<()> {
+        let next_seq = next_trace_seq(&self.store, &self.trace_id)?;
+        let frame =
+            EventFrame::new(self.trace_id.clone(), next_seq, event).with_task_id(task_id.clone());
+        self.store.append(&frame)?;
+        Ok(())
+    }
+}
+
+fn next_trace_seq(store: &TraceStore, trace_id: &str) -> Result<u64> {
+    let records = match store.read_trace_records(trace_id) {
+        Ok(records) => records,
+        Err(tessera_storage::StorageError::Io(error))
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
+            return Ok(1);
+        }
+        Err(error) => return Err(error.into()),
+    };
+    Ok(records
+        .iter()
+        .map(|record| record.seq)
+        .max()
+        .unwrap_or_default()
+        + 1)
 }
 
 fn summarize_session(trace_id: String, records: &[TraceRecord]) -> RuntimeSessionSummary {

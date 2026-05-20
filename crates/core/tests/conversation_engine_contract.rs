@@ -10,8 +10,8 @@ use tessera_core::{
     OrderedToolResultBuffer, OsSandboxPlanner, PolicyGate, ReplayRunner, RunCancellationToken,
     RunControls, RunPauseToken, RuntimeEventQuery, RuntimeHttpApi, RuntimeHttpEventRequest,
     RuntimeReader, SkillActivationRequest, SkillDiscoveryOptions, SkillRegistry,
-    SkillRuntimeOptions, SkillRuntimePlanner, ToolRegistry, ToolRepairTelemetry,
-    WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
+    SkillRuntimeOptions, SkillRuntimePlanner, TaskOwnershipRecorder, ToolRegistry,
+    ToolRepairTelemetry, WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
 };
 use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentStepStatus, ArtifactId, ArtifactKind, ClientInstanceId,
@@ -25,9 +25,10 @@ use tessera_protocol::{
     SkillRedactionStatus, SkillRequirements, SkillSource, SkillSourceKind, SnapshotId,
     SnapshotKind, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease,
     TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskReattachMode,
-    TaskStatus, ThreadId, Timestamp, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch,
-    ToolDispatchId, ToolId, ToolPermission, ToolRepairKind, ToolResult, ToolResultId,
-    ToolResultStatus, ToolSideEffect, TurnId, WorkspaceCheckpoint, WorkspaceScope,
+    TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolCallId, ToolCallRequest,
+    ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission, ToolRepairKind,
+    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, TurnId, WorkspaceCheckpoint,
+    WorkspaceScope,
 };
 use tessera_providers::{
     mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderMessage,
@@ -1383,6 +1384,80 @@ fn runtime_reader_terminal_task_supersedes_owner_reattach_mode() {
         owners[0].reattach_mode,
         TaskReattachMode::TerminalProjection
     );
+}
+
+#[test]
+fn task_ownership_recorder_appends_attach_heartbeat_and_detach() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let trace_id = "trace_owner_recorder";
+    let task_id = TaskId::from_static("task_owner_recorder");
+    let runtime_id = RuntimeInstanceId::from_static("runtime_owner_recorder");
+    let client_id = ClientInstanceId::from_static("client_owner_recorder");
+    let mut recorder = TaskOwnershipRecorder::new(store, trace_id);
+
+    let lease = recorder
+        .attach_execution(
+            task_id.clone(),
+            runtime_id.clone(),
+            Some(client_id.clone()),
+            Some(3),
+            Some("recorder attached".to_string()),
+        )
+        .unwrap();
+    let heartbeat = recorder.heartbeat(&lease, 4).unwrap();
+    recorder
+        .detach(&lease, Some("recorder detached".to_string()))
+        .unwrap();
+    recorder
+        .record_reattach(TaskReattachRecord {
+            task_id: task_id.clone(),
+            mode: TaskReattachMode::OwnerLost,
+            previous_lease_id: Some(lease.lease_id.clone()),
+            new_lease_id: None,
+            checkpoint_id: None,
+            since_seq: Some(4),
+            reason: Some("operator inspected detached owner".to_string()),
+        })
+        .unwrap();
+
+    assert_eq!(lease.task_id, task_id);
+    assert_eq!(lease.runtime_id, runtime_id);
+    assert_eq!(lease.client_id, Some(client_id));
+    assert_eq!(lease.last_seq, Some(3));
+    assert_eq!(heartbeat.last_seq, 4);
+
+    let store = TraceStore::open(temp.path()).unwrap();
+    let records = store.read_trace_records(trace_id).unwrap();
+    let event_kinds = records
+        .iter()
+        .map(|record| record.event_kind.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        event_kinds,
+        vec![
+            "task_owner_attached",
+            "task_owner_heartbeat",
+            "task_owner_detached",
+            "task_reattach_recorded"
+        ]
+    );
+    assert_eq!(records[0].seq, 1);
+    assert_eq!(records[1].seq, 2);
+    assert_eq!(records[2].seq, 3);
+    assert_eq!(records[3].seq, 4);
+
+    let encoded_payloads = records
+        .iter()
+        .map(|record| record.payload.to_string())
+        .collect::<String>();
+    assert!(encoded_payloads.contains("runtime_owner_recorder"));
+    assert!(!encoded_payloads.contains("authorization"));
+    assert!(!encoded_payloads.contains("api_key"));
+    assert!(!encoded_payloads.contains("cookie"));
+    assert!(!encoded_payloads.contains("socket"));
+    assert!(!encoded_payloads.contains("env"));
 }
 
 #[test]
