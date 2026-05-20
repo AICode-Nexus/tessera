@@ -79,13 +79,14 @@ Project instruction discovery v0.5 使用 `instructions_discovered` trace event 
 
 ## 4. Event Kind
 
-当前必须支持（v0.1 基线 + v0.2/v0.3 草案信号）：
+当前必须支持（v0.1 基线 + v0.2-v0.5 foundation/runtime signals）：
 
 ```text
 thread_created
 turn_started
 user_message_recorded
 instructions_discovered
+skill_activated
 provider_request_started
 provider_capability_reported
 route_decision_recorded
@@ -135,6 +136,8 @@ done
 
 `instructions_discovered` payload 必须包含 `task_id` 和 `sources`。每个 source 必须是 provider-neutral `InstructionSource` metadata，包括 kind、path、relative_path、precedence、placement、status、byte counts、sha256、redaction_status 和 warnings；不得包含 instruction 正文、secret、provider request headers、prompt text 或 raw filesystem content。
 
+`skill_activated` payload 必须包含 `task_id` 和 `activation`。每个 activation 属于 v0.5 explicit Skill Runtime v1，每个被显式选择的 skill 写一条 event，并在 `instructions_discovered` 之后、`agent_run_started` 之前写入。payload 只能保存 `SkillManifest`、entrypoint/reference source metadata、activation steps、byte counts、hash、redaction_status 和 warnings；不得包含 `SKILL.md` 正文、reference 正文、provider prompt fragment、script body、tool output、secret、provider request headers 或 raw filesystem content。
+
 `agent_run_started` payload 必须包含 `task_id`、`profile_id` 和 `objective`。`agent_step_started` payload 必须包含 `task_id` 和 `step_index`。`agent_step_completed` payload 必须包含 `summary`，其中 `summary.task_id`、`step_index`、`status`、`assistant_text` 和 `stop_reason` 使用 provider-neutral 字段。`agent_run_completed` payload 必须包含 `summary`，其中 `summary.task_id`、`profile_id`、`status`、`steps_completed`、`final_text`、`stop_reason` 和 `evidence_event_range` 描述最终结果和证据范围。
 
 这些 agent events 只表示 no-tool single-agent loop 生命周期。它们不得包含 provider-private raw response、hidden reasoning、tool output、shell command、file diff、secret、provider socket handle 或 background task handle。
@@ -143,7 +146,6 @@ done
 
 ```text
 route_escalation_recorded
-skill_activated
 skill_step_started
 memory_recall
 agent_handoff

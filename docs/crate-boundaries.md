@@ -121,7 +121,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - Trace 写入协调。
 - Task/Window 的最小运行时语义。
 - v0.1 reserved type 的行为边界。
-- Skill / agent / tool metadata 的只读 registry foundation。
+- Skill / agent / tool metadata 的只读 registry foundation，以及 explicit read-only Skill Runtime v1 的 discovery/activation/context rendering。
 - No-tool single-agent loop 的 run/step lifecycle 编排。
 
 允许依赖：
@@ -140,8 +140,8 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - API key 明文处理。
 - shell/file/git/http tool 执行。
 - MCP runtime。
-- skill runtime。
-- tool-using、skill-aware 或 background agent runtime。
+- executable/default/global skill runtime。
+- tool-using 或 background agent runtime。
 
 ### providers
 
@@ -419,7 +419,7 @@ GUI 是 client shell，不是第二套 runtime。产品 GUI 默认方向见 [ADR
 - app-server listener。
 - default/global instruction loader。
 
-它们不得在 v0.1 中形成独立执行系统。v0.5 允许的例外是 `core::AgentLoop` 的 no-tool single-agent slice，以及由 core-owned `InstructionDiscoveryPlanner` 驱动的 opt-in project-local instruction discovery/source reporting：它们只能复用 provider/storage/event-sink 边界记录 `TaskKind::AgentRun`、agent run/step trace events 和 trace-safe `instructions_discovered` metadata，不得执行 tools、skills、hooks、default/global instruction ingestion、workspace mutation 或 background reattach。如果确实需要类型，放入 `protocol` 或 `core` 的 reserved area，并写清楚不执行。
+它们不得在 v0.1 中形成独立执行系统。v0.5 允许的例外是 `core::AgentLoop` 的 no-tool single-agent slice、由 core-owned `InstructionDiscoveryPlanner` 驱动的 opt-in project-local instruction discovery/source reporting，以及由 core-owned `SkillRuntimePlanner` 驱动的 explicit project-local `SKILL.md` discovery/activation/read-only reference loading。它们只能复用 provider/storage/event-sink 边界记录 `TaskKind::AgentRun`、agent run/step trace events、trace-safe `instructions_discovered` metadata 和 trace-safe `skill_activated` metadata，不得执行 tools、skill scripts、hooks、default/global instruction ingestion、workspace mutation 或 background reattach。如果确实需要类型，放入 `protocol` 或 `core` 的 reserved area，并写清楚不执行。
 
 ## 5. DeepSeek-TUI Lessons 对边界的补充
 
@@ -461,17 +461,20 @@ Context workbench 第一版只管理上下文引用和 token budget，不读取�
 - source reference 只保存 uri/label/summary/估算 token，不保存文件内容或大块 bytes。
 - 后续真实 context loader、compaction 和 handle read 必须写 trace，并遵守 policy/sandbox。
 
-### skill_registry
+### skill_registry / skill_runtime_v1
 
-Skill registry 第一版是只读 schema 和 discovery 边界，不是可执行插件系统。
+Skill registry 第一版是只读 schema 和 discovery 边界；Skill Runtime v1 是显式、project-local、read-only 的 no-tool context loading，不是可执行插件系统。
 
 推荐边界：
 
 - `protocol` 定义 `SkillManifest`、`SkillSource`、`SkillEntrypoint`、requirements 和 policy metadata。
+- `protocol` 定义 `SkillActivation`、`SkillReferenceSource`、activation step/status 和 `skill_activated` trace metadata。
 - `core` 可以持有只读 `SkillRegistry`，只提供 list/find。
+- `core` 的 `SkillRuntimePlanner` 可以发现 project-local `SKILL.md`、解析 flat frontmatter、做 source reporting、加载显式选择的 skill 和显式相对 reference、做 byte limit / symlink / workspace containment / UTF-8 / duplicate / redaction 检查，并渲染 no-tool stable-prefix skill context。
+- CLI 只能通过 core planner 调用 `tessera skills inspect` 和 `agent run --skill`；TUI/GUI 也不得自行读取并拼接 skill 文件。
 - 入口优先兼容 `SKILL.md` metadata；`skill.toml` 只作为后续高级 manifest 格式预留。
-- registry 不能执行 workflow、shell、脚本、MCP 或工具。
-- 后续 skill activation 必须转成标准 trace event，并通过 tool/policy 边界。
+- registry/runtime v1 不能执行 workflow、shell、脚本、MCP、hooks、automations 或工具。
+- 后续 executable skill steps 必须转成标准 trace event，并通过 tool/policy/sandbox/checkpoint 边界。
 
 ### instruction_loader
 

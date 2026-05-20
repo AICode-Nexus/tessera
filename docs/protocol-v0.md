@@ -324,7 +324,7 @@ pub struct EventFrame {
 
 ## 6. RunEvent v0
 
-当前实现的事件（v0.1 基线 + v0.2/v0.3 草案信号）：
+当前实现的事件（v0.1 基线 + v0.2-v0.5 foundation/runtime signals）：
 
 ```rust
 pub enum RunEvent {
@@ -334,6 +334,10 @@ pub enum RunEvent {
     InstructionsDiscovered {
         task_id: TaskId,
         sources: Vec<InstructionSource>,
+    },
+    SkillActivated {
+        task_id: TaskId,
+        activation: SkillActivation,
     },
 
     ProviderRequestStarted {
@@ -423,6 +427,8 @@ pub enum RunEvent {
 
 `InstructionsDiscovered` 是 v0.5 opt-in project instruction discovery 的 source report。payload 必须包含 `task_id` 和 `sources`；`sources` 只能记录 `AGENTS.md` / `CLAUDE.md` 的 source id、kind、absolute/relative path、precedence、placement、load status、byte counts、sha256、redaction status 和 warnings，不得包含 instruction text/content、secret、provider-private prompt 或 filesystem handle。
 
+`SkillActivated` 是 v0.5 explicit Skill Runtime v1 的 trace-safe activation metadata。payload 必须包含 `task_id` 和 `activation`；`activation` 只能记录 skill manifest、entrypoint/reference source metadata、step metadata、byte counts、hash、redaction status 和 warnings，不得包含 `SKILL.md` 正文、reference 正文、provider prompt fragment、script body、tool output、secret 或 filesystem handle。
+
 `AgentRunStarted` / `AgentStepStarted` / `AgentStepCompleted` / `AgentRunCompleted` 是 v0.5 no-tool single-agent loop 的标准生命周期事件。它们记录 `TaskKind::AgentRun` 的 provider-neutral run envelope、step index、step status、final summary 和 event evidence range；不得包含 provider-private raw response、hidden reasoning、tool output、shell command、file diff、secret 或 runtime handle。
 
 仍只预留、不执行的事件：
@@ -430,7 +436,6 @@ pub enum RunEvent {
 ```rust
 pub enum ReservedRunEvent {
     RouteEscalationRecorded,
-    SkillActivated,
     SkillStepStarted,
     MemoryRecall,
     AgentHandoff,
@@ -447,7 +452,7 @@ pub enum ReservedRunEvent {
 }
 ```
 
-保留事件不得在 v0.1 里成为实际功能入口。它们只用于稳定未来扩展字段和避免命名冲突。
+保留事件不得在当前版本里成为实际功能入口。它们只用于稳定未来扩展字段和避免命名冲突。
 
 ## 7. Provider Extension Metadata
 
@@ -526,9 +531,9 @@ pub struct CostEstimate {
 }
 ```
 
-## 8. Skill Manifest Schema
+## 8. Skill Manifest And Activation Schema
 
-Skill registry v0.2 只描述和查询 skill metadata，不执行 skill runtime。第一版入口优先兼容 `SKILL.md` frontmatter，高级 `skill.toml` 仅作为格式预留。
+Skill registry v0.2 只描述和查询 skill metadata。v0.5 explicit Skill Runtime v1 在此基础上增加 project-local `SKILL.md` discovery、显式 activation metadata、只读 reference source metadata 和 no-tool context rendering。第一版入口优先兼容 `SKILL.md` flat frontmatter，高级 `skill.toml` 仅作为格式预留。
 
 ```rust
 pub struct SkillManifest {
@@ -565,11 +570,80 @@ pub struct SkillPolicy {
 }
 ```
 
-`SkillManifest` 不包含 command、executable 或 script 字段。后续 skill 激活、工具调用和步骤执行必须通过 core/tool/policy/trace 边界，不得由 registry 直接执行。
+`SkillManifest` 不包含 command、executable 或 script 字段。当前 activation 只能由 core planner 显式加载 project-local `SKILL.md` 和用户指定的相对 reference 文件，并通过 `skill_activated` 写 trace-safe metadata。真实脚本、工具调用和步骤执行仍必须等待 tool/policy/sandbox/trace 边界，不得由 registry 直接执行。
+
+```rust
+pub enum SkillLoadStatus {
+    Loaded,
+    SkippedDuplicate,
+    SkippedSymlink,
+    SkippedOutsideWorkspace,
+    SkippedNonUtf8,
+    SkippedTooLarge,
+    InvalidManifest,
+    ReadFailed,
+}
+
+pub enum SkillActivationStatus {
+    Activated,
+    Failed,
+}
+
+pub enum SkillRedactionStatus {
+    Clean,
+    Redacted,
+}
+
+pub enum SkillStepKind {
+    DiscoverEntrypoint,
+    LoadEntrypoint,
+    LoadReference,
+    RenderContext,
+}
+
+pub enum SkillStepStatus {
+    Completed,
+    Skipped,
+    Failed,
+}
+
+pub struct SkillReferenceSource {
+    pub source_id: ContextId,
+    pub path: String,
+    pub relative_path: String,
+    pub status: SkillLoadStatus,
+    pub original_bytes: u64,
+    pub loaded_bytes: u64,
+    pub sha256: Option<String>,
+    pub redaction_status: SkillRedactionStatus,
+    pub warnings: Vec<String>,
+}
+
+pub struct SkillActivationStep {
+    pub step_index: u32,
+    pub kind: SkillStepKind,
+    pub status: SkillStepStatus,
+    pub source_id: Option<ContextId>,
+    pub warnings: Vec<String>,
+}
+
+pub struct SkillActivation {
+    pub task_id: TaskId,
+    pub skill_id: SkillId,
+    pub manifest: SkillManifest,
+    pub status: SkillActivationStatus,
+    pub entrypoint: SkillReferenceSource,
+    pub references: Vec<SkillReferenceSource>,
+    pub steps: Vec<SkillActivationStep>,
+    pub warnings: Vec<String>,
+}
+```
+
+`SkillReferenceSource` 只描述来源和安全处理结果。`SKILL.md` body、reference body、provider-visible rendered context 和 secret-like lines 不得进入 trace payload。
 
 ### Agent Profile And Run Summary Schema
 
-Agent profile v0.5 foundation 描述可执行 agent 的静态 metadata。当前 no-tool `AgentLoop` 会使用它记录 run/step summary，并可接收显式 opt-in 的 project instruction context；它仍不激活 skill、不执行工具、不持有 provider-private runtime state。
+Agent profile v0.5 foundation 描述可执行 agent 的静态 metadata。当前 no-tool `AgentLoop` 会使用它记录 run/step summary，并可接收显式 opt-in 的 project instruction context 和 explicit read-only skill context；它仍不执行工具、不运行 skill script、不持有 provider-private runtime state。
 
 ```rust
 pub struct AgentProfile {
@@ -615,7 +689,7 @@ pub struct AgentRunSummary {
 }
 ```
 
-`AgentProfile` 不包含 command、executable、shell、provider-private handle 或 runtime state。`AgentStepSummary` 和 `AgentRunSummary` 只记录 provider-neutral lifecycle/result metadata。后续 skill activation、tool request、handoff 和 completion 必须继续通过 core/protocol/trace 的标准事件表达。
+`AgentProfile` 不包含 command、executable、shell、provider-private handle 或 runtime state。`AgentStepSummary` 和 `AgentRunSummary` 只记录 provider-neutral lifecycle/result metadata。Skill activation 已通过 `SkillActivated` 标准事件表达；后续 executable skill steps、tool request、handoff 和 completion 必须继续通过 core/protocol/trace 的标准事件表达。
 
 ## 9. Tool Descriptor / Policy / Dispatch / Repair Schema
 

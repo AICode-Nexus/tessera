@@ -12,9 +12,9 @@ It also includes a draft `NoProgressDetector` that turns no-output, repeated rea
 
 It includes a `DiagnosticsReporter` helper that wraps LSP-style diagnostics into provider-neutral `diagnostics_reported` events. It does not start LSP servers, run compilers, or read workspace files.
 
-It includes a read-only `SkillRegistry` for listing and finding `SkillManifest` metadata. It does not activate skills, execute workflows, or bypass future tool/policy boundaries.
+It includes a read-only `SkillRegistry` for listing and finding `SkillManifest` metadata, plus a `SkillRuntimePlanner` for explicit project-local `SKILL.md` discovery, source reporting, bounded redacted context loading, and trace-safe activation metadata. It does not execute skill scripts, workflows, tools, MCP servers, hooks, or background automation.
 
-It includes a read-only `AgentRegistry` for listing and finding `AgentProfile` metadata, plus a no-tool `AgentLoop` that records provider-neutral agent run/step events and returns an `AgentRunSummary`. The current loop can receive explicitly loaded project instruction context from the core planner, but it does not activate skills, execute tools, keep background tasks alive, or bypass future policy/sandbox boundaries.
+It includes a read-only `AgentRegistry` for listing and finding `AgentProfile` metadata, plus a no-tool `AgentLoop` that records provider-neutral agent run/step events and returns an `AgentRunSummary`. The current loop can receive explicitly loaded project instruction context and explicitly activated read-only skill context from core planners, but it does not execute tools, mutate files, keep background tasks alive, or bypass future policy/sandbox boundaries.
 
 It includes a read-only `ToolRegistry` for listing and finding `ToolDescriptor` metadata. It does not execute tools, dispatch tool calls, or bypass future policy/sandbox boundaries.
 

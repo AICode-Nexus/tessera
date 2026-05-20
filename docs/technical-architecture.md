@@ -15,7 +15,7 @@ Tessera 是一个 Rust-first、AI-friendly、agent-ready 的本地终端大模�
 - Replayable：所有运行都能通过 JSONL trace 回放和审计。
 - Auditable：未来所有工具调用必须经过 policy gate。
 - AI-friendly：代码边界小、协议清晰、fixture/replay 完整，方便 AI 稳定参与开发。
-- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已加入 no-tool single-agent loop 和 opt-in project instruction discovery/source reporting，但工具、技能、默认/全局指令加载、后台所有权和多 agent 仍必须按门禁推进。
+- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已加入 no-tool single-agent loop、opt-in project instruction discovery/source reporting 和 explicit read-only Skill Runtime v1，但工具、executable skills、默认/全局指令加载、后台所有权和多 agent 仍必须按门禁推进。
 
 ## 2. 技术选型
 
@@ -262,7 +262,7 @@ apps/
 
 - `protocol`：公共类型、ID、runtime schema、RunEvent、EventFrame、NormalizedError、context reference schema、diagnostics schema、memory proposal schema、skill manifest schema、sandbox profile schema、checkpoint schema。
 - `client`：UI-neutral intent、status/message/approval/memory proposal projection、ClientSnapshot；从 EventFrame / TraceRecord 生成 TUI 和未来 GUI 共享的 view model。
-- `core`：运行生命周期、ConversationEngine、事件路由、provider/storage 协调、context workbench、draft model routing、no-progress loop signal、diagnostics reporter、只读 skill registry、metadata-only MCP adapter、sandbox profile planner、checkpoint metadata planner、runtime HTTP/SSE shape helper 和 checkpoint metadata projection。
+- `core`：运行生命周期、ConversationEngine、事件路由、provider/storage 协调、context workbench、draft model routing、no-progress loop signal、diagnostics reporter、只读 skill registry、explicit read-only SkillRuntimePlanner、metadata-only MCP adapter、sandbox profile planner、checkpoint metadata planner、runtime HTTP/SSE shape helper 和 checkpoint metadata projection。
 - `providers`：Provider trait、OpenAI-compatible、Ollama、Mock provider。
 - `storage`：JSONL trace writer、SQLite index、repository。
 - `config`：配置读取、profile、data dir、secret env var 引用。
@@ -335,7 +335,7 @@ v0.1 先保证 agent 能平滑接入；v0.5 的当前实现已经提供 no-tool 
 
 - `Task`：agent run、tool run、replay、learning job 都能成为 task。
 - `Artifact`：patch、test report、tool output、agent transcript 外部化。
-- `RunEvent` lifecycle：no-tool agent loop 已使用 `agent_run_started`、`agent_step_started`、`agent_step_completed` 和 `agent_run_completed`；skill、handoff、swarm、learning 仍按后续版本门禁推进。
+- `RunEvent` lifecycle：no-tool agent loop 已使用 `agent_run_started`、`agent_step_started`、`agent_step_completed` 和 `agent_run_completed`；explicit Skill Runtime v1 已使用 `skill_activated` 记录 trace-safe activation metadata；executable skill steps、handoff、swarm、learning 仍按后续版本门禁推进。
 - `PolicyDecision` 类型占位：未来工具调用必须可审批。
 - `ToolCallRequested` / `ToolDispatch` / `ToolResult` metadata：provider 和 agent 都不能直接执行工具；即便未来底层并发，trace 和模型可见结果也必须按声明顺序输出。
 - `DiagnosticsReported` metadata：diagnostics/LSP 结果可以写 trace，但 core helper 不启动 LSP server、compiler 或 test runner。
@@ -343,9 +343,9 @@ v0.1 先保证 agent 能平滑接入；v0.5 的当前实现已经提供 no-tool 
 - `ToolRepairReport` metadata：tool-call repair 只能记录 provider-neutral 摘要，不能把 provider 原始 reasoning 或 raw text 写进 trace。
 - `SandboxDecision` metadata：workspace path guardrail 必须先写入 provider-neutral trace，再进入后续真实 sandbox/tool runtime。
 - `OsSandboxProfile` metadata：core 可以规划 read-only / workspace-write / network-required / denied profile，但不启动 OS sandbox、不执行工具、不打开网络。
-- `AgentProfile` schema foundation：模型、角色、工具权限、记忆范围、context scope 和 step limit 显式配置；core 提供只读 registry 和 no-tool `AgentLoop`，可接收显式 opt-in 且由 core planner 发现的 project instruction context，但不激活 skill、不执行 tool、不默认读取全局/用户 instructions、不维持后台任务。
+- `AgentProfile` schema foundation：模型、角色、工具权限、记忆范围、context scope 和 step limit 显式配置；core 提供只读 registry 和 no-tool `AgentLoop`，可接收显式 opt-in 且由 core planner 发现的 project instruction context 和 explicit read-only skill context，但不执行 tool、不运行 skill script、不默认读取全局/用户 instructions、不维持后台任务。
 - `MemoryProposal` metadata：proposal 可以进入 UI review，但长期 memory runtime 和真实写入必须等待 scope schema、policy 和 trace 边界，避免默认全局污染。
-- `Skill` manifest 兼容 `SKILL.md` frontmatter，后续再扩展 `skill.toml`；v0.2 只读 registry 不执行 skill runtime。
+- `Skill` manifest 兼容 `SKILL.md` frontmatter，后续再扩展 `skill.toml`；v0.5 `SkillRuntimePlanner` 支持 project-local discovery、显式 activation、只读 reference、redaction 和 trace-safe `skill_activated` metadata，但不执行脚本、工具、MCP、hooks 或 global/default skill loading。
 
 Agent-ready 不等于立即拥有完整 coding-agent。当前 no-tool loop 只是稳定 run envelope、trace 和 replay 语义，避免未来 agent 被迫进入旁路系统。
 
