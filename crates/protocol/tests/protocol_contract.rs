@@ -8,13 +8,15 @@ use tessera_protocol::{
     NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
     OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
     ProviderId, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent, SandboxDecision,
-    SandboxDecisionId, SandboxDecisionKind, SkillEntrypoint, SkillEntrypointFormat, SkillId,
-    SkillManifest, SkillPolicy, SkillRequirements, SkillSource, SkillSourceKind, SnapshotId,
-    SnapshotKind, TaskId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, ToolApproval,
-    ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId,
-    ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult,
-    ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint,
-    WorkspaceGuardrail, WorkspaceScope,
+    SandboxDecisionId, SandboxDecisionKind, SkillActivation, SkillActivationStatus,
+    SkillActivationStep, SkillEntrypoint, SkillEntrypointFormat, SkillId, SkillLoadStatus,
+    SkillManifest, SkillPolicy, SkillRedactionStatus, SkillReferenceSource, SkillRequirements,
+    SkillSource, SkillSourceKind, SkillStepKind, SkillStepStatus, SnapshotId, SnapshotKind, TaskId,
+    TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, ToolApproval, ToolCallId,
+    ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission,
+    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolResultId,
+    ToolResultStatus, ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail,
+    WorkspaceScope,
 };
 
 #[test]
@@ -272,6 +274,83 @@ fn skill_manifest_schema_is_read_only_and_skill_md_compatible() {
     assert_eq!(value["policy"]["write_files"], "deny");
     assert!(value.get("command").is_none());
     assert!(value.get("executable").is_none());
+}
+
+#[test]
+fn skill_activated_event_records_metadata_without_content() {
+    let task_id = TaskId::from_static("task_skill_runtime");
+    let skill_id = SkillId::from_static("skill_code_review");
+    let source_id = ContextId::from_static("context_skill_entrypoint");
+    let source = SkillReferenceSource {
+        source_id: source_id.clone(),
+        path: "/workspace/.tessera/skills/code-review/SKILL.md".to_string(),
+        relative_path: ".tessera/skills/code-review/SKILL.md".to_string(),
+        status: SkillLoadStatus::Loaded,
+        original_bytes: 120,
+        loaded_bytes: 110,
+        sha256: Some("hash".to_string()),
+        redaction_status: SkillRedactionStatus::Redacted,
+        warnings: vec!["redacted possible secret line".to_string()],
+    };
+    let manifest = SkillManifest {
+        id: skill_id.clone(),
+        name: "code-review".to_string(),
+        version: Some("0.1.0".to_string()),
+        description: "Review code changes.".to_string(),
+        source: SkillSource {
+            kind: SkillSourceKind::Workspace,
+            uri: Some(".tessera/skills/code-review/SKILL.md".to_string()),
+        },
+        entrypoint: SkillEntrypoint {
+            format: SkillEntrypointFormat::SkillMd,
+            path: "SKILL.md".to_string(),
+        },
+        requirements: SkillRequirements::default(),
+        policy: SkillPolicy {
+            default_permission: "ask".to_string(),
+            network: "deny".to_string(),
+            write_files: "deny".to_string(),
+        },
+        metadata: None,
+    };
+    let activation = SkillActivation {
+        task_id: task_id.clone(),
+        skill_id,
+        manifest,
+        status: SkillActivationStatus::Activated,
+        entrypoint: source,
+        references: Vec::new(),
+        steps: vec![SkillActivationStep {
+            step_index: 0,
+            kind: SkillStepKind::LoadEntrypoint,
+            status: SkillStepStatus::Completed,
+            source_id: Some(source_id),
+            warnings: Vec::new(),
+        }],
+        warnings: Vec::new(),
+    };
+    let event = RunEvent::SkillActivated {
+        task_id: task_id.clone(),
+        activation,
+    };
+
+    assert_eq!(event.kind(), "skill_activated");
+    assert_eq!(event.task_id(), Some(task_id));
+    let payload = event.payload();
+    assert_eq!(payload["activation"]["skill_id"], "skill_code_review");
+    assert_eq!(
+        payload["activation"]["entrypoint"]["relative_path"],
+        ".tessera/skills/code-review/SKILL.md"
+    );
+
+    let encoded = serde_json::to_string(&payload).unwrap();
+    assert!(!encoded.contains("Review code changes in this repository."));
+    assert!(!encoded.contains("api_key"));
+    assert!(!encoded.contains("authorization"));
+    assert!(!encoded.contains("\"scripts\""));
+    assert!(!encoded.contains("\"command\""));
+    assert!(!encoded.contains("\"executable\""));
+    assert!(!encoded.contains("\"shell\""));
 }
 
 #[test]

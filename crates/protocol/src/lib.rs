@@ -517,6 +517,89 @@ pub struct SkillManifest {
     pub metadata: Option<ExtensionMap>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillLoadStatus {
+    Loaded,
+    SkippedDuplicate,
+    SkippedSymlink,
+    SkippedOutsideWorkspace,
+    SkippedNonUtf8,
+    SkippedTooLarge,
+    InvalidManifest,
+    ReadFailed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillActivationStatus {
+    Activated,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillRedactionStatus {
+    Clean,
+    Redacted,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillStepKind {
+    DiscoverEntrypoint,
+    LoadEntrypoint,
+    LoadReference,
+    RenderContext,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillStepStatus {
+    Completed,
+    Skipped,
+    Failed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SkillReferenceSource {
+    pub source_id: ContextId,
+    pub path: String,
+    pub relative_path: String,
+    pub status: SkillLoadStatus,
+    pub original_bytes: u64,
+    pub loaded_bytes: u64,
+    pub sha256: Option<String>,
+    pub redaction_status: SkillRedactionStatus,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SkillActivationStep {
+    pub step_index: u32,
+    pub kind: SkillStepKind,
+    pub status: SkillStepStatus,
+    pub source_id: Option<ContextId>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SkillActivation {
+    pub task_id: TaskId,
+    pub skill_id: SkillId,
+    pub manifest: SkillManifest,
+    pub status: SkillActivationStatus,
+    pub entrypoint: SkillReferenceSource,
+    #[serde(default)]
+    pub references: Vec<SkillReferenceSource>,
+    #[serde(default)]
+    pub steps: Vec<SkillActivationStep>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AgentProfile {
     pub id: AgentProfileId,
@@ -932,6 +1015,10 @@ pub enum RunEvent {
         task_id: TaskId,
         sources: Vec<InstructionSource>,
     },
+    SkillActivated {
+        task_id: TaskId,
+        activation: SkillActivation,
+    },
     ProviderRequestStarted {
         provider_id: ProviderId,
         profile_id: ModelProfileId,
@@ -1085,6 +1172,7 @@ impl RunEvent {
             Self::TurnStarted { .. } => "turn_started",
             Self::UserMessageRecorded { .. } => "user_message_recorded",
             Self::InstructionsDiscovered { .. } => "instructions_discovered",
+            Self::SkillActivated { .. } => "skill_activated",
             Self::ProviderRequestStarted { .. } => "provider_request_started",
             Self::AssistantMessageStarted { .. } => "assistant_message_started",
             Self::AssistantDelta { .. } => "assistant_delta",
@@ -1150,6 +1238,7 @@ impl RunEvent {
             | Self::TaskPaused { task_id, .. }
             | Self::TaskResumed { task_id, .. }
             | Self::InstructionsDiscovered { task_id, .. }
+            | Self::SkillActivated { task_id, .. }
             | Self::AgentRunStarted { task_id, .. }
             | Self::AgentStepStarted { task_id, .. }
             | Self::NoProgressLoopDetected { task_id, .. } => Some(task_id.clone()),
@@ -1178,6 +1267,12 @@ impl RunEvent {
             }
             Self::InstructionsDiscovered { task_id, sources } => {
                 json!({ "task_id": task_id, "sources": sources })
+            }
+            Self::SkillActivated {
+                task_id,
+                activation,
+            } => {
+                json!({ "task_id": task_id, "activation": activation })
             }
             Self::ProviderRequestStarted {
                 provider_id,
