@@ -1017,7 +1017,7 @@ pub enum RunEvent {
     },
     SkillActivated {
         task_id: TaskId,
-        activation: SkillActivation,
+        activation: Box<SkillActivation>,
     },
     ProviderRequestStarted {
         provider_id: ProviderId,

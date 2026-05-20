@@ -331,7 +331,7 @@ fn skill_activated_event_records_metadata_without_content() {
     };
     let event = RunEvent::SkillActivated {
         task_id: task_id.clone(),
-        activation,
+        activation: Box::new(activation),
     };
 
     assert_eq!(event.kind(), "skill_activated");

@@ -3706,7 +3706,7 @@ where
         for activation in skill_activations {
             append_event!(RunEvent::SkillActivated {
                 task_id: task_id.clone(),
-                activation,
+                activation: Box::new(activation),
             });
         }
         append_event!(RunEvent::AgentRunStarted {
