@@ -30,8 +30,8 @@
 当前 `main` 基线已完成 v0.1 release，并继续推进 v0.2-v0.5 的 foundation 工作。必须明确区分：
 
 - **用户可用能力**：CLI/TUI/mock chat、trace/replay、session resume、chat-only paused task resume、opt-in project instructions、explicit read-only skill activation 等。
-- **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、diagnostics event、memory proposal UI 等。
-- **尚未支持能力**：真实 tool execution、executable/default/global skill runtime、tool-using/full coding-agent runtime、MCP runtime、background reattach、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、sub-agent persistence、swarm、learning apply。
+- **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、diagnostics event、memory proposal UI、trace-backed task ownership metadata/recorder/projection 等。
+- **尚未支持能力**：真实 tool execution、executable/default/global skill runtime、tool-using/full coding-agent runtime、MCP runtime、background reattach、daemon/app-server listener、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、sub-agent persistence、swarm、learning apply。
 
 ## 4. Version Status Matrix
 
@@ -41,7 +41,7 @@
 | v0.2 | Read-only projection and GUI-ready surfaces | [x] Done | RuntimeReader, task/artifact/snapshot projection, GUI shell spike, DTO bindings, distribution plan. |
 | v0.3 | Tool policy and sandbox foundations | [~] Foundation complete | Tool descriptor, policy gate, approval projection, sandbox decision, OS sandbox planner, checkpoint planner; no execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | [~] Foundation complete | RuntimeHttpApi shape, metadata-only MCP adapter, diagnostics event, memory proposal UI; no server/runtime/store. |
-| v0.5 | Single-agent and resumable task foundations | [~] In progress | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, opt-in project instruction discovery/source reporting, and explicit read-only Skill Runtime v1; no tool execution, executable skills, or background reattach yet. |
+| v0.5 | Single-agent and resumable task foundations | [~] In progress | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, and trace-backed task ownership foundation; no tool execution, executable skills, daemon, or background reattach yet. |
 | v0.6 | Persistent sub-agents and structured review | [ ] Planned | No persistent sub-agent runtime, structured handoff, or reviewer gate yet. |
 | v0.7 | Project coding-agent workflow | [ ] Planned | No apply-patch, diff/test/checkpoint/rollback, worktree mutation, or GUI/TUI diff workflow yet. |
 | v0.8 | Swarm scheduler | [!] Blocked | Requires v0.6 structured handoff and reviewer gate. |
@@ -107,6 +107,7 @@
 - [x] v0.5 Skill Runtime v1 design spec and implementation plan.
 - [x] Explicit Skill Runtime v1 implementation with project-local `SKILL.md` discovery, strict flat frontmatter parsing, trace-safe `skill_activated` metadata, read-only references, `tessera skills inspect`, and opt-in `agent run --skill`.
 - [x] v0.5 background task ownership design spec and implementation plan for trace-backed owner leases, heartbeat metadata, lost-owner projection, and explicit reattach outcomes.
+- [x] Trace-backed background task ownership foundation: protocol IDs/events, core `TaskOwnershipRecorder`, `RuntimeReader::list_task_owners`, client owner projection, and `tessera tasks --owners --trace <trace_id>` read-only CLI output.
 
 ## 6. Current Gaps
 
@@ -119,8 +120,9 @@
 
 - [ ] Executable skills, automatic/default/global skill loading, skill install/update/delete, model-driven reference selection, and script/tool skill execution.
 - [ ] Default-on/global/user instruction loading, Claude imports, and `.claude/` rule compatibility.
-- [ ] Trace-backed background task ownership implementation from `docs/superpowers/plans/2026-05-20-v0.5-background-task-ownership-v1.md`.
-- [ ] Background reattach.
+- [ ] Automatic no-tool run owner attach/detach integration; the recorder exists, but current AgentLoop/ConversationEngine traces are not yet automatically wrapped in owner lease events.
+- [ ] Background reattach / runtime ownership transfer after process restart.
+- [ ] Daemon or app-server listener for durable task observation/control.
 - [ ] Runtime API / app-server design alignment with auth, bounded queues, generated schema and localhost default.
 - [ ] Non-chat task resume.
 - [ ] Real checkpoint restore semantics.
@@ -151,13 +153,14 @@ The next implementation slices should stay conservative and preserve the current
 6. [x] Design skill runtime v1 after single-agent loop is trace-stable: `SKILL.md` discovery, activation events, read-only references, no unchecked scripts.
 7. [x] Implement Skill Runtime v1 foundation from `docs/superpowers/plans/2026-05-20-v0.5-skill-runtime-v1.md`.
 8. [x] Design durable background task ownership and reattach before any long-running agent task.
-9. [ ] Implement trace-backed background task ownership foundation from `docs/superpowers/plans/2026-05-20-v0.5-background-task-ownership-v1.md`.
-10. [ ] Align runtime API / app-server shape before GUI live-provider path: auth, bounded queues, generated schemas, localhost default, no duplicate runtime.
-11. [ ] Only after v0.5 is stable, design v0.6 structured handoff and reviewer gate.
-12. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-13. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
-14. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
-15. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
+9. [x] Implement trace-backed background task ownership foundation from `docs/superpowers/plans/2026-05-20-v0.5-background-task-ownership-v1.md`.
+10. [ ] Decide and implement automatic no-tool run owner attach/detach as a separate behavior-changing slice, or keep it deferred until app-server/runtime API alignment.
+11. [ ] Align runtime API / app-server shape before GUI live-provider path: auth, bounded queues, generated schemas, localhost default, no duplicate runtime.
+12. [ ] Only after v0.5 is stable, design v0.6 structured handoff and reviewer gate.
+13. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+14. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
+15. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
+16. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
 
 ## 8. Mandatory Gates
 

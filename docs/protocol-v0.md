@@ -34,6 +34,9 @@ pub struct ThreadId(String);
 pub struct TurnId(String);
 pub struct ItemId(String);
 pub struct TaskId(String);
+pub struct RuntimeInstanceId(String);
+pub struct ClientInstanceId(String);
+pub struct TaskOwnershipId(String);
 pub struct ArtifactId(String);
 pub struct EventId(String);
 pub struct ProviderId(String);
@@ -262,6 +265,75 @@ pub struct TaskPauseCheckpoint {
 
 当前 core pause path 只写 `ResumeMode::FromTraceProjection`，并且不执行 `/resume-task`、不重连后台 runtime、不恢复 workspace checkpoint。
 
+v0.5 background task ownership foundation 增加 trace-safe owner metadata：
+
+```rust
+pub enum TaskOwnerKind {
+    Execution,
+    Observer,
+}
+
+pub enum TaskOwnerStatus {
+    Attached,
+    Heartbeat,
+    Detached,
+    Lost,
+}
+
+pub enum TaskReattachMode {
+    ObserveExistingOwner,
+    ResumeFromCheckpoint,
+    TerminalProjection,
+    OwnerLost,
+}
+
+pub struct RuntimeInstance {
+    pub runtime_id: RuntimeInstanceId,
+    pub process_id: Option<u32>,
+    pub started_at: Timestamp,
+    pub hostname: Option<String>,
+    pub working_directory: Option<String>,
+    pub capabilities: Vec<String>,
+}
+
+pub struct TaskOwnerLease {
+    pub lease_id: TaskOwnershipId,
+    pub task_id: TaskId,
+    pub trace_id: String,
+    pub runtime_id: RuntimeInstanceId,
+    pub client_id: Option<ClientInstanceId>,
+    pub owner_kind: TaskOwnerKind,
+    pub status: TaskOwnerStatus,
+    pub acquired_at: Timestamp,
+    pub heartbeat_interval_ms: u64,
+    pub expires_at: Option<Timestamp>,
+    pub last_heartbeat_at: Option<Timestamp>,
+    pub last_seq: Option<u64>,
+    pub reason: Option<String>,
+}
+
+pub struct TaskOwnerHeartbeat {
+    pub lease_id: TaskOwnershipId,
+    pub task_id: TaskId,
+    pub runtime_id: RuntimeInstanceId,
+    pub heartbeat_at: Timestamp,
+    pub expires_at: Timestamp,
+    pub last_seq: u64,
+}
+
+pub struct TaskReattachRecord {
+    pub task_id: TaskId,
+    pub mode: TaskReattachMode,
+    pub previous_lease_id: Option<TaskOwnershipId>,
+    pub new_lease_id: Option<TaskOwnershipId>,
+    pub checkpoint_id: Option<TaskPauseCheckpointId>,
+    pub since_seq: Option<u64>,
+    pub reason: Option<String>,
+}
+```
+
+这些结构只能记录 runtime/client/lease/status/seq/reason 等 metadata，不得保存 provider socket、headers、API key、cookie、env、命令行 secret、tool output 或文件内容。
+
 ### 4.5 Artifact
 
 Artifact 是大输出或外部化资源引用。v0.1 主要用于 trace、export、large provider metadata 或后续 tool output 的预留。
@@ -386,6 +458,20 @@ pub enum RunEvent {
     TaskPauseCheckpointCreated { checkpoint: TaskPauseCheckpoint },
     TaskPaused { task_id: TaskId, reason: Option<String> },
     TaskResumed { task_id: TaskId, reason: Option<String> },
+    RuntimeInstanceStarted { instance: RuntimeInstance },
+    TaskOwnerAttached { lease: Box<TaskOwnerLease> },
+    TaskOwnerHeartbeat { heartbeat: TaskOwnerHeartbeat },
+    TaskOwnerDetached {
+        lease_id: TaskOwnershipId,
+        task_id: TaskId,
+        reason: Option<String>,
+    },
+    TaskOwnerLost {
+        lease_id: TaskOwnershipId,
+        task_id: TaskId,
+        reason: Option<String>,
+    },
+    TaskReattachRecorded { record: TaskReattachRecord },
 
     AgentRunStarted {
         task_id: TaskId,
@@ -424,6 +510,8 @@ pub enum RunEvent {
 ```
 
 `TaskPauseCheckpointCreated` 记录 trace-safe resume envelope metadata，当前只支持 chat trace projection resume mode。`TaskPaused` 和 `TaskResumed` 只记录 lifecycle metadata。它们可以被 client/TUI/GUI 投影为 `Paused` / `Running` 状态，但 provider stream suspension、background persistence、checkpoint restore 和 agent resume runtime 仍是后续能力。
+
+`RuntimeInstanceStarted` / `TaskOwnerAttached` / `TaskOwnerHeartbeat` / `TaskOwnerDetached` / `TaskOwnerLost` / `TaskReattachRecorded` 是 v0.5 background task ownership foundation。它们只建立 trace-backed execution owner、observer/lost-owner 和 explicit reattach outcome metadata，供 `RuntimeReader`、client、CLI、TUI、GUI 和 future app-server 投影；当前不启动 daemon，不冻结 provider socket，不保证进程退出后仍有后台执行 owner 存活，也不执行工具或 workspace restore。
 
 `InstructionsDiscovered` 是 v0.5 opt-in project instruction discovery 的 source report。payload 必须包含 `task_id` 和 `sources`；`sources` 只能记录 `AGENTS.md` / `CLAUDE.md` 的 source id、kind、absolute/relative path、precedence、placement、load status、byte counts、sha256、redaction status 和 warnings，不得包含 instruction text/content、secret、provider-private prompt 或 filesystem handle。
 

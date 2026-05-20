@@ -47,7 +47,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 | v0.2 | Read-only projection and GUI-ready surfaces | Complete | Read-only runtime/query/projection foundations are usable; no runtime HTTP server. |
 | v0.3 | Tool policy and sandbox foundations | Foundation complete | Tool metadata, policy, approval, sandbox and checkpoint planners exist; no tool execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
-| v0.5 | Single-agent and resumable task foundations | In progress | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, and explicit read-only Skill Runtime v1 are usable; tools, executable skills, background reattach, and default-on/global instruction loading are not. |
+| v0.5 | Single-agent and resumable task foundations | In progress | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, and trace-backed task ownership foundation are usable; tools, executable skills, daemon/app-server listener, background reattach, and default-on/global instruction loading are not. |
 | v0.6 | Persistent sub-agents and structured review | Planned | No persistent sub-agent runtime or reviewer gate yet. |
 | v0.7 | Project coding-agent workflow | Planned | No file-modifying coding-agent workflow, patch workflow, or GUI/TUI diff control yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
@@ -171,13 +171,15 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Opt-in project-local `AGENTS.md` / `CLAUDE.md` instruction discovery with source reporting, byte limits, symlink rejection, UTF-8 handling, secret-line redaction, `instructions_discovered` trace metadata, `tessera instructions inspect`, and `agent run --instructions`.
 - Explicit read-only Skill Runtime v1 with project-local `SKILL.md` discovery, strict flat frontmatter parsing, byte limits, symlink rejection, duplicate/invalid source reporting, secret-line redaction, `skill_activated` trace metadata, `tessera skills inspect`, and opt-in `agent run --skill`.
 - Background task ownership design spec and implementation plan for trace-backed owner leases, heartbeat metadata, lost-owner projection, and explicit reattach outcomes.
+- Trace-backed background task ownership foundation: protocol IDs/events, core recorder, `RuntimeReader::list_task_owners`, client owner projection, and `tessera tasks --owners --trace <trace_id>` read-only CLI output.
 
 **Remaining:**
 
 - Executable skills, automatic/default/global skill loading, skill install/update/delete, model-driven reference selection, and script/tool skill execution remain staged.
 - Default-on/global/user instruction loading, Claude imports, and `.claude/` rule compatibility remain staged until their precedence, scope, source-reporting and redaction rules are designed.
-- Trace-backed durable background task ownership implementation.
-- Background reattach with log/artifact projection.
+- Automatic owner attach/detach integration around no-tool runs remains a separate behavior-changing slice.
+- Background reattach with log/artifact projection and runtime ownership transfer.
+- Daemon/app-server listener for durable observation/control.
 - Non-chat task resume.
 - Real checkpoint restore semantics.
 - Runtime API / app-server design alignment: typed messages, bounded queues, generated schemas, localhost default, and auth model, without a second runtime.

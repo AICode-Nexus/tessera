@@ -105,6 +105,12 @@ task_cancelled
 task_pause_checkpoint_created
 task_paused
 task_resumed
+runtime_instance_started
+task_owner_attached
+task_owner_heartbeat
+task_owner_detached
+task_owner_lost
+task_reattach_recorded
 agent_run_started
 agent_step_started
 agent_step_completed
@@ -133,6 +139,8 @@ done
 `task_pause_checkpoint_created` payload 必须包含 `checkpoint`，其中 `checkpoint.task_id`、`trace_id`、`last_seq`、`provider_id`、`profile_id`、`model`、`resume_mode` 为必填。当前实现只使用 `resume_mode: "from_trace_projection"`，表示未来 resume 可基于 JSONL trace projection 继续，而不是恢复 provider socket。
 
 `task_paused` 和 `task_resumed` payload 必须包含 `task_id`，可选包含 `reason`。它们只表示 provider-neutral lifecycle metadata，供 replay、TUI、GUI 和 future runtime API 投影使用；不得被解释为真实 provider stream 已挂起、后台任务已持久化或 checkpoint 已恢复。
+
+`runtime_instance_started` payload 必须包含 `instance`，其中 runtime id、started_at 和 capabilities 是安全 metadata，process id、hostname 和 working_directory 均为可选。`task_owner_attached` payload 必须包含 `lease`，`task_owner_heartbeat` payload 必须包含 `heartbeat`，`task_owner_detached` / `task_owner_lost` payload 必须包含 `lease_id`、`task_id` 和可选 `reason`，`task_reattach_recorded` payload 必须包含 `record`。这些 ownership events 只允许保存 runtime/client/lease/status/seq/reason/checkpoint metadata；不得保存 provider socket、headers、API key、cookie、env、命令行 secret、tool output、workspace diff 或文件内容。当前实现可通过 `RuntimeReader::list_task_owners`、`TaskOwnershipRecorder`、client projection 和 `tessera tasks --owners --trace <trace_id>` 消费这些事件，但不提供 daemon、app-server listener、provider socket freezing 或跨进程后台执行保证。
 
 `instructions_discovered` payload 必须包含 `task_id` 和 `sources`。每个 source 必须是 provider-neutral `InstructionSource` metadata，包括 kind、path、relative_path、precedence、placement、status、byte counts、sha256、redaction_status 和 warnings；不得包含 instruction 正文、secret、provider request headers、prompt text 或 raw filesystem content。
 

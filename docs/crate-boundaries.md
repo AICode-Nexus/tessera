@@ -586,9 +586,10 @@ Background task ownership is a core/trace contract, not a GUI, CLI, daemon, or a
 推荐边界：
 
 - `protocol` 定义 runtime instance、client instance、task ownership lease、heartbeat、lost-owner 和 reattach outcome metadata。
-- `core` 是唯一能 attach execution owner 的层；CLI/TUI/GUI/app-server 只能请求、观察或投影 ownership。
+- `core` 是唯一能 attach execution owner 的层；当前提供 `TaskOwnershipRecorder` 追加 owner attach/heartbeat/detach/lost/reattach metadata，CLI/TUI/GUI/app-server 只能请求、观察或投影 ownership。
 - `RuntimeReader` 从 JSONL trace 重建 owner state、heartbeat、lost-owner 和 reattach mode；SQLite 只做可重建索引。
-- `client` 可以投影 owner status 给 TUI/GUI，但不能决定任务是否真实 running。
+- `client` 可以投影 owner status、runtime id、last seq 和 reattach mode 给 TUI/GUI，但不能决定任务是否真实 running。
+- `cli` 可以通过 `tessera tasks --owners --trace <trace_id>` 只读展示 owner metadata，但不能把该命令变成恢复或接管运行时的入口。
 - future app-server 只能使用同一套 ownership events 和 bounded `since_seq` event stream，不能持有独立 scheduler 或 mutable task database。
 
 禁止：
@@ -596,7 +597,7 @@ Background task ownership is a core/trace contract, not a GUI, CLI, daemon, or a
 - GUI/TUI/CLI 自己维护 background task truth。
 - app-server 直接标记 task running/lost/resumed 而不写 trace。
 - owner metadata 保存 provider socket、headers、API key、cookie、env、command line secret、tool output 或文件内容。
-- 在 ownership contract 落地前启动 hook/automation/background daemon runtime。
+- 把当前 ownership foundation 解释为 background reattach、daemon、app-server listener 或 provider socket freezing 已完成。
 
 ### app_server
 
