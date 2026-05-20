@@ -417,9 +417,9 @@ GUI 是 client shell，不是第二套 runtime。产品 GUI 默认方向见 [ADR
 - hooks。
 - automations。
 - app-server listener。
-- instruction loader。
+- default/global instruction loader。
 
-它们不得在 v0.1 中形成独立执行系统。v0.5 允许的例外是 `core::AgentLoop` 的 no-tool single-agent slice：它只能复用 provider/storage/event-sink 边界记录 `TaskKind::AgentRun` 和 agent run/step trace events，不得执行 tools、skills、hooks、project instruction ingestion、workspace mutation 或 background reattach。如果确实需要类型，放入 `protocol` 或 `core` 的 reserved area，并写清楚不执行。
+它们不得在 v0.1 中形成独立执行系统。v0.5 允许的例外是 `core::AgentLoop` 的 no-tool single-agent slice，以及由 core-owned `InstructionDiscoveryPlanner` 驱动的 opt-in project-local instruction discovery/source reporting：它们只能复用 provider/storage/event-sink 边界记录 `TaskKind::AgentRun`、agent run/step trace events 和 trace-safe `instructions_discovered` metadata，不得执行 tools、skills、hooks、default/global instruction ingestion、workspace mutation 或 background reattach。如果确实需要类型，放入 `protocol` 或 `core` 的 reserved area，并写清楚不执行。
 
 ## 5. DeepSeek-TUI Lessons 对边界的补充
 

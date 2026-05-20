@@ -1,6 +1,6 @@
 # Tessera Global Plan
 
-日期：2026-05-19
+日期：2026-05-20
 
 本文是 Tessera 当前进度仪表盘和执行控制面。它不再承担完整版本路线图职责；完整 v0.1-v0.9 版本边界见 [Version Plan](version-plan.md)。v0.1 的详细历史计划仍保留在 [v0.1 Plan](v0.1-plan.md)。
 
@@ -104,6 +104,7 @@
 - [x] Script-friendly `tessera agent run --provider <id> --goal <text> [--json]` entrypoint.
 - [x] v0.5 project instruction discovery design spec and implementation plan.
 - [x] Project-local `AGENTS.md` / `CLAUDE.md` instruction discovery with source reporting, byte limits, symlink rejection, UTF-8 handling, redaction, `instructions_discovered` trace metadata, `tessera instructions inspect`, and opt-in `agent run --instructions`.
+- [x] v0.5 Skill Runtime v1 design spec and implementation plan.
 
 ## 6. Current Gaps
 
@@ -114,7 +115,7 @@
 
 ### v0.5 Not Done
 
-- [ ] Skill runtime v1.
+- [ ] Skill Runtime v1 implementation: `SKILL.md` discovery, explicit activation, read-only references, trace-safe `skill_activated` metadata, and opt-in `agent run --skill`.
 - [ ] Default-on/global/user instruction loading, Claude imports, and `.claude/` rule compatibility.
 - [ ] Durable background task ownership.
 - [ ] Background reattach.
@@ -145,21 +146,22 @@ The next implementation slices should stay conservative and preserve the current
 3. [x] Design project instruction discovery with `AGENTS.md` first and future `CLAUDE.md` compatibility: precedence, byte limits, source report, redaction and trace refs.
 4. [x] Implement single-agent loop without tools first.
 5. [x] Implement opt-in project instruction discovery and source reporting before skill runtime.
-6. [ ] Design skill runtime v1 after single-agent loop is trace-stable: `SKILL.md` discovery, activation events, read-only references, no unchecked scripts.
-7. [ ] Design durable background task ownership and reattach before any long-running agent task.
-8. [ ] Align runtime API / app-server shape before GUI live-provider path: auth, bounded queues, generated schemas, localhost default, no duplicate runtime.
-9. [ ] Only after v0.5 is stable, design v0.6 structured handoff and reviewer gate.
-10. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-11. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
-12. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
-13. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
+6. [x] Design skill runtime v1 after single-agent loop is trace-stable: `SKILL.md` discovery, activation events, read-only references, no unchecked scripts.
+7. [ ] Implement Skill Runtime v1 foundation from `docs/superpowers/plans/2026-05-20-v0.5-skill-runtime-v1.md`.
+8. [ ] Design durable background task ownership and reattach before any long-running agent task.
+9. [ ] Align runtime API / app-server shape before GUI live-provider path: auth, bounded queues, generated schemas, localhost default, no duplicate runtime.
+10. [ ] Only after v0.5 is stable, design v0.6 structured handoff and reviewer gate.
+11. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+12. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
+13. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
+14. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
 
 ## 8. Mandatory Gates
 
 - [!] No provider behavior expansion without replay fixtures.
 - [!] No file mutation tools without policy gate, sandbox decision, and checkpoint semantics.
 - [!] No shell/file/git runtime without approval UI and trace events.
-- [!] No project instruction ingestion without precedence rules, byte limits, source reporting, redaction and trace refs.
+- [!] No default-on/global/user instruction loading, Claude import expansion, or `.claude/` rule compatibility without precedence rules, byte limits, source reporting, redaction and trace refs.
 - [!] No hook runtime before tool/policy/sandbox/checkpoint exist.
 - [!] No automation runtime before task ownership, workspace isolation, setup verification, logs, notifications and failure reporting exist.
 - [!] No app-server listener before auth, bounded queues, generated schema and localhost-default binding exist.

@@ -1,6 +1,6 @@
 # Tessera Version Plan
 
-日期：2026-05-19
+日期：2026-05-20
 
 本文是 Tessera v0.1 到 v0.9 的版本路线图源文件。它回答每个版本“为什么存在、包含什么、不包含什么、怎样算完成”。`docs/global-plan.md` 只记录当前进度和下一步执行顺序；本文件记录跨版本边界。DeepSeek-TUI、Reasonix、Codex CLI / App / App Server、Claude Code CLI / Desktop / Web 等外部方向统一沉淀在 `docs/coding-agent-direction.md`，本文件只承接其中会改变版本边界和门禁的内容。
 
@@ -47,7 +47,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 | v0.2 | Read-only projection and GUI-ready surfaces | Complete | Read-only runtime/query/projection foundations are usable; no runtime HTTP server. |
 | v0.3 | Tool policy and sandbox foundations | Foundation complete | Tool metadata, policy, approval, sandbox and checkpoint planners exist; no tool execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
-| v0.5 | Single-agent and resumable task foundations | In progress | Pause/resume chat path, context handles, the no-tool single-agent loop, and `tessera agent run` are usable; skill runtime, project instruction discovery, tools, and background reattach are not. |
+| v0.5 | Single-agent and resumable task foundations | In progress | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, and opt-in project instruction discovery/source reporting are usable; skill runtime, tools, background reattach, and default-on/global instruction loading are not. |
 | v0.6 | Persistent sub-agents and structured review | Planned | No persistent sub-agent runtime or reviewer gate yet. |
 | v0.7 | Project coding-agent workflow | Planned | No file-modifying coding-agent workflow, patch workflow, or GUI/TUI diff control yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
@@ -168,11 +168,12 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Context handle projection through core/client/GUI bindings.
 - No-tool `AgentLoop` with provider-neutral run/step events, cancellation/pause/provider-failure/no-progress finish paths, trace replay evidence range, and machine-readable run summary.
 - Non-interactive `tessera agent run --provider <id> --goal <text> [--json]` envelope for script/CI use.
+- Opt-in project-local `AGENTS.md` / `CLAUDE.md` instruction discovery with source reporting, byte limits, symlink rejection, UTF-8 handling, secret-line redaction, `instructions_discovered` trace metadata, `tessera instructions inspect`, and `agent run --instructions`.
 
 **Remaining:**
 
-- Skill runtime v1 with `SKILL.md` discovery, activation/step trace events, read-only reference loading, and no unchecked script execution.
-- Project instruction discovery foundation for `AGENTS.md` / future `CLAUDE.md`-style files: precedence, byte limits, source reporting, secret redaction, and trace references.
+- Skill Runtime v1 implementation with `SKILL.md` discovery, activation/step trace events, read-only reference loading, and no unchecked script execution.
+- Default-on/global/user instruction loading, Claude imports, and `.claude/` rule compatibility remain staged until their precedence, scope, source-reporting and redaction rules are designed.
 - Durable background task ownership.
 - Background reattach with log/artifact projection.
 - Non-chat task resume.

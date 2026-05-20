@@ -1,6 +1,6 @@
 # Tessera Technical Architecture
 
-日期：2026-05-14
+日期：2026-05-20
 
 ## 1. 定位
 
@@ -15,7 +15,7 @@ Tessera 是一个 Rust-first、AI-friendly、agent-ready 的本地终端大模�
 - Replayable：所有运行都能通过 JSONL trace 回放和审计。
 - Auditable：未来所有工具调用必须经过 policy gate。
 - AI-friendly：代码边界小、协议清晰、fixture/replay 完整，方便 AI 稳定参与开发。
-- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已加入 no-tool single-agent loop，但工具、技能、指令加载、后台所有权和多 agent 仍必须按门禁推进。
+- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已加入 no-tool single-agent loop 和 opt-in project instruction discovery/source reporting，但工具、技能、默认/全局指令加载、后台所有权和多 agent 仍必须按门禁推进。
 
 ## 2. 技术选型
 
@@ -343,7 +343,7 @@ v0.1 先保证 agent 能平滑接入；v0.5 的当前实现已经提供 no-tool 
 - `ToolRepairReport` metadata：tool-call repair 只能记录 provider-neutral 摘要，不能把 provider 原始 reasoning 或 raw text 写进 trace。
 - `SandboxDecision` metadata：workspace path guardrail 必须先写入 provider-neutral trace，再进入后续真实 sandbox/tool runtime。
 - `OsSandboxProfile` metadata：core 可以规划 read-only / workspace-write / network-required / denied profile，但不启动 OS sandbox、不执行工具、不打开网络。
-- `AgentProfile` schema foundation：模型、角色、工具权限、记忆范围、context scope 和 step limit 显式配置；core 提供只读 registry 和 no-tool `AgentLoop`，但不激活 skill、不执行 tool、不读取 project instructions、不维持后台任务。
+- `AgentProfile` schema foundation：模型、角色、工具权限、记忆范围、context scope 和 step limit 显式配置；core 提供只读 registry 和 no-tool `AgentLoop`，可接收显式 opt-in 且由 core planner 发现的 project instruction context，但不激活 skill、不执行 tool、不默认读取全局/用户 instructions、不维持后台任务。
 - `MemoryProposal` metadata：proposal 可以进入 UI review，但长期 memory runtime 和真实写入必须等待 scope schema、policy 和 trace 边界，避免默认全局污染。
 - `Skill` manifest 兼容 `SKILL.md` frontmatter，后续再扩展 `skill.toml`；v0.2 只读 registry 不执行 skill runtime。
 
@@ -365,7 +365,7 @@ DeepSeek-TUI 的 sub-agent 设计还暴露出一个关键点：父 agent 不应�
 2. v0.2：context workbench、read-only runtime API、task registry v1、GUI shell spike、cost/cache telemetry、model router 草案。
 3. v0.3：tool descriptor、policy gate、approval UI、artifact handles、OS sandbox、workspace checkpoint。
 4. v0.4：MCP adapter、HTTP/SSE runtime API shape、diagnostics/LSP metadata、memory proposal UI。
-5. v0.5：no-tool single agent loop、non-interactive agent run envelope、skill runtime v1、project instruction discovery、background ownership、app-server alignment、pause/resume、context handle projection。
+5. v0.5：no-tool single agent loop、non-interactive agent run envelope、opt-in project instruction discovery、skill runtime v1、background ownership、app-server alignment、pause/resume、context handle projection。
 6. v0.6：persistent sub-agent sessions、structured handoff、reviewer gate、artifact-backed transcript isolation。
 7. v0.7：coding agent workflow、worktree-first mutation、diff/test/checkpoint/rollback、apply-patch tool、TUI/GUI diff and review surfaces。
 8. v0.8：swarm scheduler 和 automation trigger integration，建立在稳定 agent/task/trace/review/cost gates 之上。
