@@ -329,7 +329,10 @@ fn skill_runtime_discovers_workspace_skill_manifests_without_body_content() {
     let report = SkillRuntimePlanner.discover(options).unwrap();
 
     assert_eq!(report.manifests.len(), 1);
-    assert_eq!(report.manifests[0].id, SkillId::from_static("skill_code_review"));
+    assert_eq!(
+        report.manifests[0].id,
+        SkillId::from_static("skill_code_review")
+    );
     assert_eq!(report.manifests[0].name, "code-review");
     assert_eq!(report.manifests[0].version.as_deref(), Some("0.1.0"));
     assert_eq!(report.sources.len(), 1);
@@ -1685,7 +1688,9 @@ async fn agent_loop_emits_skill_activation_before_agent_run_started() {
     assert!(provider_request.messages[0]
         .content
         .contains("Skills selected explicitly"));
-    assert!(provider_request.messages[0].content.contains("Use this skill."));
+    assert!(provider_request.messages[0]
+        .content
+        .contains("Use this skill."));
     assert_eq!(
         provider_request.messages.last().map(|message| message.role),
         Some(ProviderMessageRole::User)

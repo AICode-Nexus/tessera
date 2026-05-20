@@ -920,13 +920,15 @@ impl SkillRuntimePlanner {
         let mut remaining_budget = options.discovery.combined_byte_limit;
 
         for request in options.requests {
-            let (manifest, discovered_source) =
-                resolve_skill_request(&discovery, &request.skill).ok_or_else(|| {
-                    CoreError::InvalidRequest(format!("requested skill not found: {}", request.skill))
-                })?;
+            let (manifest, discovered_source) = resolve_skill_request(&discovery, &request.skill)
+                .ok_or_else(|| {
+                CoreError::InvalidRequest(format!("requested skill not found: {}", request.skill))
+            })?;
             let entrypoint_path = workspace_root.join(&discovered_source.relative_path);
             let skill_dir = entrypoint_path.parent().ok_or_else(|| {
-                CoreError::InvalidRequest("skill entrypoint must have a parent directory".to_string())
+                CoreError::InvalidRequest(
+                    "skill entrypoint must have a parent directory".to_string(),
+                )
             })?;
 
             let mut steps = Vec::new();
@@ -1015,9 +1017,13 @@ impl SkillRuntimePlanner {
                 references,
                 activation: activation.clone(),
             };
-            loaded_set.warnings.extend(activation.entrypoint.warnings.clone());
+            loaded_set
+                .warnings
+                .extend(activation.entrypoint.warnings.clone());
             for reference in &loaded_skill.references {
-                loaded_set.warnings.extend(reference.source.warnings.clone());
+                loaded_set
+                    .warnings
+                    .extend(reference.source.warnings.clone());
             }
             loaded_set.activations.push(activation);
             loaded_set.skills.push(loaded_skill);
@@ -1112,8 +1118,9 @@ fn load_skill_text_source(
         ));
     }
 
-    let bytes = std::fs::read(path)
-        .map_err(|error| CoreError::InvalidRequest(format!("failed to read skill source: {error}")))?;
+    let bytes = std::fs::read(path).map_err(|error| {
+        CoreError::InvalidRequest(format!("failed to read skill source: {error}"))
+    })?;
     source.original_bytes = bytes.len() as u64;
     source.sha256 = Some(sha256_hex(&bytes));
 
@@ -1123,7 +1130,9 @@ fn load_skill_text_source(
     })?;
     let text = if use_skill_body {
         parse_skill_md(&text)
-            .map_err(|reason| CoreError::InvalidRequest(format!("invalid skill manifest: {reason}")))?
+            .map_err(|reason| {
+                CoreError::InvalidRequest(format!("invalid skill manifest: {reason}"))
+            })?
             .body
     } else {
         text
@@ -1180,8 +1189,9 @@ fn load_skill_reference(
         ));
     }
 
-    let canonical_skill_dir = std::fs::canonicalize(skill_dir)
-        .map_err(|error| CoreError::InvalidRequest(format!("failed to resolve skill dir: {error}")))?;
+    let canonical_skill_dir = std::fs::canonicalize(skill_dir).map_err(|error| {
+        CoreError::InvalidRequest(format!("failed to resolve skill dir: {error}"))
+    })?;
     let path = canonical_skill_dir.join(reference_path);
     let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
         CoreError::InvalidRequest(format!("failed to read skill reference metadata: {error}"))

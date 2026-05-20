@@ -776,10 +776,7 @@ fn agent_run_with_skill_reports_activation_and_traces_metadata() {
         .iter()
         .find(|record| record.event_kind == "skill_activated")
         .unwrap();
-    assert_eq!(
-        record.payload["activation"]["skill_id"],
-        "skill_reviewer"
-    );
+    assert_eq!(record.payload["activation"]["skill_id"], "skill_reviewer");
     let encoded_payload = serde_json::to_string(&record.payload).unwrap();
     assert!(!encoded_payload.contains("Use this skill."));
 }

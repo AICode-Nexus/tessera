@@ -2181,7 +2181,9 @@ pub fn load_skill_context(options: CliSkillContextOptions) -> Result<LoadedSkill
         .clone()
         .unwrap_or_else(|| options.workspace.clone());
     let runtime_options = SkillRuntimeOptions::new(options.workspace, target_dir, requests);
-    SkillRuntimePlanner.activate(runtime_options).map_err(Into::into)
+    SkillRuntimePlanner
+        .activate(runtime_options)
+        .map_err(Into::into)
 }
 
 pub async fn run_agent_with_config_and_instruction_options(
