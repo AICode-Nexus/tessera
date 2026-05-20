@@ -1,22 +1,23 @@
 use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ApprovalId,
-    ApprovalStatus, ArtifactId, ContextBudget, ContextId, ContextPlacement, ContextReference,
-    ContextSource, ContextSourceKind, CostEstimate, Diagnostic, DiagnosticRange, DiagnosticReport,
-    DiagnosticReportId, DiagnosticSeverity, EventFrame, EventRange, InstructionLoadStatus,
-    InstructionRedactionStatus, InstructionSource, InstructionSourceKind, ItemId, MemoryProposal,
-    MemoryProposalId, MemoryProposalStatus, ModelProfileId, NoProgressAction, NoProgressLoop,
-    NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
-    OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
-    ProviderId, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent, SandboxDecision,
-    SandboxDecisionId, SandboxDecisionKind, SkillActivation, SkillActivationStatus,
-    SkillActivationStep, SkillEntrypoint, SkillEntrypointFormat, SkillId, SkillLoadStatus,
-    SkillManifest, SkillPolicy, SkillRedactionStatus, SkillReferenceSource, SkillRequirements,
-    SkillSource, SkillSourceKind, SkillStepKind, SkillStepStatus, SnapshotId, SnapshotKind, TaskId,
-    TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, ToolApproval, ToolCallId,
-    ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission,
-    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolResultId,
-    ToolResultStatus, ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail,
-    WorkspaceScope,
+    ApprovalStatus, ArtifactId, ClientInstanceId, ContextBudget, ContextId, ContextPlacement,
+    ContextReference, ContextSource, ContextSourceKind, CostEstimate, Diagnostic, DiagnosticRange,
+    DiagnosticReport, DiagnosticReportId, DiagnosticSeverity, EventFrame, EventRange,
+    InstructionLoadStatus, InstructionRedactionStatus, InstructionSource, InstructionSourceKind,
+    ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus, ModelProfileId,
+    NoProgressAction, NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode,
+    OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId, OsSandboxShell, PolicyDecisionId,
+    PolicyOutcome, ProviderCapability, ProviderId, RouteDecision, RouteDecisionId, RouteStrategy,
+    RunEvent, RuntimeInstanceId, SandboxDecision, SandboxDecisionId, SandboxDecisionKind,
+    SkillActivation, SkillActivationStatus, SkillActivationStep, SkillEntrypoint,
+    SkillEntrypointFormat, SkillId, SkillLoadStatus, SkillManifest, SkillPolicy,
+    SkillRedactionStatus, SkillReferenceSource, SkillRequirements, SkillSource, SkillSourceKind,
+    SkillStepKind, SkillStepStatus, SnapshotId, SnapshotKind, TaskId, TaskOwnerKind,
+    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId,
+    TaskStatus, Timestamp, ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch,
+    ToolDispatchId, ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind,
+    ToolRepairReport, ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
+    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 
 #[test]
@@ -351,6 +352,44 @@ fn skill_activated_event_records_metadata_without_content() {
     assert!(!encoded.contains("\"command\""));
     assert!(!encoded.contains("\"executable\""));
     assert!(!encoded.contains("\"shell\""));
+}
+
+#[test]
+fn task_owner_events_record_metadata_without_runtime_secrets() {
+    let task_id = TaskId::from_static("task_background");
+    let trace_id = "trace_background".to_string();
+    let runtime_id = RuntimeInstanceId::from_static("runtime_local");
+    let lease_id = TaskOwnershipId::from_static("task_owner_lease");
+    let acquired_at = Timestamp::now_utc();
+    let lease = TaskOwnerLease {
+        lease_id,
+        task_id: task_id.clone(),
+        trace_id,
+        runtime_id,
+        client_id: Some(ClientInstanceId::from_static("client_cli")),
+        owner_kind: TaskOwnerKind::Execution,
+        status: TaskOwnerStatus::Attached,
+        acquired_at,
+        heartbeat_interval_ms: 10_000,
+        expires_at: None,
+        last_heartbeat_at: None,
+        last_seq: Some(42),
+        reason: Some("agent run started".to_string()),
+    };
+
+    let event = RunEvent::TaskOwnerAttached {
+        lease: Box::new(lease),
+    };
+    assert_eq!(event.kind(), "task_owner_attached");
+    assert_eq!(event.task_id(), Some(task_id));
+
+    let encoded = serde_json::to_string(&event.payload()).unwrap();
+    assert!(encoded.contains("runtime_local"));
+    assert!(!encoded.contains("authorization"));
+    assert!(!encoded.contains("api_key"));
+    assert!(!encoded.contains("cookie"));
+    assert!(!encoded.contains("socket"));
+    assert!(!encoded.contains("env"));
 }
 
 #[test]

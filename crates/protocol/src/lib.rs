@@ -61,6 +61,9 @@ id_type!(TurnId, "turn");
 id_type!(ItemId, "item");
 id_type!(TaskId, "task");
 id_type!(TaskPauseCheckpointId, "task_pause_checkpoint");
+id_type!(RuntimeInstanceId, "runtime");
+id_type!(ClientInstanceId, "client");
+id_type!(TaskOwnershipId, "task_owner");
 id_type!(ArtifactId, "artifact");
 id_type!(EventId, "evt");
 id_type!(ProviderId, "provider");
@@ -274,6 +277,87 @@ pub struct TaskPauseCheckpoint {
     pub workspace_snapshot_id: Option<SnapshotId>,
     pub transcript_event_range: Option<EventRange>,
     pub context_handle_ids: Vec<ContextId>,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum TaskOwnerKind {
+    Execution,
+    Observer,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum TaskOwnerStatus {
+    Attached,
+    Heartbeat,
+    Detached,
+    Lost,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum TaskReattachMode {
+    ObserveExistingOwner,
+    ResumeFromCheckpoint,
+    TerminalProjection,
+    OwnerLost,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct RuntimeInstance {
+    pub runtime_id: RuntimeInstanceId,
+    pub process_id: Option<u32>,
+    pub started_at: Timestamp,
+    pub hostname: Option<String>,
+    pub working_directory: Option<String>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct TaskOwnerLease {
+    pub lease_id: TaskOwnershipId,
+    pub task_id: TaskId,
+    pub trace_id: String,
+    pub runtime_id: RuntimeInstanceId,
+    pub client_id: Option<ClientInstanceId>,
+    pub owner_kind: TaskOwnerKind,
+    pub status: TaskOwnerStatus,
+    pub acquired_at: Timestamp,
+    pub heartbeat_interval_ms: u64,
+    pub expires_at: Option<Timestamp>,
+    pub last_heartbeat_at: Option<Timestamp>,
+    pub last_seq: Option<u64>,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct TaskOwnerHeartbeat {
+    pub lease_id: TaskOwnershipId,
+    pub task_id: TaskId,
+    pub runtime_id: RuntimeInstanceId,
+    pub heartbeat_at: Timestamp,
+    pub expires_at: Timestamp,
+    pub last_seq: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct TaskReattachRecord {
+    pub task_id: TaskId,
+    pub mode: TaskReattachMode,
+    pub previous_lease_id: Option<TaskOwnershipId>,
+    pub new_lease_id: Option<TaskOwnershipId>,
+    pub checkpoint_id: Option<TaskPauseCheckpointId>,
+    pub since_seq: Option<u64>,
     pub reason: Option<String>,
 }
 
@@ -1091,6 +1175,28 @@ pub enum RunEvent {
     TaskPauseCheckpointCreated {
         checkpoint: TaskPauseCheckpoint,
     },
+    RuntimeInstanceStarted {
+        instance: RuntimeInstance,
+    },
+    TaskOwnerAttached {
+        lease: Box<TaskOwnerLease>,
+    },
+    TaskOwnerHeartbeat {
+        heartbeat: TaskOwnerHeartbeat,
+    },
+    TaskOwnerDetached {
+        lease_id: TaskOwnershipId,
+        task_id: TaskId,
+        reason: Option<String>,
+    },
+    TaskOwnerLost {
+        lease_id: TaskOwnershipId,
+        task_id: TaskId,
+        reason: Option<String>,
+    },
+    TaskReattachRecorded {
+        record: TaskReattachRecord,
+    },
     AgentRunStarted {
         task_id: TaskId,
         profile_id: AgentProfileId,
@@ -1191,6 +1297,12 @@ impl RunEvent {
             Self::TaskPaused { .. } => "task_paused",
             Self::TaskResumed { .. } => "task_resumed",
             Self::TaskPauseCheckpointCreated { .. } => "task_pause_checkpoint_created",
+            Self::RuntimeInstanceStarted { .. } => "runtime_instance_started",
+            Self::TaskOwnerAttached { .. } => "task_owner_attached",
+            Self::TaskOwnerHeartbeat { .. } => "task_owner_heartbeat",
+            Self::TaskOwnerDetached { .. } => "task_owner_detached",
+            Self::TaskOwnerLost { .. } => "task_owner_lost",
+            Self::TaskReattachRecorded { .. } => "task_reattach_recorded",
             Self::AgentRunStarted { .. } => "agent_run_started",
             Self::AgentStepStarted { .. } => "agent_step_started",
             Self::AgentStepCompleted { .. } => "agent_step_completed",
@@ -1239,10 +1351,15 @@ impl RunEvent {
             | Self::TaskResumed { task_id, .. }
             | Self::InstructionsDiscovered { task_id, .. }
             | Self::SkillActivated { task_id, .. }
+            | Self::TaskOwnerDetached { task_id, .. }
+            | Self::TaskOwnerLost { task_id, .. }
             | Self::AgentRunStarted { task_id, .. }
             | Self::AgentStepStarted { task_id, .. }
             | Self::NoProgressLoopDetected { task_id, .. } => Some(task_id.clone()),
             Self::TaskPauseCheckpointCreated { checkpoint } => Some(checkpoint.task_id.clone()),
+            Self::TaskOwnerAttached { lease } => Some(lease.task_id.clone()),
+            Self::TaskOwnerHeartbeat { heartbeat } => Some(heartbeat.task_id.clone()),
+            Self::TaskReattachRecorded { record } => Some(record.task_id.clone()),
             Self::AgentStepCompleted { summary } => Some(summary.task_id.clone()),
             Self::AgentRunCompleted { summary } => Some(summary.task_id.clone()),
             _ => None,
@@ -1342,6 +1459,30 @@ impl RunEvent {
             }
             Self::TaskPauseCheckpointCreated { checkpoint } => {
                 json!({ "checkpoint": checkpoint })
+            }
+            Self::RuntimeInstanceStarted { instance } => {
+                json!({ "instance": instance })
+            }
+            Self::TaskOwnerAttached { lease } => {
+                json!({ "lease": lease })
+            }
+            Self::TaskOwnerHeartbeat { heartbeat } => {
+                json!({ "heartbeat": heartbeat })
+            }
+            Self::TaskOwnerDetached {
+                lease_id,
+                task_id,
+                reason,
+            }
+            | Self::TaskOwnerLost {
+                lease_id,
+                task_id,
+                reason,
+            } => {
+                json!({ "lease_id": lease_id, "task_id": task_id, "reason": reason })
+            }
+            Self::TaskReattachRecorded { record } => {
+                json!({ "record": record })
             }
             Self::AgentRunStarted {
                 task_id,
