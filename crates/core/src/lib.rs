@@ -14,16 +14,16 @@ use tessera_protocol::{
     NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
     OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
     ProviderId, ResumeMode, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent,
-    RuntimeInstanceId, SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillActivation,
-    SkillActivationStatus, SkillActivationStep, SkillEntrypoint, SkillEntrypointFormat, SkillId,
-    SkillLoadStatus, SkillManifest, SkillPolicy, SkillRedactionStatus, SkillReferenceSource,
-    SkillRequirements, SkillSource, SkillSourceKind, SkillStepKind, SkillStepStatus, SnapshotId,
-    SnapshotKind, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease,
-    TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskReattachMode,
-    TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolCallRequest, ToolDescriptor,
-    ToolDispatch, ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind,
-    ToolRepairReport, ToolResult, ToolSideEffect, TraceRecord, TurnId, WorkspaceAccess,
-    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    RuntimeApiEventStreamRequest, RuntimeInstanceId, SandboxDecision, SandboxDecisionId,
+    SandboxDecisionKind, SkillActivation, SkillActivationStatus, SkillActivationStep,
+    SkillEntrypoint, SkillEntrypointFormat, SkillId, SkillLoadStatus, SkillManifest, SkillPolicy,
+    SkillRedactionStatus, SkillReferenceSource, SkillRequirements, SkillSource, SkillSourceKind,
+    SkillStepKind, SkillStepStatus, SnapshotId, SnapshotKind, TaskId, TaskKind, TaskOwnerHeartbeat,
+    TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint,
+    TaskPauseCheckpointId, TaskReattachMode, TaskReattachRecord, TaskStatus, ThreadId, Timestamp,
+    ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId, ToolPermission, ToolPolicyDecision,
+    ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolSideEffect, TraceRecord,
+    TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderMessage, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -3470,6 +3470,13 @@ impl RuntimeHttpApi {
         }))
     }
 
+    pub fn list_events_for_stream(
+        &self,
+        request: RuntimeApiEventStreamRequest,
+    ) -> Result<RuntimeEventPage> {
+        self.list_events(runtime_api_stream_request_to_http(request))
+    }
+
     pub fn sse_event_frames(
         &self,
         request: RuntimeHttpEventRequest,
@@ -3485,6 +3492,23 @@ impl RuntimeHttpApi {
                 })
             })
             .collect()
+    }
+
+    pub fn sse_event_frames_for_stream(
+        &self,
+        request: RuntimeApiEventStreamRequest,
+    ) -> Result<Vec<RuntimeSseFrame>> {
+        self.sse_event_frames(runtime_api_stream_request_to_http(request))
+    }
+}
+
+fn runtime_api_stream_request_to_http(
+    request: RuntimeApiEventStreamRequest,
+) -> RuntimeHttpEventRequest {
+    RuntimeHttpEventRequest {
+        trace_id: request.trace_id,
+        since_seq: request.since_seq,
+        limit: request.limit,
     }
 }
 

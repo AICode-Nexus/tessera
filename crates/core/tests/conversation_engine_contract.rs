@@ -20,15 +20,15 @@ use tessera_protocol::{
     InstructionLoadStatus, InstructionRedactionStatus, InstructionSourceKind, ItemId,
     ModelProfileId, NoProgressAction, NoProgressSignalKind, NormalizedError, OsSandboxFilesystem,
     OsSandboxMode, OsSandboxNetwork, OsSandboxShell, PolicyOutcome, ProviderCapability, ProviderId,
-    ResumeMode, RouteStrategy, RunEvent, RuntimeInstanceId, SandboxDecisionKind, SkillEntrypoint,
-    SkillEntrypointFormat, SkillId, SkillLoadStatus, SkillManifest, SkillPolicy,
-    SkillRedactionStatus, SkillRequirements, SkillSource, SkillSourceKind, SnapshotId,
-    SnapshotKind, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease,
-    TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskReattachMode,
-    TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolCallId, ToolCallRequest,
-    ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission, ToolRepairKind,
-    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, TurnId, WorkspaceCheckpoint,
-    WorkspaceScope,
+    ResumeMode, RouteStrategy, RunEvent, RuntimeApiEventStreamRequest, RuntimeInstanceId,
+    SandboxDecisionKind, SkillEntrypoint, SkillEntrypointFormat, SkillId, SkillLoadStatus,
+    SkillManifest, SkillPolicy, SkillRedactionStatus, SkillRequirements, SkillSource,
+    SkillSourceKind, SnapshotId, SnapshotKind, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind,
+    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId,
+    TaskReattachMode, TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolCallId,
+    ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission,
+    ToolRepairKind, ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, TurnId,
+    WorkspaceCheckpoint, WorkspaceScope,
 };
 use tessera_providers::{
     mock::MockProvider, ChatProvider, ProviderError, ProviderEventStream, ProviderMessage,
@@ -2720,6 +2720,35 @@ async fn runtime_http_api_pages_events_and_encodes_sse_without_owning_runtime() 
     assert!(first_encoded.ends_with("\n\n"));
     assert!(!first_encoded.contains("command"));
     assert!(!first_encoded.contains("authorization"));
+}
+
+#[tokio::test]
+async fn runtime_http_api_accepts_app_server_event_stream_request_without_listener() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(MockProvider::default(), store);
+
+    let outcome = engine
+        .run_chat(ConversationRequest::mock("hello app server shape"))
+        .await
+        .unwrap();
+    let api = RuntimeHttpApi::new(RuntimeReader::new(outcome.store));
+    let request = RuntimeApiEventStreamRequest {
+        trace_id: outcome.trace_id.clone(),
+        since_seq: Some(1),
+        limit: Some(3),
+    };
+
+    let page = api.list_events_for_stream(request.clone()).unwrap();
+    let frames = api.sse_event_frames_for_stream(request).unwrap();
+
+    assert_eq!(page.trace_id, outcome.trace_id);
+    assert!(page.records.iter().all(|record| record.seq > 1));
+    assert!(page.records.len() <= 3);
+    assert_eq!(frames.len(), page.records.len());
+    assert!(frames
+        .iter()
+        .all(|frame| !frame.encode().contains("listen")));
 }
 
 #[tokio::test]
