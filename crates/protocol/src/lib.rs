@@ -5,6 +5,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
 pub const SCHEMA_VERSION: u32 = 1;
+pub const RUNTIME_API_PROTOCOL_VERSION: &str = "v0";
 
 pub type ExtensionMap = BTreeMap<String, Value>;
 
@@ -318,6 +319,130 @@ pub struct RuntimeInstance {
     pub working_directory: Option<String>,
     #[serde(default)]
     pub capabilities: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeApiBindKind {
+    LocalhostTcp,
+    UnixSocket,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct RuntimeApiBindConfig {
+    pub kind: RuntimeApiBindKind,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub socket_path: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeApiAuthMode {
+    LoopbackDevToken,
+    OsUserSession,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct RuntimeApiAuthPolicy {
+    pub mode: RuntimeApiAuthMode,
+    pub token_required: bool,
+    pub token_source_label: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeApiQueueOverflow {
+    RejectNew,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct RuntimeApiQueuePolicy {
+    pub event_buffer_capacity: usize,
+    pub client_buffer_capacity: usize,
+    pub overflow: RuntimeApiQueueOverflow,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct RuntimeApiServerConfig {
+    pub version: String,
+    pub bind: RuntimeApiBindConfig,
+    pub auth: RuntimeApiAuthPolicy,
+    pub queue: RuntimeApiQueuePolicy,
+}
+
+impl RuntimeApiServerConfig {
+    pub fn localhost_default() -> Self {
+        Self {
+            version: RUNTIME_API_PROTOCOL_VERSION.to_string(),
+            bind: RuntimeApiBindConfig {
+                kind: RuntimeApiBindKind::LocalhostTcp,
+                host: Some("127.0.0.1".to_string()),
+                port: None,
+                socket_path: None,
+            },
+            auth: RuntimeApiAuthPolicy {
+                mode: RuntimeApiAuthMode::LoopbackDevToken,
+                token_required: true,
+                token_source_label: Some("TESSERA_RUNTIME_API_TOKEN".to_string()),
+            },
+            queue: RuntimeApiQueuePolicy {
+                event_buffer_capacity: 1024,
+                client_buffer_capacity: 128,
+                overflow: RuntimeApiQueueOverflow::RejectNew,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct RuntimeApiEventStreamRequest {
+    pub trace_id: String,
+    pub since_seq: Option<u64>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case", tag = "command", content = "payload")]
+pub enum RuntimeApiCommand {
+    ListEvents(RuntimeApiEventStreamRequest),
+    SubscribeEvents(RuntimeApiEventStreamRequest),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct RuntimeApiCommandEnvelope {
+    pub command_id: String,
+    pub client_id: Option<ClientInstanceId>,
+    pub trace_id: Option<String>,
+    pub since_seq: Option<u64>,
+    #[serde(flatten)]
+    pub command: RuntimeApiCommand,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeApiCommandStatus {
+    Accepted,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct RuntimeApiCommandAck {
+    pub command_id: String,
+    pub status: RuntimeApiCommandStatus,
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

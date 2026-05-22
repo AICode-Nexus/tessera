@@ -8,16 +8,18 @@ use tessera_protocol::{
     NoProgressAction, NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode,
     OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId, OsSandboxShell, PolicyDecisionId,
     PolicyOutcome, ProviderCapability, ProviderId, RouteDecision, RouteDecisionId, RouteStrategy,
-    RunEvent, RuntimeInstanceId, SandboxDecision, SandboxDecisionId, SandboxDecisionKind,
-    SkillActivation, SkillActivationStatus, SkillActivationStep, SkillEntrypoint,
-    SkillEntrypointFormat, SkillId, SkillLoadStatus, SkillManifest, SkillPolicy,
-    SkillRedactionStatus, SkillReferenceSource, SkillRequirements, SkillSource, SkillSourceKind,
-    SkillStepKind, SkillStepStatus, SnapshotId, SnapshotKind, TaskId, TaskOwnerKind,
-    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId,
-    TaskStatus, Timestamp, ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch,
-    ToolDispatchId, ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind,
-    ToolRepairReport, ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
-    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    RunEvent, RuntimeApiCommand, RuntimeApiCommandAck, RuntimeApiCommandEnvelope,
+    RuntimeApiCommandStatus, RuntimeApiEventStreamRequest, RuntimeApiServerConfig,
+    RuntimeInstanceId, SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillActivation,
+    SkillActivationStatus, SkillActivationStep, SkillEntrypoint, SkillEntrypointFormat, SkillId,
+    SkillLoadStatus, SkillManifest, SkillPolicy, SkillRedactionStatus, SkillReferenceSource,
+    SkillRequirements, SkillSource, SkillSourceKind, SkillStepKind, SkillStepStatus, SnapshotId,
+    SnapshotKind, TaskId, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
+    TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, Timestamp, ToolApproval, ToolCallId,
+    ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission,
+    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolResultId,
+    ToolResultStatus, ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail,
+    WorkspaceScope,
 };
 
 #[test]
@@ -160,6 +162,65 @@ fn no_progress_loop_event_records_stop_without_route_escalation() {
         "assistant_completed_without_output"
     );
     assert_eq!(record.payload["signal"]["route_escalation_allowed"], false);
+}
+
+#[test]
+fn runtime_api_server_config_defaults_to_localhost_and_bounded_queues() {
+    let config = RuntimeApiServerConfig::localhost_default();
+    let json = serde_json::to_value(&config).unwrap();
+
+    assert_eq!(json["version"], "v0");
+    assert_eq!(json["bind"]["kind"], "localhost_tcp");
+    assert_eq!(json["bind"]["host"], "127.0.0.1");
+    assert_eq!(json["bind"]["port"], serde_json::Value::Null);
+    assert_eq!(json["auth"]["mode"], "loopback_dev_token");
+    assert_eq!(json["auth"]["token_required"], true);
+    assert_eq!(json["queue"]["event_buffer_capacity"], 1024);
+    assert_eq!(json["queue"]["client_buffer_capacity"], 128);
+    assert_eq!(json["queue"]["overflow"], "reject_new");
+
+    let encoded = json.to_string();
+    assert!(!encoded.contains("authorization"));
+    assert!(!encoded.contains("api_key"));
+    assert!(!encoded.contains("cookie"));
+    assert!(!encoded.contains("secret"));
+}
+
+#[test]
+fn runtime_api_command_envelope_serializes_without_runtime_execution() {
+    let command = RuntimeApiCommandEnvelope {
+        command_id: "cmd_test".to_string(),
+        client_id: Some(ClientInstanceId::from_static("client_test")),
+        trace_id: Some("trace_mock".to_string()),
+        since_seq: Some(10),
+        command: RuntimeApiCommand::SubscribeEvents(RuntimeApiEventStreamRequest {
+            trace_id: "trace_mock".to_string(),
+            since_seq: Some(10),
+            limit: Some(50),
+        }),
+    };
+
+    let json = serde_json::to_value(&command).unwrap();
+
+    assert_eq!(json["command"], "subscribe_events");
+    assert_eq!(json["command_id"], "cmd_test");
+    assert_eq!(json["client_id"], "client_test");
+    assert_eq!(json["trace_id"], "trace_mock");
+    assert_eq!(json["since_seq"], 10);
+    assert_eq!(json["payload"]["trace_id"], "trace_mock");
+    assert_eq!(json["payload"]["since_seq"], 10);
+    assert_eq!(json["payload"]["limit"], 50);
+
+    let ack = RuntimeApiCommandAck {
+        command_id: "cmd_test".to_string(),
+        status: RuntimeApiCommandStatus::Accepted,
+        reason: None,
+    };
+    let ack_json = serde_json::to_value(ack).unwrap();
+    assert_eq!(ack_json["status"], "accepted");
+    assert!(json.get("provider_request").is_none());
+    assert!(json.get("execute_shell").is_none());
+    assert!(json.get("tool_call").is_none());
 }
 
 #[test]
