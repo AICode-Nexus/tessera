@@ -117,6 +117,9 @@ agent_run_started
 agent_step_started
 agent_step_completed
 agent_run_completed
+agent_handoff_recorded
+reviewer_gate_requested
+reviewer_gate_resolved
 no_progress_loop_detected
 diagnostics_reported
 memory_write_proposed
@@ -154,14 +157,6 @@ Runtime API / app-server alignment DTOs are not trace events by themselves. They
 
 这些 agent events 只表示 no-tool single-agent loop 生命周期。它们不得包含 provider-private raw response、hidden reasoning、tool output、shell command、file diff、secret、provider socket handle 或 background task handle。
 
-v0.6 first foundation reserves these concrete event names for structured handoff and reviewer gates:
-
-```text
-agent_handoff_recorded
-reviewer_gate_requested
-reviewer_gate_resolved
-```
-
 `agent_handoff_recorded` payload must contain `summary`, including handoff id, parent task id, optional child task id, status, objective, short summary, bounded evidence refs, metrics and optional evidence event range. `reviewer_gate_requested` payload must contain `request`, including gate id, handoff id, parent task id, requested decision kinds and evidence refs. `reviewer_gate_resolved` payload must contain `decision`, including gate id, handoff id, decision kind, reviewer label, reason code and optional comment.
 
 These events do not imply persistent child-agent runtime. They only make handoff and review state replayable for CLI/TUI/GUI/runtime API clients.
@@ -172,7 +167,6 @@ These events do not imply persistent child-agent runtime. They only make handoff
 route_escalation_recorded
 skill_step_started
 memory_recall
-agent_handoff
 swarm_task_started
 swarm_agent_event
 swarm_task_completed
@@ -201,7 +195,7 @@ window_layout_changed
 {"schema_version":1,"trace_id":"trace_01","seq":11,"event_id":"evt_11","timestamp":"2026-05-14T09:00:00.100Z","thread_id":"thread_01","turn_id":"turn_01","item_id":null,"task_id":"task_01","event_kind":"done","payload":{},"extension":null,"artifact_refs":[]}
 ```
 
-Planned v0.6 handoff/reviewer gate examples:
+v0.6 handoff/reviewer gate examples:
 
 ```jsonl
 {"schema_version":1,"trace_id":"trace_02","seq":41,"event_id":"evt_41","timestamp":"2026-05-22T09:00:00.000Z","thread_id":"thread_02","turn_id":null,"item_id":null,"task_id":"task_parent","event_kind":"agent_handoff_recorded","payload":{"summary":{"handoff_id":"handoff_01","parent_task_id":"task_parent","child_task_id":"task_child","status":"completed","objective":"review the protocol contract","summary":"Protocol changes are bounded to handoff and reviewer metadata.","evidence":[{"kind":"trace_range","artifact_id":null,"trace_id":"trace_02","event_range":{"start_seq":12,"end_seq":40},"label":"child trace","summary":"Child task lifecycle and result summary."}],"metrics":{"steps_completed":3,"input_tokens":1000,"output_tokens":250,"estimated_cost":null},"evidence_event_range":{"start_seq":12,"end_seq":40}}},"extension":null,"artifact_refs":[]}

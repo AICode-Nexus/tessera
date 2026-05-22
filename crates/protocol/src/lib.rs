@@ -86,6 +86,8 @@ id_type!(ContextId, "context");
 id_type!(DiagnosticReportId, "diagnostics");
 id_type!(MemoryProposalId, "memory_proposal");
 id_type!(AgentProfileId, "agent_profile");
+id_type!(AgentHandoffId, "agent_handoff");
+id_type!(ReviewerGateId, "reviewer_gate");
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
@@ -862,6 +864,95 @@ pub struct AgentRunSummary {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum AgentHandoffStatus {
+    Completed,
+    Failed,
+    Paused,
+    Cancelled,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum HandoffEvidenceKind {
+    TraceRange,
+    TranscriptArtifact,
+    SummaryArtifact,
+    DiffArtifact,
+    DiagnosticArtifact,
+    TestOutputArtifact,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct HandoffEvidenceRef {
+    pub kind: HandoffEvidenceKind,
+    pub artifact_id: Option<ArtifactId>,
+    pub trace_id: Option<String>,
+    pub event_range: Option<EventRange>,
+    pub label: Option<String>,
+    pub summary: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct AgentHandoffMetrics {
+    pub steps_completed: u32,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub estimated_cost: Option<CostEstimate>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct AgentHandoffSummary {
+    pub handoff_id: AgentHandoffId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub status: AgentHandoffStatus,
+    pub objective: String,
+    pub summary: String,
+    #[serde(default)]
+    pub evidence: Vec<HandoffEvidenceRef>,
+    pub metrics: AgentHandoffMetrics,
+    pub evidence_event_range: Option<EventRange>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewerDecisionKind {
+    Accept,
+    Reject,
+    RequestRevision,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ReviewerGateRequest {
+    pub gate_id: ReviewerGateId,
+    pub handoff_id: AgentHandoffId,
+    pub parent_task_id: TaskId,
+    #[serde(default)]
+    pub requested_decisions: Vec<ReviewerDecisionKind>,
+    #[serde(default)]
+    pub evidence: Vec<HandoffEvidenceRef>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ReviewerGateDecision {
+    pub gate_id: ReviewerGateId,
+    pub handoff_id: AgentHandoffId,
+    pub decision: ReviewerDecisionKind,
+    pub reviewer: String,
+    pub reason_code: String,
+    pub comment: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolPermission {
     FilesystemRead,
@@ -1337,6 +1428,15 @@ pub enum RunEvent {
     AgentRunCompleted {
         summary: AgentRunSummary,
     },
+    AgentHandoffRecorded {
+        summary: AgentHandoffSummary,
+    },
+    ReviewerGateRequested {
+        request: ReviewerGateRequest,
+    },
+    ReviewerGateResolved {
+        decision: ReviewerGateDecision,
+    },
     NoProgressLoopDetected {
         task_id: TaskId,
         signal: NoProgressLoop,
@@ -1432,6 +1532,9 @@ impl RunEvent {
             Self::AgentStepStarted { .. } => "agent_step_started",
             Self::AgentStepCompleted { .. } => "agent_step_completed",
             Self::AgentRunCompleted { .. } => "agent_run_completed",
+            Self::AgentHandoffRecorded { .. } => "agent_handoff_recorded",
+            Self::ReviewerGateRequested { .. } => "reviewer_gate_requested",
+            Self::ReviewerGateResolved { .. } => "reviewer_gate_resolved",
             Self::NoProgressLoopDetected { .. } => "no_progress_loop_detected",
             Self::DiagnosticsReported { .. } => "diagnostics_reported",
             Self::MemoryWriteProposed { .. } => "memory_write_proposed",
@@ -1487,6 +1590,8 @@ impl RunEvent {
             Self::TaskReattachRecorded { record } => Some(record.task_id.clone()),
             Self::AgentStepCompleted { summary } => Some(summary.task_id.clone()),
             Self::AgentRunCompleted { summary } => Some(summary.task_id.clone()),
+            Self::AgentHandoffRecorded { summary } => Some(summary.parent_task_id.clone()),
+            Self::ReviewerGateRequested { request } => Some(request.parent_task_id.clone()),
             _ => None,
         }
     }
@@ -1627,6 +1732,9 @@ impl RunEvent {
             }),
             Self::AgentStepCompleted { summary } => json!({ "summary": summary }),
             Self::AgentRunCompleted { summary } => json!({ "summary": summary }),
+            Self::AgentHandoffRecorded { summary } => json!({ "summary": summary }),
+            Self::ReviewerGateRequested { request } => json!({ "request": request }),
+            Self::ReviewerGateResolved { decision } => json!({ "decision": decision }),
             Self::NoProgressLoopDetected { task_id, signal } => {
                 json!({ "task_id": task_id, "signal": signal })
             }

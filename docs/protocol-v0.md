@@ -440,7 +440,7 @@ pub struct EventFrame {
 
 ## 6. RunEvent v0
 
-当前实现的事件（v0.1 基线 + v0.2-v0.5 foundation/runtime signals）：
+当前实现的事件（v0.1 基线 + v0.2-v0.6 foundation/runtime signals）：
 
 ```rust
 pub enum RunEvent {
@@ -525,6 +525,9 @@ pub enum RunEvent {
     AgentStepStarted { task_id: TaskId, step_index: u32 },
     AgentStepCompleted { summary: AgentStepSummary },
     AgentRunCompleted { summary: AgentRunSummary },
+    AgentHandoffRecorded { summary: AgentHandoffSummary },
+    ReviewerGateRequested { request: ReviewerGateRequest },
+    ReviewerGateResolved { decision: ReviewerGateDecision },
 
     NoProgressLoopDetected {
         task_id: TaskId,
@@ -563,17 +566,7 @@ pub enum RunEvent {
 
 `AgentRunStarted` / `AgentStepStarted` / `AgentStepCompleted` / `AgentRunCompleted` 是 v0.5 no-tool single-agent loop 的标准生命周期事件。它们记录 `TaskKind::AgentRun` 的 provider-neutral run envelope、step index、step status、final summary 和 event evidence range；不得包含 provider-private raw response、hidden reasoning、tool output、shell command、file diff、secret 或 runtime handle。
 
-v0.6 first foundation will promote structured handoff/reviewer gate from reserved naming into concrete provider-neutral events:
-
-```rust
-pub enum PlannedV06RunEvent {
-    AgentHandoffRecorded { summary: AgentHandoffSummary },
-    ReviewerGateRequested { request: ReviewerGateRequest },
-    ReviewerGateResolved { decision: ReviewerGateDecision },
-}
-```
-
-These events are contract-first and replay-first. They do not start persistent child-agent runtime, execute tools, mutate workspaces, approve file diffs, or create a swarm scheduler.
+`AgentHandoffRecorded` / `ReviewerGateRequested` / `ReviewerGateResolved` 是 v0.6 structured handoff and reviewer gate foundation。它们只记录 compact summary、bounded evidence refs 和 reviewer decision metadata，供 replay、client projection、CLI/TUI/GUI 和 future runtime API 检查。它们不启动 persistent child-agent runtime，不执行工具，不修改 workspace，不批准 file diff，也不创建 swarm scheduler。
 
 仍只预留、不执行的事件：
 
@@ -582,7 +575,6 @@ pub enum ReservedRunEvent {
     RouteEscalationRecorded,
     SkillStepStarted,
     MemoryRecall,
-    AgentHandoff,
     SwarmTaskStarted,
     SwarmAgentEvent,
     SwarmTaskCompleted,

@@ -39,6 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added v0.5 runtime API / app-server alignment DTOs for localhost-safe bind metadata, auth policy, bounded queues, command envelopes, event stream requests, generated TypeScript schemas, and a core bounded event buffer without starting a listener or executing providers through an app-server.
 - Added v0.5 foundation-stable roadmap closure, explicitly staging executable skills, default/global instruction loading, durable background reattach, app-server listeners, non-chat task resume, and checkpoint restore into future version gates.
 - Added the v0.6 structured handoff and reviewer gate foundation design, covering handoff summaries, bounded evidence refs, reviewer requests, reviewer decisions, and trace/client projection boundaries before persistent sub-agent runtime.
+- Added v0.6 provider-neutral `agent_handoff_recorded`, `reviewer_gate_requested`, and `reviewer_gate_resolved` protocol events with bounded evidence references and reviewer decision metadata, without starting persistent sub-agents or tool execution.
 - Added release identity metadata so `tessera --version` reports both the crate version and build git SHA.
 - Added a provider-neutral `ToolDescriptor` schema and read-only `ToolRegistry` for tool metadata, with `parallel_safe` defaulting to false and no tool execution path.
 - Added tool call request, policy decision, and approval trace metadata plus a draft `PolicyGate` that produces `allow` / `ask_user` / `deny` decisions without executing tools.

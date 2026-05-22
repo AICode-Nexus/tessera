@@ -42,7 +42,7 @@
 | v0.3 | Tool policy and sandbox foundations | [~] Foundation complete | Tool descriptor, policy gate, approval projection, sandbox decision, OS sandbox planner, checkpoint planner; no execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | [~] Foundation complete | RuntimeHttpApi shape, metadata-only MCP adapter, diagnostics event, memory proposal UI; no server/runtime/store. |
 | v0.5 | Single-agent and resumable task foundations | [~] Foundation stable | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server DTO alignment; runtime-complete gaps are staged into future gates. |
-| v0.6 | Persistent sub-agents and structured review | [ ] Planned | Structured handoff/reviewer gate design is the next foundation; no persistent sub-agent runtime yet. |
+| v0.6 | Persistent sub-agents and structured review | [~] In progress | Structured handoff/reviewer gate protocol events exist; read-only projection and persistent sub-agent runtime are not implemented yet. |
 | v0.7 | Project coding-agent workflow | [ ] Planned | No apply-patch, diff/test/checkpoint/rollback, worktree mutation, or GUI/TUI diff workflow yet. |
 | v0.8 | Swarm scheduler | [!] Blocked | Requires v0.6 structured handoff and reviewer gate. |
 | v0.9 | Learning proposal system | [ ] Planned | No learning runtime; proposals only by design. |
@@ -111,6 +111,11 @@
 - [x] Automatic no-tool chat/agent run owner attach/detach events in `ConversationEngine` and `AgentLoop`, with terminal projection for completed runs and checkpoint-based reattach metadata for paused runs.
 - [x] Runtime API / app-server alignment foundation: typed `RuntimeApi*` DTOs for protocol version, localhost/unix-socket bind metadata, auth policy metadata, bounded queue policy, read-only event command envelopes, event stream request mapping, bounded SSE frame buffer, and generated TypeScript schema evidence.
 
+### v0.6 Foundation Work
+
+- [x] Provider-neutral structured handoff and reviewer gate protocol events: `agent_handoff_recorded`, `reviewer_gate_requested`, and `reviewer_gate_resolved`.
+- [x] Handoff/reviewer DTOs for handoff ids, reviewer gate ids, evidence refs, metrics, summaries, requests and decisions.
+
 ## 6. Current Gaps
 
 ### Needs Verification, Not New Architecture
@@ -129,7 +134,7 @@
 
 ### v0.6-v0.9 Planned Or Blocked
 
-- [ ] Structured handoff and reviewer gate protocol events/projection.
+- [ ] Structured handoff and reviewer gate read-only projection through client/GUI bindings.
 - [ ] Persistent sub-agent sessions after handoff/reviewer events are replayable.
 - [ ] Hook runtime.
 - [ ] Automation runtime.
@@ -156,7 +161,7 @@ The next implementation slices should stay conservative and preserve the current
 10. [x] Decide and implement automatic no-tool run owner attach/detach as a separate behavior-changing slice for current `AgentLoop` and `ConversationEngine` traces.
 11. [x] Align runtime API / app-server shape before GUI live-provider path: auth, bounded queues, generated schemas, localhost default, no duplicate runtime.
 12. [x] After v0.5 is foundation-stable, design v0.6 structured handoff and reviewer gate.
-13. [ ] Implement provider-neutral handoff/reviewer protocol events and read-only projection before any persistent sub-agent runtime.
+13. [~] Implement provider-neutral handoff/reviewer protocol events and read-only projection before any persistent sub-agent runtime. Protocol events are done; projection remains.
 14. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
 15. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
 16. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.

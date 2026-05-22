@@ -1,14 +1,16 @@
 use tessera_protocol::{
-    AgentProfile, AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ApprovalId,
-    ApprovalStatus, ArtifactId, ClientInstanceId, ContextBudget, ContextId, ContextPlacement,
-    ContextReference, ContextSource, ContextSourceKind, CostEstimate, Diagnostic, DiagnosticRange,
-    DiagnosticReport, DiagnosticReportId, DiagnosticSeverity, EventFrame, EventRange,
-    InstructionLoadStatus, InstructionRedactionStatus, InstructionSource, InstructionSourceKind,
-    ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus, ModelProfileId,
-    NoProgressAction, NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode,
-    OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId, OsSandboxShell, PolicyDecisionId,
-    PolicyOutcome, ProviderCapability, ProviderId, RouteDecision, RouteDecisionId, RouteStrategy,
-    RunEvent, RuntimeApiCommand, RuntimeApiCommandAck, RuntimeApiCommandEnvelope,
+    AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, AgentProfile,
+    AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ApprovalId, ApprovalStatus,
+    ArtifactId, ClientInstanceId, ContextBudget, ContextId, ContextPlacement, ContextReference,
+    ContextSource, ContextSourceKind, CostEstimate, Diagnostic, DiagnosticRange, DiagnosticReport,
+    DiagnosticReportId, DiagnosticSeverity, EventFrame, EventRange, HandoffEvidenceKind,
+    HandoffEvidenceRef, InstructionLoadStatus, InstructionRedactionStatus, InstructionSource,
+    InstructionSourceKind, ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus,
+    ModelProfileId, NoProgressAction, NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem,
+    OsSandboxMode, OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId, OsSandboxShell,
+    PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, ReviewerDecisionKind,
+    ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RouteDecision, RouteDecisionId,
+    RouteStrategy, RunEvent, RuntimeApiCommand, RuntimeApiCommandAck, RuntimeApiCommandEnvelope,
     RuntimeApiCommandStatus, RuntimeApiEventStreamRequest, RuntimeApiServerConfig,
     RuntimeInstanceId, SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillActivation,
     SkillActivationStatus, SkillActivationStep, SkillEntrypoint, SkillEntrypointFormat, SkillId,
@@ -536,6 +538,139 @@ fn agent_run_events_are_traceable_without_tool_execution() {
         .kind(),
         "agent_run_completed"
     );
+}
+
+#[test]
+fn handoff_reviewer_agent_handoff_event_serializes_bounded_evidence() {
+    let parent_task_id = TaskId::from_static("task_parent");
+    let child_task_id = TaskId::from_static("task_child");
+    let handoff_id = AgentHandoffId::from_static("handoff_review_protocol");
+    let evidence = HandoffEvidenceRef {
+        kind: HandoffEvidenceKind::TraceRange,
+        artifact_id: None,
+        trace_id: Some("trace_child".to_string()),
+        event_range: Some(EventRange {
+            start_seq: 12,
+            end_seq: 40,
+        }),
+        label: Some("child trace".to_string()),
+        summary: Some("Child task lifecycle and result summary.".to_string()),
+    };
+    let summary = AgentHandoffSummary {
+        handoff_id: handoff_id.clone(),
+        parent_task_id: parent_task_id.clone(),
+        child_task_id: Some(child_task_id),
+        status: AgentHandoffStatus::Completed,
+        objective: "review the protocol contract".to_string(),
+        summary: "Protocol changes are bounded to handoff and reviewer metadata.".to_string(),
+        evidence: vec![evidence],
+        metrics: AgentHandoffMetrics {
+            steps_completed: 3,
+            input_tokens: Some(1000),
+            output_tokens: Some(250),
+            estimated_cost: Some(CostEstimate {
+                amount: 0.012,
+                currency: "USD".to_string(),
+                input_cost: Some(0.004),
+                output_cost: Some(0.008),
+                cache_read_cost: None,
+                cache_write_cost: None,
+            }),
+        },
+        evidence_event_range: Some(EventRange {
+            start_seq: 12,
+            end_seq: 40,
+        }),
+    };
+    let event = RunEvent::AgentHandoffRecorded {
+        summary: summary.clone(),
+    };
+
+    assert_eq!(event.kind(), "agent_handoff_recorded");
+    assert_eq!(event.task_id(), Some(parent_task_id));
+    let payload = event.payload();
+    assert_eq!(payload["summary"]["handoff_id"], handoff_id.to_string());
+    assert_eq!(payload["summary"]["status"], "completed");
+    assert_eq!(payload["summary"]["evidence"][0]["kind"], "trace_range");
+    assert_eq!(
+        payload["summary"]["evidence"][0]["event_range"]["end_seq"],
+        40
+    );
+    assert_eq!(
+        payload["summary"]["metrics"]["estimated_cost"]["currency"],
+        "USD"
+    );
+
+    let encoded = serde_json::to_string(&payload).unwrap();
+    assert!(!encoded.contains("authorization"));
+    assert!(!encoded.contains("api_key"));
+    assert!(!encoded.contains("cookie"));
+    assert!(!encoded.contains("full transcript"));
+    assert!(!encoded.contains("provider_private"));
+    assert!(!encoded.contains("execute_shell"));
+}
+
+#[test]
+fn handoff_reviewer_gate_request_and_decision_are_traceable_without_runtime_execution() {
+    let parent_task_id = TaskId::from_static("task_parent");
+    let handoff_id = AgentHandoffId::from_static("handoff_review_protocol");
+    let gate_id = ReviewerGateId::from_static("gate_review_protocol");
+    let evidence = HandoffEvidenceRef {
+        kind: HandoffEvidenceKind::SummaryArtifact,
+        artifact_id: Some(ArtifactId::from_static("artifact_summary")),
+        trace_id: None,
+        event_range: None,
+        label: Some("handoff summary".to_string()),
+        summary: Some("Bounded handoff summary artifact.".to_string()),
+    };
+    let request = ReviewerGateRequest {
+        gate_id: gate_id.clone(),
+        handoff_id: handoff_id.clone(),
+        parent_task_id: parent_task_id.clone(),
+        requested_decisions: vec![
+            ReviewerDecisionKind::Accept,
+            ReviewerDecisionKind::Reject,
+            ReviewerDecisionKind::RequestRevision,
+        ],
+        evidence: vec![evidence],
+    };
+    let decision = ReviewerGateDecision {
+        gate_id: gate_id.clone(),
+        handoff_id: handoff_id.clone(),
+        decision: ReviewerDecisionKind::RequestRevision,
+        reviewer: "user".to_string(),
+        reason_code: "needs_clearer_evidence".to_string(),
+        comment: Some("Add replay evidence before accepting.".to_string()),
+    };
+
+    let requested = RunEvent::ReviewerGateRequested {
+        request: request.clone(),
+    };
+    let resolved = RunEvent::ReviewerGateResolved {
+        decision: decision.clone(),
+    };
+
+    assert_eq!(requested.kind(), "reviewer_gate_requested");
+    assert_eq!(resolved.kind(), "reviewer_gate_resolved");
+    assert_eq!(requested.task_id(), Some(parent_task_id));
+    assert_eq!(
+        requested.payload()["request"]["gate_id"],
+        gate_id.to_string()
+    );
+    assert_eq!(
+        requested.payload()["request"]["requested_decisions"][2],
+        "request_revision"
+    );
+    assert_eq!(
+        resolved.payload()["decision"]["decision"],
+        "request_revision"
+    );
+    assert_eq!(
+        resolved.payload()["decision"]["reason_code"],
+        "needs_clearer_evidence"
+    );
+    assert!(requested.payload().get("provider_request").is_none());
+    assert!(resolved.payload().get("tool_call").is_none());
 }
 
 #[test]
