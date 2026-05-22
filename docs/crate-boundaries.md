@@ -93,6 +93,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - provider-neutral extension metadata 类型。
 - SkillManifest / AgentProfile / ToolDescriptor 等只读 metadata schema。
 - v0.6 structured handoff / reviewer gate DTOs (`AgentHandoffSummary`, `HandoffEvidenceRef`, `ReviewerGateRequest`, `ReviewerGateDecision`).
+- v0.6 sub-agent session metadata DTOs (`SubagentSessionDescriptor`, caps and approval forwarding metadata) when implemented.
 
 允许依赖：
 
@@ -124,7 +125,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - v0.1 reserved type 的行为边界。
 - Skill / agent / tool metadata 的只读 registry foundation，以及 explicit read-only Skill Runtime v1 的 discovery/activation/context rendering。
 - No-tool single-agent loop 的 run/step lifecycle 编排。
-- Structured handoff / reviewer gate events 的 core-owned recording/routing; no persistent sub-agent scheduler before v0.6 gates are replayable.
+- Structured handoff / reviewer gate events 的 core-owned recording/routing; sub-agent session metadata recording/routing when implemented; no persistent sub-agent scheduler before session gates are replayable.
 
 允许依赖：
 
@@ -145,6 +146,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - executable/default/global skill runtime。
 - tool-using 或 background agent runtime。
 - persistent sub-agent fan-out, swarm scheduling, reviewer bypass, file mutation or workspace restore through handoff/reviewer metadata.
+- automatic approval forwarding, inactive-child execution, background fan-out or provider calls through sub-agent session metadata.
 
 ### providers
 
@@ -296,7 +298,7 @@ TUI 是 view，不是 runtime。
 
 - UI-neutral intent。
 - status / message / task projection。
-- approval / memory / context / task ownership / handoff-reviewer projection。
+- approval / memory / context / task ownership / handoff-reviewer / future sub-agent session projection。
 - trace record 到 view model 的纯函数转换。
 - keymap、command palette 和 GUI action 的共享 command schema。
 

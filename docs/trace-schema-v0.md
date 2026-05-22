@@ -79,6 +79,8 @@ Project instruction discovery v0.5 使用 `instructions_discovered` trace event 
 
 v0.6 structured handoff and reviewer gate foundation will use trace events for compact summaries and review decisions. Child transcripts, diffs, diagnostics and test outputs must stay behind artifact or trace-range references; handoff events must not inline large evidence or secrets.
 
+The next v0.6 persistent sub-agent session foundation will add trace events for child-session metadata, caps, transcript artifacts, approval forwarding and inactive-child state. These events are not a scheduler and must not imply provider execution, tool execution, background fan-out, app-server control or workspace mutation.
+
 ## 4. Event Kind
 
 当前必须支持（v0.1 基线 + v0.2-v0.5 foundation/runtime signals）：
@@ -160,6 +162,18 @@ Runtime API / app-server alignment DTOs are not trace events by themselves. They
 `agent_handoff_recorded` payload must contain `summary`, including handoff id, parent task id, optional child task id, status, objective, short summary, bounded evidence refs, metrics and optional evidence event range. `reviewer_gate_requested` payload must contain `request`, including gate id, handoff id, parent task id, requested decision kinds and evidence refs. `reviewer_gate_resolved` payload must contain `decision`, including gate id, handoff id, decision kind, reviewer label, reason code and optional comment.
 
 These events do not imply persistent child-agent runtime. They only make handoff and review state replayable for CLI/TUI/GUI/runtime API clients.
+
+Planned v0.6 sub-agent session event names:
+
+```text
+subagent_session_planned
+subagent_session_started
+subagent_session_waiting_for_approval
+subagent_session_inactive
+subagent_session_completed
+```
+
+Each payload must contain `session`, including session id, parent task id, optional child task id, agent profile id, objective, status, scope labels, tool permission labels, memory scope labels, optional transcript artifact id, caps and optional approval forwarding metadata. These payloads must not contain executable command, shell command, provider-private handles, API keys, cookies, authorization headers, tool output, file contents, workspace diffs or scheduler handles.
 
 仍只保留命名，不触发功能：
 

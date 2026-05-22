@@ -141,11 +141,12 @@ v0.6 should start with structured handoff and reviewer gate foundations. Persist
 - `HandoffEvidenceRef` metadata for trace ranges, transcript artifacts, summary artifacts, diffs, diagnostics and test output, without inlining full transcripts or secrets.
 - `ReviewerGateRequest` records that ask for accept/reject/request-revision against a bounded evidence bundle.
 - `ReviewerGateDecision` records that make reviewer outcome trace-backed and inspectable from CLI/TUI/GUI/runtime API.
+- `SubagentSessionDescriptor` records that make child-session scope, caps, transcript artifacts, approval forwarding and inactive-child policy visible before any persistent scheduler exists.
 - Parent/child task linkage.
 - Per-agent profile, scope, model, permissions, timeout and cost caps.
 - Transcript artifact handles instead of context dumping.
 - Reviewer gate before code-modifying results are accepted.
-- Approval forwarding semantics for inactive child tasks.
+- Approval forwarding semantics for inactive child tasks as trace metadata first; automatic forwarding remains gated behind policy/reviewer/runtime implementation.
 
 ### v0.7 Must Be Coding-Workflow Complete
 

@@ -60,6 +60,7 @@ pub struct MemoryProposalId(String);
 pub struct AgentProfileId(String);
 pub struct AgentHandoffId(String);
 pub struct ReviewerGateId(String);
+pub struct SubagentSessionId(String);
 ```
 
 ID 生成策略：
@@ -901,6 +902,74 @@ pub struct ReviewerGateDecision {
 ```
 
 `HandoffEvidenceRef` is metadata only. It may point at trace ranges or artifact IDs, but must not inline full transcripts, file contents, shell output, provider-private raw responses, hidden reasoning, API keys, cookies, authorization headers, or workspace diffs. `ReviewerGateDecision` records review state only; file mutation, Git mutation, checkpoint restore, and tool execution remain future v0.7+ gates.
+
+### Persistent Subagent Session Foundation Schema
+
+The next v0.6 foundation slice describes persistent sub-agent sessions as replayable metadata before any scheduler or child runtime exists. A sub-agent session descriptor links a parent task to an optional child task, declares caps and scope, and points to transcript artifacts instead of dumping child context into the parent.
+
+```rust
+pub enum SubagentSessionStatus {
+    Planned,
+    Active,
+    WaitingForApproval,
+    Inactive,
+    Completed,
+    Failed,
+    Cancelled,
+    HandedOff,
+}
+
+pub enum SubagentInactivePolicy {
+    PauseParent,
+    QueueDecision,
+    RequireReviewer,
+}
+
+pub struct SubagentSessionCaps {
+    pub max_steps: u32,
+    pub max_depth: u32,
+    pub timeout_ms: Option<u64>,
+    pub max_child_sessions: u32,
+    pub max_estimated_cost: Option<CostEstimate>,
+    pub concurrency_slot: Option<String>,
+}
+
+pub struct SubagentApprovalForwarding {
+    pub inactive_policy: SubagentInactivePolicy,
+    pub reviewer_gate_id: Option<ReviewerGateId>,
+    pub approval_id: Option<ApprovalId>,
+    pub forwarded_from_parent: bool,
+}
+
+pub struct SubagentSessionDescriptor {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub profile_id: AgentProfileId,
+    pub objective: String,
+    pub status: SubagentSessionStatus,
+    pub scope_labels: Vec<String>,
+    pub tool_permission_labels: Vec<String>,
+    pub memory_scope_labels: Vec<String>,
+    pub transcript_artifact_id: Option<ArtifactId>,
+    pub caps: SubagentSessionCaps,
+    pub approval_forwarding: Option<SubagentApprovalForwarding>,
+}
+```
+
+Planned event names:
+
+```rust
+pub enum PlannedSubagentSessionRunEvent {
+    SubagentSessionPlanned { session: SubagentSessionDescriptor },
+    SubagentSessionStarted { session: SubagentSessionDescriptor },
+    SubagentSessionWaitingForApproval { session: SubagentSessionDescriptor },
+    SubagentSessionInactive { session: SubagentSessionDescriptor },
+    SubagentSessionCompleted { session: SubagentSessionDescriptor },
+}
+```
+
+These events only describe session state. They must not start child runs, call providers, execute tools, forward approvals automatically, mutate workspaces, restore checkpoints, or create swarm scheduling.
 
 ## 9. Tool Descriptor / Policy / Dispatch / Repair Schema
 

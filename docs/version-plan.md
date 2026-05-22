@@ -212,7 +212,16 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Read-only `tessera-client` handoff/reviewer projection from live events and replayed trace records.
 - Generated GUI TypeScript bindings for handoff/reviewer DTOs and trace event kinds.
 
-**Remaining Planned Scope:**
+**Next Foundation Slice:**
+
+- `SubagentSessionId` and `SubagentSessionDescriptor` for durable child-session metadata over trace.
+- Parent/child task linkage that references existing `TaskId` values without spawning a scheduler by itself.
+- Transcript artifact handles so parent sessions can inspect summaries/evidence without loading full child transcripts into context.
+- `SubagentSessionCaps` for max steps, max depth, timeout, child-session count, optional cost cap and concurrency slot label.
+- `SubagentApprovalForwarding` for inactive-child handling, reviewer gate linkage and optional approval id metadata.
+- `SubagentSessionStatus` covering planned, active, waiting for approval, inactive, completed, failed, cancelled and handed off states.
+
+**Remaining Runtime Scope:**
 
 - Persistent sub-agent sessions.
 - Structured handoff records.
@@ -234,7 +243,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Stable task lifecycle and trace replay.
 - Tool policy and approval surfaces.
 
-**Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable; reviewer gate can accept, reject, or request revision without relying on UI-only state. The first foundation milestone is complete: protocol/trace/client projections can represent handoff summaries and reviewer decisions without starting persistent sub-agents, executing tools, mutating workspaces, or depending on UI-only state. Runtime completion still requires persistent child sessions, parent/child task scheduling, inactive-child handling, approval forwarding and transcript artifact lifecycle.
+**Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable; reviewer gate can accept, reject, or request revision without relying on UI-only state. The first foundation milestone is complete: protocol/trace/client projections can represent handoff summaries and reviewer decisions without starting persistent sub-agents, executing tools, mutating workspaces, or depending on UI-only state. The next foundation milestone is complete when persistent sub-agent session metadata, caps, transcript artifact handles, approval forwarding metadata and inactive-child handling state are replayable and projected without starting a scheduler. Runtime completion still requires persistent child execution, parent/child task scheduling, approval forwarding runtime and transcript artifact lifecycle.
 
 ## 11. v0.7: Project Coding-Agent Workflow
 

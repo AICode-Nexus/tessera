@@ -136,7 +136,8 @@
 
 ### v0.6-v0.9 Planned Or Blocked
 
-- [ ] Persistent sub-agent sessions after handoff/reviewer events are replayable.
+- [ ] Persistent sub-agent session metadata over existing handoff/reviewer events: parent/child task linkage, transcript artifacts, caps, approval forwarding and inactive-child handling.
+- [ ] Persistent sub-agent runtime scheduling after session metadata is replayable.
 - [ ] Hook runtime.
 - [ ] Automation runtime.
 - [ ] Coding-agent diff/test/checkpoint/rollback workflow.
@@ -163,11 +164,12 @@ The next implementation slices should stay conservative and preserve the current
 11. [x] Align runtime API / app-server shape before GUI live-provider path: auth, bounded queues, generated schemas, localhost default, no duplicate runtime.
 12. [x] After v0.5 is foundation-stable, design v0.6 structured handoff and reviewer gate.
 13. [x] Implement provider-neutral handoff/reviewer protocol events and read-only projection before any persistent sub-agent runtime.
-14. [ ] Design persistent sub-agent session foundation over existing handoff/reviewer events: parent/child task linkage, transcript artifacts, caps, approval forwarding and inactive-child handling.
-15. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-16. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
-17. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
-18. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
+14. [x] Design persistent sub-agent session foundation over existing handoff/reviewer events: parent/child task linkage, transcript artifacts, caps, approval forwarding and inactive-child handling.
+15. [ ] Implement provider-neutral sub-agent session metadata events and read-only projection before any persistent scheduler.
+16. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+17. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
+18. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
+19. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
 
 ## 8. Mandatory Gates
 

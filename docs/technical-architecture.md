@@ -15,7 +15,7 @@ Tessera 是一个 Rust-first、AI-friendly、agent-ready 的本地终端大模�
 - Replayable：所有运行都能通过 JSONL trace 回放和审计。
 - Auditable：未来所有工具调用必须经过 policy gate。
 - AI-friendly：代码边界小、协议清晰、fixture/replay 完整，方便 AI 稳定参与开发。
-- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已收口为 no-tool single-agent loop、opt-in project instruction discovery/source reporting、explicit read-only Skill Runtime v1、background task ownership trace-backed foundation、no-tool chat/agent run owner attach/detach 和 runtime API/app-server DTO alignment；v0.6 已完成 structured handoff / reviewer gate protocol、client projection 和 GUI bindings foundation；工具、executable skills、默认/全局指令加载、background reattach、多 agent runtime 和 swarm 仍必须按门禁推进。
+- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已收口为 no-tool single-agent loop、opt-in project instruction discovery/source reporting、explicit read-only Skill Runtime v1、background task ownership trace-backed foundation、no-tool chat/agent run owner attach/detach 和 runtime API/app-server DTO alignment；v0.6 已完成 structured handoff / reviewer gate protocol、client projection 和 GUI bindings foundation，并开始定义 persistent sub-agent session metadata；工具、executable skills、默认/全局指令加载、background reattach、多 agent runtime 和 swarm 仍必须按门禁推进。
 
 ## 2. 技术选型
 
@@ -188,6 +188,7 @@ Tessera 的长期目标不是只做一个聊天终端，而是形成 CLI、TUI�
 - `TaskOwnership`：future background tasks must have execution owner, observer, heartbeat, lost-owner and reattach metadata in trace before GUI/app-server/automation can control them. Current v0.5 foundation provides the protocol events, core recorder/projection, client projection, CLI read-only owner listing, and automatic owner attach/detach around no-tool chat/agent runs, but not daemon ownership transfer or provider socket freezing.
 - `Artifact`：diff、patch、test report、terminal output、browser evidence、subagent transcript、large provider metadata 都不应直接塞进上下文。
 - `Approval` / `ReviewerGate`：用户审批、reviewer gate、policy decision、GUI diff review 都必须 trace-backed；v0.6 foundation records handoff summaries, bounded evidence refs and reviewer decisions before any persistent sub-agent runtime.
+- `SubagentSession`：future child sessions must declare parent/child task linkage, caps, scope labels, transcript artifact handles, approval forwarding metadata and inactive-child policy before any scheduler, fan-out or child execution runtime exists.
 - `InstructionSource` / `ContextReference`：`AGENTS.md`、未来 `CLAUDE.md`、skills、hook output、MCP metadata 都只能作为有来源、有上限、可审计的 context 输入。
 - `RuntimeApi`：GUI、IDE、automation 和 remote client 只通过 typed messages / bounded queues / generated schemas 访问 core。Current v0.5 alignment provides `RuntimeApi*` DTOs, localhost-safe default bind/auth/queue metadata, generated TypeScript schema evidence, read-only event stream request mapping, and a bounded SSE frame buffer, but not a listening app-server.
 
