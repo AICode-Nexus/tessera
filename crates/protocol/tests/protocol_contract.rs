@@ -16,12 +16,16 @@ use tessera_protocol::{
     SkillActivationStatus, SkillActivationStep, SkillEntrypoint, SkillEntrypointFormat, SkillId,
     SkillLoadStatus, SkillManifest, SkillPolicy, SkillRedactionStatus, SkillReferenceSource,
     SkillRequirements, SkillSource, SkillSourceKind, SkillStepKind, SkillStepStatus, SnapshotId,
-    SnapshotKind, SubagentApprovalForwarding, SubagentInactivePolicy, SubagentSessionCaps,
-    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus, TaskId, TaskOwnerKind,
-    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId,
-    TaskStatus, Timestamp, ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch,
-    ToolDispatchId, ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind,
-    ToolRepairReport, ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
+    SnapshotKind, SubagentApprovalForwarding, SubagentApprovalForwardingRecord,
+    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
+    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
+    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionCaps,
+    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
+    SubagentTranscriptArtifactRecord, TaskId, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus,
+    TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, Timestamp,
+    ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId,
+    ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
+    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
     WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 
@@ -783,6 +787,113 @@ fn subagent_session_events_are_traceable_metadata_without_scheduler() {
     assert!(record.payload.get("scheduler").is_none());
     assert!(record.payload.get("provider_request").is_none());
     assert!(record.payload.get("tool_call").is_none());
+}
+
+#[test]
+fn subagent_runtime_ownership_events_are_traceable_metadata_without_scheduler_execution() {
+    let parent_task_id = TaskId::from_static("task_parent_subagent");
+    let session_id = SubagentSessionId::from_static("subagent_session_review");
+    let caps = subagent_session_descriptor(SubagentSessionStatus::Planned).caps;
+
+    let decision = SubagentRuntimeDecision {
+        session_id: session_id.clone(),
+        parent_task_id: parent_task_id.clone(),
+        child_task_id: Some(TaskId::from_static("task_child_subagent")),
+        kind: SubagentRuntimeDecisionKind::StartAllowed,
+        reason: "caps and reviewer gate are satisfied".to_string(),
+        caps_snapshot: caps,
+    };
+    let transcript = SubagentTranscriptArtifactRecord {
+        session_id: session_id.clone(),
+        parent_task_id: parent_task_id.clone(),
+        child_task_id: Some(TaskId::from_static("task_child_subagent")),
+        artifact_id: ArtifactId::from_static("artifact_child_transcript"),
+        event_range: EventRange {
+            start_seq: 11,
+            end_seq: 19,
+        },
+        summary_label: Some("child transcript summary".to_string()),
+    };
+    let forwarding = SubagentApprovalForwardingRecord {
+        session_id: session_id.clone(),
+        parent_task_id: parent_task_id.clone(),
+        approval_id: ApprovalId::from_static("approval_subagent_review"),
+        reviewer_gate_id: Some(ReviewerGateId::from_static("gate_subagent_review")),
+        status: SubagentApprovalForwardingStatus::QueuedForReviewer,
+        reason: "child task is inactive".to_string(),
+    };
+    let inactive = SubagentInactivePolicyRecord {
+        session_id: session_id.clone(),
+        parent_task_id: parent_task_id.clone(),
+        policy: SubagentInactivePolicy::RequireReviewer,
+        parent_action: SubagentInactiveParentAction::PauseParent,
+        reason: "reviewer must inspect inactive child".to_string(),
+    };
+    let cancellation = SubagentCancellationRecord {
+        session_id: session_id.clone(),
+        parent_task_id: parent_task_id.clone(),
+        source_task_id: parent_task_id.clone(),
+        reason: "parent cancelled".to_string(),
+        cascade: SubagentCancellationCascade::CancelChild,
+    };
+
+    let events = [
+        RunEvent::SubagentRuntimeDecisionRecorded {
+            decision: decision.clone(),
+        },
+        RunEvent::SubagentTranscriptArtifactRecorded {
+            transcript: transcript.clone(),
+        },
+        RunEvent::SubagentApprovalForwardingRecorded {
+            forwarding: forwarding.clone(),
+        },
+        RunEvent::SubagentInactivePolicyRecorded {
+            inactive: inactive.clone(),
+        },
+        RunEvent::SubagentCancellationRecorded {
+            cancellation: cancellation.clone(),
+        },
+    ];
+
+    assert_eq!(events[0].kind(), "subagent_runtime_decision_recorded");
+    assert_eq!(events[1].kind(), "subagent_transcript_artifact_recorded");
+    assert_eq!(events[2].kind(), "subagent_approval_forwarding_recorded");
+    assert_eq!(events[3].kind(), "subagent_inactive_policy_recorded");
+    assert_eq!(events[4].kind(), "subagent_cancellation_recorded");
+    for event in events {
+        assert_eq!(event.task_id(), Some(parent_task_id.clone()));
+    }
+
+    assert_eq!(decision.kind, SubagentRuntimeDecisionKind::StartAllowed);
+    assert_eq!(transcript.event_range.end_seq, 19);
+    assert_eq!(
+        forwarding.status,
+        SubagentApprovalForwardingStatus::QueuedForReviewer
+    );
+    assert_eq!(
+        inactive.parent_action,
+        SubagentInactiveParentAction::PauseParent
+    );
+    assert_eq!(
+        cancellation.cascade,
+        SubagentCancellationCascade::CancelChild
+    );
+
+    let record = EventFrame::new(
+        "trace_subagent_runtime",
+        1,
+        RunEvent::SubagentRuntimeDecisionRecorded { decision },
+    )
+    .to_trace_record();
+    assert_eq!(record.event_kind, "subagent_runtime_decision_recorded");
+    assert_eq!(
+        record.payload["decision"]["caps_snapshot"]["concurrency_slot"],
+        "reviewer-1"
+    );
+    assert!(record.payload.get("provider_request").is_none());
+    assert!(record.payload.get("tool_call").is_none());
+    assert!(record.payload.get("command").is_none());
+    assert!(record.payload.get("scheduler_loop").is_none());
 }
 
 #[test]

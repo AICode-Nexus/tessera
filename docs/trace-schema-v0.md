@@ -81,6 +81,8 @@ v0.6 structured handoff and reviewer gate foundation will use trace events for c
 
 The next v0.6 persistent sub-agent session foundation will add trace events for child-session metadata, caps, transcript artifacts, approval forwarding and inactive-child state. These events are not a scheduler and must not imply provider execution, tool execution, background fan-out, app-server control or workspace mutation.
 
+v0.6 sub-agent runtime ownership events record scheduler decisions, transcript artifact publication, approval forwarding state, inactive-child policy decisions and cancellation cascade metadata. These events still do not execute child providers or tools; they are the replayable contract that a future core-owned coordinator must satisfy before runtime execution.
+
 ## 4. Event Kind
 
 当前必须支持（v0.1 基线 + v0.2-v0.5 foundation/runtime signals）：
@@ -127,6 +129,11 @@ subagent_session_started
 subagent_session_waiting_for_approval
 subagent_session_inactive
 subagent_session_completed
+subagent_runtime_decision_recorded
+subagent_transcript_artifact_recorded
+subagent_approval_forwarding_recorded
+subagent_inactive_policy_recorded
+subagent_cancellation_recorded
 no_progress_loop_detected
 diagnostics_reported
 memory_write_proposed
@@ -169,6 +176,10 @@ Runtime API / app-server alignment DTOs are not trace events by themselves. They
 These events do not imply persistent child-agent runtime. They only make handoff and review state replayable for CLI/TUI/GUI/runtime API clients.
 
 Each payload must contain `session`, including session id, parent task id, optional child task id, agent profile id, objective, status, scope labels, tool permission labels, memory scope labels, optional transcript artifact id, caps and optional approval forwarding metadata. These payloads must not contain executable command, shell command, provider-private handles, API keys, cookies, authorization headers, tool output, file contents, workspace diffs or scheduler handles.
+
+`subagent_runtime_decision_recorded` payload must contain `decision`, including session id, parent task id, optional child task id, decision kind, reason and caps snapshot. `subagent_transcript_artifact_recorded` payload must contain `transcript`, including session id, parent task id, optional child task id, artifact id, event range and optional summary label. `subagent_approval_forwarding_recorded` payload must contain `forwarding`, including session id, parent task id, approval id, optional reviewer gate id, status and reason. `subagent_inactive_policy_recorded` payload must contain `inactive`, including session id, parent task id, inactive policy, parent action and reason. `subagent_cancellation_recorded` payload must contain `cancellation`, including session id, parent task id, source task id, reason and cascade mode.
+
+These ownership events must not contain provider request handles, executable command, shell command, tool output, file contents, workspace diffs, app-server session handles or scheduler-loop internals. They make future core-owned scheduling decisions inspectable; they do not by themselves start a child runtime.
 
 仍只保留命名，不触发功能：
 

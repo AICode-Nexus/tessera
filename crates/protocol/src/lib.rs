@@ -1017,6 +1017,96 @@ pub struct SubagentSessionDescriptor {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentRuntimeDecisionKind {
+    StartAllowed,
+    StartDenied,
+    QueueOnly,
+    RequireReviewer,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct SubagentRuntimeDecision {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub kind: SubagentRuntimeDecisionKind,
+    pub reason: String,
+    pub caps_snapshot: SubagentSessionCaps,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct SubagentTranscriptArtifactRecord {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub artifact_id: ArtifactId,
+    pub event_range: EventRange,
+    pub summary_label: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentApprovalForwardingStatus {
+    QueuedForReviewer,
+    ForwardedToParent,
+    DeniedByPolicy,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct SubagentApprovalForwardingRecord {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub approval_id: ApprovalId,
+    pub reviewer_gate_id: Option<ReviewerGateId>,
+    pub status: SubagentApprovalForwardingStatus,
+    pub reason: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentInactiveParentAction {
+    PauseParent,
+    QueueDecision,
+    RequireReviewer,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct SubagentInactivePolicyRecord {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub policy: SubagentInactivePolicy,
+    pub parent_action: SubagentInactiveParentAction,
+    pub reason: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentCancellationCascade {
+    CancelChild,
+    ObserveOnly,
+    QueueCancellation,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct SubagentCancellationRecord {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub source_task_id: TaskId,
+    pub reason: String,
+    pub cascade: SubagentCancellationCascade,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolPermission {
     FilesystemRead,
@@ -1517,6 +1607,21 @@ pub enum RunEvent {
     SubagentSessionCompleted {
         session: SubagentSessionDescriptor,
     },
+    SubagentRuntimeDecisionRecorded {
+        decision: SubagentRuntimeDecision,
+    },
+    SubagentTranscriptArtifactRecorded {
+        transcript: SubagentTranscriptArtifactRecord,
+    },
+    SubagentApprovalForwardingRecorded {
+        forwarding: SubagentApprovalForwardingRecord,
+    },
+    SubagentInactivePolicyRecorded {
+        inactive: SubagentInactivePolicyRecord,
+    },
+    SubagentCancellationRecorded {
+        cancellation: SubagentCancellationRecord,
+    },
     NoProgressLoopDetected {
         task_id: TaskId,
         signal: NoProgressLoop,
@@ -1622,6 +1727,15 @@ impl RunEvent {
             }
             Self::SubagentSessionInactive { .. } => "subagent_session_inactive",
             Self::SubagentSessionCompleted { .. } => "subagent_session_completed",
+            Self::SubagentRuntimeDecisionRecorded { .. } => "subagent_runtime_decision_recorded",
+            Self::SubagentTranscriptArtifactRecorded { .. } => {
+                "subagent_transcript_artifact_recorded"
+            }
+            Self::SubagentApprovalForwardingRecorded { .. } => {
+                "subagent_approval_forwarding_recorded"
+            }
+            Self::SubagentInactivePolicyRecorded { .. } => "subagent_inactive_policy_recorded",
+            Self::SubagentCancellationRecorded { .. } => "subagent_cancellation_recorded",
             Self::NoProgressLoopDetected { .. } => "no_progress_loop_detected",
             Self::DiagnosticsReported { .. } => "diagnostics_reported",
             Self::MemoryWriteProposed { .. } => "memory_write_proposed",
@@ -1684,6 +1798,21 @@ impl RunEvent {
             | Self::SubagentSessionWaitingForApproval { session }
             | Self::SubagentSessionInactive { session }
             | Self::SubagentSessionCompleted { session } => Some(session.parent_task_id.clone()),
+            Self::SubagentRuntimeDecisionRecorded { decision } => {
+                Some(decision.parent_task_id.clone())
+            }
+            Self::SubagentTranscriptArtifactRecorded { transcript } => {
+                Some(transcript.parent_task_id.clone())
+            }
+            Self::SubagentApprovalForwardingRecorded { forwarding } => {
+                Some(forwarding.parent_task_id.clone())
+            }
+            Self::SubagentInactivePolicyRecorded { inactive } => {
+                Some(inactive.parent_task_id.clone())
+            }
+            Self::SubagentCancellationRecorded { cancellation } => {
+                Some(cancellation.parent_task_id.clone())
+            }
             _ => None,
         }
     }
@@ -1832,6 +1961,21 @@ impl RunEvent {
             | Self::SubagentSessionWaitingForApproval { session }
             | Self::SubagentSessionInactive { session }
             | Self::SubagentSessionCompleted { session } => json!({ "session": session }),
+            Self::SubagentRuntimeDecisionRecorded { decision } => {
+                json!({ "decision": decision })
+            }
+            Self::SubagentTranscriptArtifactRecorded { transcript } => {
+                json!({ "transcript": transcript })
+            }
+            Self::SubagentApprovalForwardingRecorded { forwarding } => {
+                json!({ "forwarding": forwarding })
+            }
+            Self::SubagentInactivePolicyRecorded { inactive } => {
+                json!({ "inactive": inactive })
+            }
+            Self::SubagentCancellationRecorded { cancellation } => {
+                json!({ "cancellation": cancellation })
+            }
             Self::NoProgressLoopDetected { task_id, signal } => {
                 json!({ "task_id": task_id, "signal": signal })
             }

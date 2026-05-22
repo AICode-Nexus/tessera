@@ -45,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added v0.6 provider-neutral sub-agent session metadata events for planned, started, waiting-for-approval, inactive and completed session states without starting a scheduler or child runtime.
 - Added read-only `tessera-client` and GUI binding projection for v0.6 sub-agent session metadata from live events and replayed trace records.
 - Added the v0.6 persistent sub-agent scheduler/runtime ownership design gate, requiring core-owned scheduler decisions, task ownership, transcript artifact lifecycle, policy-mediated approval forwarding, inactive-child policy records, and cancellation/reattach metadata before child execution.
+- Added v0.6 provider-neutral sub-agent runtime ownership events for scheduler decisions, transcript artifact publication, approval forwarding state, inactive-child policy handling, and cancellation cascade metadata without starting child execution.
 - Added release identity metadata so `tessera --version` reports both the crate version and build git SHA.
 - Added a provider-neutral `ToolDescriptor` schema and read-only `ToolRegistry` for tool metadata, with `parallel_safe` defaulting to false and no tool execution path.
 - Added tool call request, policy decision, and approval trace metadata plus a draft `PolicyGate` that produces `allow` / `ask_user` / `deny` decisions without executing tools.

@@ -971,6 +971,94 @@ pub enum SubagentSessionRunEvent {
 
 These events only describe session state. They do not start child runs, call providers, execute tools, forward approvals automatically, mutate workspaces, restore checkpoints, or create swarm scheduling.
 
+### Subagent Runtime Ownership Metadata
+
+v0.6 runtime ownership events describe future scheduler decisions and lifecycle ownership records before any child-agent execution path exists. They are provider-neutral metadata and must remain replayable without a scheduler loop.
+
+```rust
+pub enum SubagentRuntimeDecisionKind {
+    StartAllowed,
+    StartDenied,
+    QueueOnly,
+    RequireReviewer,
+}
+
+pub struct SubagentRuntimeDecision {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub kind: SubagentRuntimeDecisionKind,
+    pub reason: String,
+    pub caps_snapshot: SubagentSessionCaps,
+}
+
+pub struct SubagentTranscriptArtifactRecord {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub artifact_id: ArtifactId,
+    pub event_range: EventRange,
+    pub summary_label: Option<String>,
+}
+
+pub enum SubagentApprovalForwardingStatus {
+    QueuedForReviewer,
+    ForwardedToParent,
+    DeniedByPolicy,
+}
+
+pub struct SubagentApprovalForwardingRecord {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub approval_id: ApprovalId,
+    pub reviewer_gate_id: Option<ReviewerGateId>,
+    pub status: SubagentApprovalForwardingStatus,
+    pub reason: String,
+}
+
+pub enum SubagentInactiveParentAction {
+    PauseParent,
+    QueueDecision,
+    RequireReviewer,
+}
+
+pub struct SubagentInactivePolicyRecord {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub policy: SubagentInactivePolicy,
+    pub parent_action: SubagentInactiveParentAction,
+    pub reason: String,
+}
+
+pub enum SubagentCancellationCascade {
+    CancelChild,
+    ObserveOnly,
+    QueueCancellation,
+}
+
+pub struct SubagentCancellationRecord {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub source_task_id: TaskId,
+    pub reason: String,
+    pub cascade: SubagentCancellationCascade,
+}
+```
+
+Implemented ownership event names:
+
+```rust
+pub enum SubagentRuntimeOwnershipRunEvent {
+    SubagentRuntimeDecisionRecorded { decision: SubagentRuntimeDecision },
+    SubagentTranscriptArtifactRecorded { transcript: SubagentTranscriptArtifactRecord },
+    SubagentApprovalForwardingRecorded { forwarding: SubagentApprovalForwardingRecord },
+    SubagentInactivePolicyRecorded { inactive: SubagentInactivePolicyRecord },
+    SubagentCancellationRecorded { cancellation: SubagentCancellationRecord },
+}
+```
+
+These events do not start child runs, call providers, dispatch tools, create a scheduler loop, forward approvals automatically, mutate workspaces, restore checkpoints, or imply app-server control.
+
 ## 9. Tool Descriptor / Policy / Dispatch / Repair Schema
 
 Tool descriptor v0.3 草案只描述工具能力，不执行工具。第一版用于让 policy gate、approval UI、sandbox、MCP adapter 和 ordered dispatcher 有共同 schema。
