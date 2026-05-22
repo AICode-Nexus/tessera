@@ -8,10 +8,11 @@ use tessera_core::{
     InstructionDiscoveryOptions, InstructionDiscoveryPlanner, McpToolAdapter, McpToolAnnotations,
     McpToolSpec, ModelRouteRequest, ModelRouter, NoProgressDetector, NoProgressObservation,
     OrderedToolResultBuffer, OsSandboxPlanner, PolicyGate, ReplayRunner, RunCancellationToken,
-    RunControls, RunPauseToken, RuntimeEventQuery, RuntimeHttpApi, RuntimeHttpEventRequest,
-    RuntimeReader, SkillActivationRequest, SkillDiscoveryOptions, SkillRegistry,
-    SkillRuntimeOptions, SkillRuntimePlanner, TaskOwnershipRecorder, ToolRegistry,
-    ToolRepairTelemetry, WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
+    RunControls, RunPauseToken, RuntimeApiBackpressure, RuntimeApiEventBuffer, RuntimeEventQuery,
+    RuntimeHttpApi, RuntimeHttpEventRequest, RuntimeReader, RuntimeSseFrame,
+    SkillActivationRequest, SkillDiscoveryOptions, SkillRegistry, SkillRuntimeOptions,
+    SkillRuntimePlanner, TaskOwnershipRecorder, ToolRegistry, ToolRepairTelemetry,
+    WorkspaceCheckpointPlanner, WorkspaceGuardrailChecker,
 };
 use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentStepStatus, ArtifactId, ArtifactKind, ClientInstanceId,
@@ -2749,6 +2750,31 @@ async fn runtime_http_api_accepts_app_server_event_stream_request_without_listen
     assert!(frames
         .iter()
         .all(|frame| !frame.encode().contains("listen")));
+}
+
+#[test]
+fn runtime_api_event_buffer_rejects_when_full_without_dropping_existing_frames() {
+    let mut buffer = RuntimeApiEventBuffer::new(1);
+    let first = RuntimeSseFrame {
+        id: "1".to_string(),
+        event: "task_started".to_string(),
+        data: "{}".to_string(),
+    };
+    let second = RuntimeSseFrame {
+        id: "2".to_string(),
+        event: "task_completed".to_string(),
+        data: "{}".to_string(),
+    };
+
+    assert_eq!(buffer.capacity(), 1);
+    assert!(buffer.is_empty());
+    buffer.push(first.clone()).unwrap();
+    assert!(!buffer.is_empty());
+
+    let err = buffer.push(second).unwrap_err();
+    assert_eq!(err, RuntimeApiBackpressure::Full { capacity: 1 });
+    assert_eq!(buffer.drain(), vec![first]);
+    assert!(buffer.is_empty());
 }
 
 #[tokio::test]

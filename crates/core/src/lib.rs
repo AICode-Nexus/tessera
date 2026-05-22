@@ -1,6 +1,6 @@
 use futures::TryStreamExt;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -2828,6 +2828,52 @@ impl RuntimeSseFrame {
 
         encoded.push('\n');
         encoded
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum RuntimeApiBackpressure {
+    #[error("runtime API event buffer is full at capacity {capacity}")]
+    Full { capacity: usize },
+}
+
+#[derive(Clone, Debug)]
+pub struct RuntimeApiEventBuffer {
+    capacity: usize,
+    frames: VecDeque<RuntimeSseFrame>,
+}
+
+impl RuntimeApiEventBuffer {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            frames: VecDeque::with_capacity(capacity),
+        }
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+
+    pub fn push(
+        &mut self,
+        frame: RuntimeSseFrame,
+    ) -> std::result::Result<(), RuntimeApiBackpressure> {
+        if self.frames.len() >= self.capacity {
+            return Err(RuntimeApiBackpressure::Full {
+                capacity: self.capacity,
+            });
+        }
+        self.frames.push_back(frame);
+        Ok(())
+    }
+
+    pub fn drain(&mut self) -> Vec<RuntimeSseFrame> {
+        self.frames.drain(..).collect()
     }
 }
 
