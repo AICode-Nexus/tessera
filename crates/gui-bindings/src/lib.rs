@@ -11,9 +11,12 @@ use tessera_client::{
 use tessera_gui_bridge::{GuiCommandOutcome, GuiEvent, GuiProfile, GuiRuntimeMode, GuiShellState};
 use tessera_protocol::{
     ApprovalId, ArtifactId, ArtifactKind, ClientInstanceId, ContextId, EventId, ItemId,
-    MemoryProposalId, RuntimeInstanceId, TaskId, TaskKind, TaskOwnerKind, TaskOwnerStatus,
-    TaskOwnershipId, TaskReattachMode, TaskStatus, ThreadId, Timestamp, ToolCallId, ToolId,
-    TraceRecord, TurnId,
+    MemoryProposalId, RuntimeApiAuthMode, RuntimeApiAuthPolicy, RuntimeApiBindConfig,
+    RuntimeApiBindKind, RuntimeApiCommand, RuntimeApiCommandAck, RuntimeApiCommandEnvelope,
+    RuntimeApiCommandStatus, RuntimeApiEventStreamRequest, RuntimeApiQueueOverflow,
+    RuntimeApiQueuePolicy, RuntimeApiServerConfig, RuntimeInstanceId, TaskId, TaskKind,
+    TaskOwnerKind, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, ThreadId,
+    Timestamp, ToolCallId, ToolId, TraceRecord, TurnId,
 };
 use ts_rs::{Config, TS};
 
@@ -63,6 +66,18 @@ pub fn generate_bindings() -> String {
     push_decl::<GuiShellState>(&mut output, &cfg);
     push_decl::<ItemId>(&mut output, &cfg);
     push_decl::<MemoryProposalId>(&mut output, &cfg);
+    push_decl::<RuntimeApiAuthMode>(&mut output, &cfg);
+    push_decl::<RuntimeApiAuthPolicy>(&mut output, &cfg);
+    push_decl::<RuntimeApiBindConfig>(&mut output, &cfg);
+    push_decl::<RuntimeApiBindKind>(&mut output, &cfg);
+    push_decl::<RuntimeApiCommand>(&mut output, &cfg);
+    push_decl::<RuntimeApiCommandAck>(&mut output, &cfg);
+    push_decl::<RuntimeApiCommandEnvelope>(&mut output, &cfg);
+    push_decl::<RuntimeApiCommandStatus>(&mut output, &cfg);
+    push_decl::<RuntimeApiEventStreamRequest>(&mut output, &cfg);
+    push_decl::<RuntimeApiQueueOverflow>(&mut output, &cfg);
+    push_decl::<RuntimeApiQueuePolicy>(&mut output, &cfg);
+    push_decl::<RuntimeApiServerConfig>(&mut output, &cfg);
     push_decl::<RuntimeInstanceId>(&mut output, &cfg);
     push_decl::<TaskId>(&mut output, &cfg);
     push_decl::<TaskKind>(&mut output, &cfg);

@@ -63,6 +63,30 @@ export type ItemId = string;
 
 export type MemoryProposalId = string;
 
+export type RuntimeApiAuthMode = "loopback_dev_token" | "os_user_session";
+
+export type RuntimeApiAuthPolicy = { mode: RuntimeApiAuthMode, token_required: boolean, token_source_label: string | null, };
+
+export type RuntimeApiBindConfig = { kind: RuntimeApiBindKind, host: string | null, port: number | null, socket_path: string | null, };
+
+export type RuntimeApiBindKind = "localhost_tcp" | "unix_socket";
+
+export type RuntimeApiCommand = { "command": "list_events", "payload": RuntimeApiEventStreamRequest } | { "command": "subscribe_events", "payload": RuntimeApiEventStreamRequest };
+
+export type RuntimeApiCommandAck = { command_id: string, status: RuntimeApiCommandStatus, reason: string | null, };
+
+export type RuntimeApiCommandEnvelope = { command_id: string, client_id: ClientInstanceId | null, trace_id: string | null, since_seq: number | null, } & ({ "command": "list_events", "payload": RuntimeApiEventStreamRequest } | { "command": "subscribe_events", "payload": RuntimeApiEventStreamRequest });
+
+export type RuntimeApiCommandStatus = "accepted" | "rejected";
+
+export type RuntimeApiEventStreamRequest = { trace_id: string, since_seq: number | null, limit: number | null, };
+
+export type RuntimeApiQueueOverflow = "reject_new";
+
+export type RuntimeApiQueuePolicy = { event_buffer_capacity: number, client_buffer_capacity: number, overflow: RuntimeApiQueueOverflow, };
+
+export type RuntimeApiServerConfig = { version: string, bind: RuntimeApiBindConfig, auth: RuntimeApiAuthPolicy, queue: RuntimeApiQueuePolicy, };
+
 export type RuntimeInstanceId = string;
 
 export type TaskId = string;

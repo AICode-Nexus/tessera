@@ -17,7 +17,13 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type ContextId"));
     assert!(bindings.contains("export type GuiCommandOutcome"));
     assert!(bindings.contains("export type GuiShellState"));
+    assert!(bindings.contains("export type RuntimeApiServerConfig"));
+    assert!(bindings.contains("export type RuntimeApiCommandEnvelope"));
+    assert!(bindings.contains("export type RuntimeApiEventStreamRequest"));
+    assert!(bindings.contains("export type RuntimeApiCommandAck"));
     assert!(bindings.contains("context_handles"));
+    assert!(bindings.contains("loopback_dev_token"));
+    assert!(bindings.contains("localhost_tcp"));
     assert!(bindings.contains("submit_prompt"));
     assert!(bindings.contains("cancel_task"));
     assert!(bindings.contains("pause_task"));
@@ -28,6 +34,8 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("deny_tool_call"));
     assert!(bindings.contains("accept_memory_proposal"));
     assert!(bindings.contains("reject_memory_proposal"));
+    assert!(!bindings.contains("start_server"));
+    assert!(!bindings.contains("bind_remote"));
     assert!(!bindings.contains("call_provider"));
     assert!(!bindings.contains("read_sql"));
     assert!(!bindings.contains("execute_shell"));
