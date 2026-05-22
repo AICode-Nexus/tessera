@@ -27,7 +27,7 @@
 
 ## 3. Current Implementation State
 
-当前 `main` 基线已完成 v0.1 release，并继续推进 v0.2-v0.5 的 foundation 工作。必须明确区分：
+当前 `main` 基线已完成 v0.1 release，并已将 v0.2-v0.5 收口为 foundation-stable 工作。必须明确区分：
 
 - **用户可用能力**：CLI/TUI/mock chat、trace/replay、session resume、chat-only paused task resume、opt-in project instructions、explicit read-only skill activation 等。
 - **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、runtime API / app-server DTO alignment、diagnostics event、memory proposal UI、trace-backed task ownership metadata/recorder/projection、no-tool chat/agent run owner attach/detach 等。
@@ -41,7 +41,7 @@
 | v0.2 | Read-only projection and GUI-ready surfaces | [x] Done | RuntimeReader, task/artifact/snapshot projection, GUI shell spike, DTO bindings, distribution plan. |
 | v0.3 | Tool policy and sandbox foundations | [~] Foundation complete | Tool descriptor, policy gate, approval projection, sandbox decision, OS sandbox planner, checkpoint planner; no execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | [~] Foundation complete | RuntimeHttpApi shape, metadata-only MCP adapter, diagnostics event, memory proposal UI; no server/runtime/store. |
-| v0.5 | Single-agent and resumable task foundations | [~] In progress | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server DTO alignment; no tool execution, executable skills, daemon, or background reattach yet. |
+| v0.5 | Single-agent and resumable task foundations | [~] Foundation stable | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server DTO alignment; runtime-complete gaps are staged into future gates. |
 | v0.6 | Persistent sub-agents and structured review | [ ] Planned | No persistent sub-agent runtime, structured handoff, or reviewer gate yet. |
 | v0.7 | Project coding-agent workflow | [ ] Planned | No apply-patch, diff/test/checkpoint/rollback, worktree mutation, or GUI/TUI diff workflow yet. |
 | v0.8 | Swarm scheduler | [!] Blocked | Requires v0.6 structured handoff and reviewer gate. |
@@ -87,7 +87,7 @@
 - [x] Diagnostics event and reporter.
 - [x] Memory proposal events and UI projection.
 
-### v0.5 Partial Work
+### v0.5 Foundation-Stable Work
 
 - [x] Agent profile schema and read-only `AgentRegistry`.
 - [x] Pause/resume protocol metadata and UI-neutral intents.
@@ -118,14 +118,14 @@
 - [~] Ollama real streaming path: code and opt-in smoke test exist; live local verification is still missing.
 - [~] GUI live event bridge: core/CLI/TUI share `EventFrame`; GUI shell still uses mock/replay projection and typed bridge foundation.
 
-### v0.5 Not Done
+### Deferred Beyond v0.5
 
-- [ ] Executable skills, automatic/default/global skill loading, skill install/update/delete, model-driven reference selection, and script/tool skill execution.
-- [ ] Default-on/global/user instruction loading, Claude imports, and `.claude/` rule compatibility.
-- [ ] Background reattach / runtime ownership transfer after process restart.
-- [ ] Daemon or app-server listener for durable task observation/control.
-- [ ] Non-chat task resume.
-- [ ] Real checkpoint restore semantics.
+- [ ] Executable skills, automatic/default/global skill loading, skill install/update/delete, model-driven reference selection, and script/tool skill execution: future skill/tool policy gate.
+- [ ] Default-on/global/user instruction loading, Claude imports, and `.claude/` rule compatibility: future precedence/source-reporting/byte-limit/redaction/trace-reference gate.
+- [ ] Background reattach / runtime ownership transfer after process restart: future durable owner-process and app-server/listener gate.
+- [ ] Daemon or app-server listener for durable task observation/control: future listener gate; current work is DTO/schema/read-only shape only.
+- [ ] Non-chat task resume: future structured task handoff/reviewer gate.
+- [ ] Real checkpoint restore semantics: future workspace mutation/checkpoint restore/revert/policy/sandbox/trace gate.
 
 ### v0.6-v0.9 Not Started
 

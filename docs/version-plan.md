@@ -47,7 +47,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 | v0.2 | Read-only projection and GUI-ready surfaces | Complete | Read-only runtime/query/projection foundations are usable; no runtime HTTP server. |
 | v0.3 | Tool policy and sandbox foundations | Foundation complete | Tool metadata, policy, approval, sandbox and checkpoint planners exist; no tool execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
-| v0.5 | Single-agent and resumable task foundations | In progress | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server alignment DTOs are usable; tools, executable skills, daemon/app-server listener, background reattach, and default-on/global instruction loading are not. |
+| v0.5 | Single-agent and resumable task foundations | Foundation stable | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server alignment DTOs are usable; runtime-complete work is explicitly staged into future gates. |
 | v0.6 | Persistent sub-agents and structured review | Planned | No persistent sub-agent runtime or reviewer gate yet. |
 | v0.7 | Project coding-agent workflow | Planned | No file-modifying coding-agent workflow, patch workflow, or GUI/TUI diff control yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
@@ -153,7 +153,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 
 **Goal:** Move from single chat runs toward a controlled single-agent runtime, while making pause/resume honest and trace-first.
 
-**Status:** In progress.
+**Status:** Foundation stable.
 
 **Completed:**
 
@@ -175,20 +175,20 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Automatic owner attach/detach integration around no-tool `ConversationEngine` and `AgentLoop` traces, including terminal owner projection for completed runs and checkpoint-based reattach metadata for paused runs.
 - Runtime API / app-server alignment DTOs: explicit protocol version, localhost/unix-socket bind metadata, auth policy metadata, bounded queue policy, read-only event command envelopes, core event stream request mapping, bounded SSE frame buffer, and generated TypeScript schema evidence without a listening server.
 
-**Remaining:**
+**Deferred Beyond v0.5:**
 
-- Executable skills, automatic/default/global skill loading, skill install/update/delete, model-driven reference selection, and script/tool skill execution remain staged.
-- Default-on/global/user instruction loading, Claude imports, and `.claude/` rule compatibility remain staged until their precedence, scope, source-reporting and redaction rules are designed.
-- Background reattach with log/artifact projection and runtime ownership transfer.
-- Daemon/app-server listener for durable observation/control.
-- Non-chat task resume.
-- Real checkpoint restore semantics.
+- Executable skills, automatic/default/global skill loading, skill install/update/delete, model-driven reference selection, and script/tool skill execution remain staged behind future skill/tool policy gates.
+- Default-on/global/user instruction loading, Claude imports, and `.claude/` rule compatibility remain staged until precedence, scope, source-reporting, byte-limit, redaction and trace-reference rules are designed.
+- Background reattach with log/artifact projection and runtime ownership transfer remain staged behind a durable owner-process and app-server/listener gate.
+- Daemon/app-server listener for durable observation/control remains staged; v0.5 only defines DTOs, queue metadata and read-only stream shapes.
+- Non-chat task resume remains staged behind structured task handoff and reviewer-gate semantics.
+- Real checkpoint restore remains staged behind workspace mutation, checkpoint restore/revert, policy, sandbox and trace semantics.
 
 **Excluded Until Later:**
 
 - Provider socket freezing, workspace restore/revert, tool execution, sub-agent persistence, hook runtime, automation runtime, swarm scheduling, and learning runtime.
 
-**Exit Criteria:** A single-agent loop can run against provider-neutral observations, obey cancellation/pause/no-progress controls, write trace, emit machine-readable summaries, and be replayed without relying on UI state. Full v0.5 completion additionally requires honest resume semantics without provider socket freezing.
+**Exit Criteria:** v0.5 is foundation-stable when a no-tool single-agent loop can run against provider-neutral observations, obey cancellation/pause/no-progress controls, write trace, emit machine-readable summaries, produce honest pause/resume and task ownership metadata, expose runtime API/app-server DTO boundaries, and be replayed without relying on UI state. Runtime-complete resume, durable reattach, executable skills, app-server listeners, non-chat task resume and checkpoint restore are future-version gates, not v0.5 completion criteria.
 
 ## 10. v0.6: Persistent Sub-Agents And Structured Review
 
