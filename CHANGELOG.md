@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added explicit Skill Runtime v1 foundations with `tessera skills inspect`, opt-in `agent run --skill`, trace-safe `skill_activated` metadata, and read-only `SKILL.md` context loading without executing scripts or tools.
 - Added the v0.5 background task ownership design spec and implementation plan covering trace-backed owner leases, heartbeat metadata, lost-owner projection, and explicit reattach outcomes without adding a daemon, provider socket freezing, or tool execution.
 - Added trace-backed task ownership metadata and read-only owner projection foundations with `TaskOwnershipRecorder`, `RuntimeReader::list_task_owners`, client owner status projection, and `tessera tasks --owners --trace <trace_id>` without adding a daemon, provider socket freezing, or tool execution.
+- Added automatic task owner attach/detach events around no-tool chat and agent runs, including terminal owner projection for completed runs and checkpoint-based reattach metadata for paused runs.
 - Added release identity metadata so `tessera --version` reports both the crate version and build git SHA.
 - Added a provider-neutral `ToolDescriptor` schema and read-only `ToolRegistry` for tool metadata, with `parallel_safe` defaulting to false and no tool execution path.
 - Added tool call request, policy decision, and approval trace metadata plus a draft `PolicyGate` that produces `allow` / `ask_user` / `deny` decisions without executing tools.

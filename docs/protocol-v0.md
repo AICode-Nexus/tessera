@@ -511,7 +511,7 @@ pub enum RunEvent {
 
 `TaskPauseCheckpointCreated` 记录 trace-safe resume envelope metadata，当前只支持 chat trace projection resume mode。`TaskPaused` 和 `TaskResumed` 只记录 lifecycle metadata。它们可以被 client/TUI/GUI 投影为 `Paused` / `Running` 状态，但 provider stream suspension、background persistence、checkpoint restore 和 agent resume runtime 仍是后续能力。
 
-`RuntimeInstanceStarted` / `TaskOwnerAttached` / `TaskOwnerHeartbeat` / `TaskOwnerDetached` / `TaskOwnerLost` / `TaskReattachRecorded` 是 v0.5 background task ownership foundation。它们只建立 trace-backed execution owner、observer/lost-owner 和 explicit reattach outcome metadata，供 `RuntimeReader`、client、CLI、TUI、GUI 和 future app-server 投影；当前不启动 daemon，不冻结 provider socket，不保证进程退出后仍有后台执行 owner 存活，也不执行工具或 workspace restore。
+`RuntimeInstanceStarted` / `TaskOwnerAttached` / `TaskOwnerHeartbeat` / `TaskOwnerDetached` / `TaskOwnerLost` / `TaskReattachRecorded` 是 v0.5 background task ownership foundation。它们只建立 trace-backed execution owner、observer/lost-owner 和 explicit reattach outcome metadata，供 `RuntimeReader`、client、CLI、TUI、GUI 和 future app-server 投影。当前 no-tool chat / agent runs 会自动写入 owner attach/detach metadata；当前不启动 daemon，不冻结 provider socket，不保证进程退出后仍有后台执行 owner 存活，也不执行工具或 workspace restore。
 
 `InstructionsDiscovered` 是 v0.5 opt-in project instruction discovery 的 source report。payload 必须包含 `task_id` 和 `sources`；`sources` 只能记录 `AGENTS.md` / `CLAUDE.md` 的 source id、kind、absolute/relative path、precedence、placement、load status、byte counts、sha256、redaction status 和 warnings，不得包含 instruction text/content、secret、provider-private prompt 或 filesystem handle。
 
