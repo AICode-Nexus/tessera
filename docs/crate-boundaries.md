@@ -92,7 +92,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - NormalizedError。
 - provider-neutral extension metadata 类型。
 - SkillManifest / AgentProfile / ToolDescriptor 等只读 metadata schema。
-- v0.6 structured handoff / reviewer gate DTOs (`AgentHandoffSummary`, `HandoffEvidenceRef`, `ReviewerGateRequest`, `ReviewerGateDecision`) when implemented.
+- v0.6 structured handoff / reviewer gate DTOs (`AgentHandoffSummary`, `HandoffEvidenceRef`, `ReviewerGateRequest`, `ReviewerGateDecision`).
 
 允许依赖：
 
@@ -124,7 +124,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - v0.1 reserved type 的行为边界。
 - Skill / agent / tool metadata 的只读 registry foundation，以及 explicit read-only Skill Runtime v1 的 discovery/activation/context rendering。
 - No-tool single-agent loop 的 run/step lifecycle 编排。
-- Structured handoff / reviewer gate events 的 core-owned recording/routing when implemented; no persistent sub-agent scheduler before v0.6 gates are replayable.
+- Structured handoff / reviewer gate events 的 core-owned recording/routing; no persistent sub-agent scheduler before v0.6 gates are replayable.
 
 允许依赖：
 
@@ -296,7 +296,7 @@ TUI 是 view，不是 runtime。
 
 - UI-neutral intent。
 - status / message / task projection。
-- approval / memory / context / task ownership / future handoff-reviewer projection。
+- approval / memory / context / task ownership / handoff-reviewer projection。
 - trace record 到 view model 的纯函数转换。
 - keymap、command palette 和 GUI action 的共享 command schema。
 

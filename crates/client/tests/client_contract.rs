@@ -1,16 +1,18 @@
 use tessera_client::{
     ClientApprovalStatus, ClientContextBudgetSummary, ClientContextPlacement,
     ClientContextSourceKind, ClientIntent, ClientMemoryProposalStatus, ClientMessageRole,
-    ClientProjection, ClientSnapshot, ClientStatus,
+    ClientProjection, ClientReviewerGateStatus, ClientSnapshot, ClientStatus,
 };
 use tessera_protocol::{
-    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, ClientInstanceId, ContextId,
-    ContextPlacement, ContextReference, ContextSource, ContextSourceKind, CostEstimate,
-    ErrorSource, EventFrame, ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus,
-    NormalizedError, PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, RunEvent,
-    RuntimeInstanceId, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease,
-    TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, Timestamp, ToolApproval,
-    ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect,
+    AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, ApprovalId,
+    ApprovalStatus, ArtifactId, ArtifactKind, ClientInstanceId, ContextId, ContextPlacement,
+    ContextReference, ContextSource, ContextSourceKind, CostEstimate, ErrorSource, EventFrame,
+    EventRange, HandoffEvidenceKind, HandoffEvidenceRef, ItemId, MemoryProposal, MemoryProposalId,
+    MemoryProposalStatus, NormalizedError, PolicyDecisionId, PolicyOutcome, ProviderCapability,
+    ProviderId, ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest,
+    RunEvent, RuntimeInstanceId, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind,
+    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, Timestamp,
+    ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect,
 };
 
 #[test]
@@ -482,6 +484,182 @@ fn client_snapshot_projects_memory_proposals_for_ui_review() {
     assert_eq!(
         replayed.memory_proposals[0].reason.as_deref(),
         Some("user rejected")
+    );
+}
+
+fn handoff_summary(parent_task_id: TaskId, handoff_id: AgentHandoffId) -> AgentHandoffSummary {
+    AgentHandoffSummary {
+        handoff_id,
+        parent_task_id,
+        child_task_id: Some(TaskId::from_static("task_child_review")),
+        status: AgentHandoffStatus::Completed,
+        objective: "review protocol changes".to_string(),
+        summary: "Protocol changes are bounded to handoff metadata.".to_string(),
+        evidence: vec![HandoffEvidenceRef {
+            kind: HandoffEvidenceKind::TraceRange,
+            artifact_id: None,
+            trace_id: Some("trace_child_review".to_string()),
+            event_range: Some(EventRange {
+                start_seq: 10,
+                end_seq: 20,
+            }),
+            label: Some("child trace".to_string()),
+            summary: Some("child result evidence".to_string()),
+        }],
+        metrics: AgentHandoffMetrics {
+            steps_completed: 2,
+            input_tokens: Some(500),
+            output_tokens: Some(120),
+            estimated_cost: Some(CostEstimate {
+                amount: 0.01,
+                currency: "USD".to_string(),
+                input_cost: Some(0.004),
+                output_cost: Some(0.006),
+                cache_read_cost: None,
+                cache_write_cost: None,
+            }),
+        },
+        evidence_event_range: Some(EventRange {
+            start_seq: 10,
+            end_seq: 20,
+        }),
+    }
+}
+
+#[test]
+fn client_snapshot_projects_handoff_reviewer_state_from_live_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let parent_task_id = TaskId::from_static("task_parent_review");
+    let handoff_id = AgentHandoffId::from_static("handoff_review");
+    let gate_id = ReviewerGateId::from_static("gate_review");
+    let summary = handoff_summary(parent_task_id.clone(), handoff_id.clone());
+    let request = ReviewerGateRequest {
+        gate_id: gate_id.clone(),
+        handoff_id: handoff_id.clone(),
+        parent_task_id: parent_task_id.clone(),
+        requested_decisions: vec![
+            ReviewerDecisionKind::Accept,
+            ReviewerDecisionKind::Reject,
+            ReviewerDecisionKind::RequestRevision,
+        ],
+        evidence: summary.evidence.clone(),
+    };
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_handoff_live",
+        1,
+        RunEvent::AgentHandoffRecorded {
+            summary: summary.clone(),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_handoff_live",
+        2,
+        RunEvent::ReviewerGateRequested {
+            request: request.clone(),
+        },
+    ));
+
+    assert_eq!(snapshot.handoffs.len(), 1);
+    assert_eq!(snapshot.handoffs[0].handoff_id, handoff_id);
+    assert_eq!(snapshot.handoffs[0].parent_task_id, parent_task_id);
+    assert_eq!(snapshot.handoffs[0].status, AgentHandoffStatus::Completed);
+    assert_eq!(snapshot.handoffs[0].evidence.len(), 1);
+    assert_eq!(snapshot.handoffs[0].steps_completed, 2);
+    assert_eq!(snapshot.handoffs[0].estimated_cost, Some(0.01));
+
+    assert_eq!(snapshot.reviewer_gates.len(), 1);
+    assert_eq!(snapshot.reviewer_gates[0].gate_id, gate_id);
+    assert_eq!(
+        snapshot.reviewer_gates[0].status,
+        ClientReviewerGateStatus::Pending
+    );
+    assert_eq!(
+        snapshot.status.handoff_summary,
+        "handoffs 1 / reviews 1 pending"
+    );
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_handoff_live",
+        3,
+        RunEvent::ReviewerGateResolved {
+            decision: ReviewerGateDecision {
+                gate_id: ReviewerGateId::from_static("gate_review"),
+                handoff_id: AgentHandoffId::from_static("handoff_review"),
+                decision: ReviewerDecisionKind::Accept,
+                reviewer: "user".to_string(),
+                reason_code: "evidence_sufficient".to_string(),
+                comment: Some("accept bounded handoff".to_string()),
+            },
+        },
+    ));
+
+    assert_eq!(
+        snapshot.reviewer_gates[0].status,
+        ClientReviewerGateStatus::Accepted
+    );
+    assert_eq!(snapshot.reviewer_gates[0].reviewer.as_deref(), Some("user"));
+    assert_eq!(
+        snapshot.status.handoff_summary,
+        "handoffs 1 / reviews 0 pending"
+    );
+}
+
+#[test]
+fn client_snapshot_projects_handoff_reviewer_state_from_replayed_records() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    let parent_task_id = TaskId::from_static("task_parent_replay_review");
+    let handoff_id = AgentHandoffId::from_static("handoff_replay_review");
+    let gate_id = ReviewerGateId::from_static("gate_replay_review");
+    let summary = handoff_summary(parent_task_id.clone(), handoff_id.clone());
+    let request = ReviewerGateRequest {
+        gate_id: gate_id.clone(),
+        handoff_id: handoff_id.clone(),
+        parent_task_id,
+        requested_decisions: vec![ReviewerDecisionKind::RequestRevision],
+        evidence: summary.evidence.clone(),
+    };
+    let decision = ReviewerGateDecision {
+        gate_id: gate_id.clone(),
+        handoff_id: handoff_id.clone(),
+        decision: ReviewerDecisionKind::RequestRevision,
+        reviewer: "reviewer".to_string(),
+        reason_code: "needs_more_tests".to_string(),
+        comment: Some("attach test output evidence".to_string()),
+    };
+
+    for record in [
+        EventFrame::new(
+            "trace_handoff_replay",
+            1,
+            RunEvent::AgentHandoffRecorded { summary },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_handoff_replay",
+            2,
+            RunEvent::ReviewerGateRequested { request },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_handoff_replay",
+            3,
+            RunEvent::ReviewerGateResolved { decision },
+        )
+        .to_trace_record(),
+    ] {
+        snapshot.apply_trace_record(&record);
+    }
+
+    assert_eq!(snapshot.handoffs[0].handoff_id, handoff_id);
+    assert_eq!(snapshot.reviewer_gates[0].gate_id, gate_id);
+    assert_eq!(
+        snapshot.reviewer_gates[0].status,
+        ClientReviewerGateStatus::RevisionRequested
+    );
+    assert_eq!(
+        snapshot.reviewer_gates[0].reason_code.as_deref(),
+        Some("needs_more_tests")
     );
 }
 

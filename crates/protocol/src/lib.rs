@@ -1215,6 +1215,7 @@ pub struct WorkspaceCheckpoint {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct CostEstimate {
     pub amount: f64,
     pub currency: String,

@@ -3,9 +3,11 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tessera_protocol::{
-    ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind, ClientInstanceId, ContextId,
-    ContextPlacement, ContextReference, ContextSourceKind, EventFrame, ItemId, MemoryProposal,
-    MemoryProposalId, MemoryProposalStatus, RunEvent, RuntimeInstanceId, TaskId, TaskKind,
+    AgentHandoffId, AgentHandoffStatus, AgentHandoffSummary, ApprovalId, ApprovalStatus,
+    ArtifactId, ArtifactKind, ClientInstanceId, ContextId, ContextPlacement, ContextReference,
+    ContextSourceKind, EventFrame, EventRange, HandoffEvidenceRef, ItemId, MemoryProposal,
+    MemoryProposalId, MemoryProposalStatus, ReviewerDecisionKind, ReviewerGateDecision,
+    ReviewerGateId, ReviewerGateRequest, RunEvent, RuntimeInstanceId, TaskId, TaskKind,
     TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
     TaskReattachMode, TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolApproval,
     ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect, TraceRecord, TurnId,
@@ -464,6 +466,133 @@ impl ClientMemoryProposal {
     }
 }
 
+/// UI-neutral reviewer gate status shared by terminal and future GUI shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientReviewerGateStatus {
+    Pending,
+    Accepted,
+    Rejected,
+    RevisionRequested,
+}
+
+impl From<ReviewerDecisionKind> for ClientReviewerGateStatus {
+    fn from(decision: ReviewerDecisionKind) -> Self {
+        match decision {
+            ReviewerDecisionKind::Accept => Self::Accepted,
+            ReviewerDecisionKind::Reject => Self::Rejected,
+            ReviewerDecisionKind::RequestRevision => Self::RevisionRequested,
+        }
+    }
+}
+
+/// UI-neutral structured handoff projection.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientAgentHandoff {
+    pub handoff_id: AgentHandoffId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub status: AgentHandoffStatus,
+    pub objective: String,
+    pub summary: String,
+    pub evidence: Vec<HandoffEvidenceRef>,
+    pub steps_completed: u32,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub estimated_cost: Option<f64>,
+    pub cost_currency: Option<String>,
+    pub evidence_event_range: Option<EventRange>,
+}
+
+impl ClientAgentHandoff {
+    fn from_summary(summary: &AgentHandoffSummary) -> Self {
+        Self {
+            handoff_id: summary.handoff_id.clone(),
+            parent_task_id: summary.parent_task_id.clone(),
+            child_task_id: summary.child_task_id.clone(),
+            status: summary.status,
+            objective: summary.objective.clone(),
+            summary: summary.summary.clone(),
+            evidence: summary.evidence.clone(),
+            steps_completed: summary.metrics.steps_completed,
+            input_tokens: summary.metrics.input_tokens,
+            output_tokens: summary.metrics.output_tokens,
+            estimated_cost: summary
+                .metrics
+                .estimated_cost
+                .as_ref()
+                .map(|cost| cost.amount),
+            cost_currency: summary
+                .metrics
+                .estimated_cost
+                .as_ref()
+                .map(|cost| cost.currency.clone()),
+            evidence_event_range: summary.evidence_event_range.clone(),
+        }
+    }
+}
+
+/// UI-neutral reviewer gate projection.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientReviewerGate {
+    pub gate_id: ReviewerGateId,
+    pub handoff_id: AgentHandoffId,
+    pub parent_task_id: Option<TaskId>,
+    pub status: ClientReviewerGateStatus,
+    pub requested_decisions: Vec<ReviewerDecisionKind>,
+    pub decision: Option<ReviewerDecisionKind>,
+    pub reviewer: Option<String>,
+    pub reason_code: Option<String>,
+    pub comment: Option<String>,
+    pub evidence: Vec<HandoffEvidenceRef>,
+}
+
+impl ClientReviewerGate {
+    fn pending_from_request(request: &ReviewerGateRequest) -> Self {
+        Self {
+            gate_id: request.gate_id.clone(),
+            handoff_id: request.handoff_id.clone(),
+            parent_task_id: Some(request.parent_task_id.clone()),
+            status: ClientReviewerGateStatus::Pending,
+            requested_decisions: request.requested_decisions.clone(),
+            decision: None,
+            reviewer: None,
+            reason_code: None,
+            comment: None,
+            evidence: request.evidence.clone(),
+        }
+    }
+
+    fn from_decision(decision: &ReviewerGateDecision) -> Self {
+        let mut gate = Self {
+            gate_id: decision.gate_id.clone(),
+            handoff_id: decision.handoff_id.clone(),
+            parent_task_id: None,
+            status: ClientReviewerGateStatus::from(decision.decision),
+            requested_decisions: Vec::new(),
+            decision: None,
+            reviewer: None,
+            reason_code: None,
+            comment: None,
+            evidence: Vec::new(),
+        };
+        gate.apply_decision(decision);
+        gate
+    }
+
+    fn apply_decision(&mut self, decision: &ReviewerGateDecision) {
+        self.handoff_id = decision.handoff_id.clone();
+        self.status = ClientReviewerGateStatus::from(decision.decision);
+        self.decision = Some(decision.decision);
+        self.reviewer = Some(decision.reviewer.clone());
+        self.reason_code = Some(decision.reason_code.clone());
+        self.comment = decision.comment.clone();
+    }
+}
+
 /// Provider-neutral telemetry projection shared by terminal and future GUI shells.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
@@ -622,6 +751,8 @@ pub struct ClientStatus {
     pub artifact_summary: String,
     pub approval_summary: String,
     pub memory_summary: String,
+    #[serde(default)]
+    pub handoff_summary: String,
     pub usage_summary: String,
     pub cache_summary: String,
     pub cost_summary: String,
@@ -663,6 +794,7 @@ impl ClientStatus {
             artifact_summary: "artifacts 0".to_string(),
             approval_summary: "approvals 0 pending".to_string(),
             memory_summary: "memory 0 pending".to_string(),
+            handoff_summary: "handoffs 0 / reviews 0 pending".to_string(),
             usage_summary: "usage in 0 / out 0 / total 0".to_string(),
             cache_summary: "cache 0/0".to_string(),
             cost_summary: "CNY 0.0000".to_string(),
@@ -747,6 +879,18 @@ impl ClientStatus {
             .filter(|proposal| proposal.status == ClientMemoryProposalStatus::Pending)
             .count();
         self.memory_summary = format!("memory {pending} pending");
+    }
+
+    fn update_handoff_summary(
+        &mut self,
+        handoffs: &[ClientAgentHandoff],
+        gates: &[ClientReviewerGate],
+    ) {
+        let pending = gates
+            .iter()
+            .filter(|gate| gate.status == ClientReviewerGateStatus::Pending)
+            .count();
+        self.handoff_summary = format!("handoffs {} / reviews {pending} pending", handoffs.len());
     }
 
     fn update_context_handles_summary(
@@ -912,6 +1056,10 @@ pub struct ClientSnapshot {
     pub approvals: Vec<ClientApproval>,
     pub memory_proposals: Vec<ClientMemoryProposal>,
     #[serde(default)]
+    pub handoffs: Vec<ClientAgentHandoff>,
+    #[serde(default)]
+    pub reviewer_gates: Vec<ClientReviewerGate>,
+    #[serde(default)]
     pub context_handles: Vec<ClientContextHandle>,
     pub draft_input: String,
 }
@@ -935,6 +1083,8 @@ impl ClientSnapshot {
             artifacts: Vec::new(),
             approvals: Vec::new(),
             memory_proposals: Vec::new(),
+            handoffs: Vec::new(),
+            reviewer_gates: Vec::new(),
             context_handles: Vec::new(),
             draft_input: String::new(),
         }
@@ -1109,6 +1259,15 @@ impl ClientSnapshot {
             | RunEvent::MemoryWriteApplied { proposal }
             | RunEvent::MemoryWriteRejected { proposal } => {
                 self.record_memory_proposal(proposal);
+            }
+            RunEvent::AgentHandoffRecorded { summary } => {
+                self.record_handoff_summary(summary);
+            }
+            RunEvent::ReviewerGateRequested { request } => {
+                self.record_reviewer_gate_request(request);
+            }
+            RunEvent::ReviewerGateResolved { decision } => {
+                self.record_reviewer_gate_decision(decision);
             }
             RunEvent::TaskOwnerAttached { lease } => {
                 let task = self.task_mut_or_insert(&lease.task_id);
@@ -1397,6 +1556,30 @@ impl ClientSnapshot {
                     reason,
                 });
             }
+            "agent_handoff_recorded" => {
+                let Some(summary) =
+                    trace_payload::<AgentHandoffSummary>(record.payload.get("summary"))
+                else {
+                    return;
+                };
+                self.record_handoff_summary(&summary);
+            }
+            "reviewer_gate_requested" => {
+                let Some(request) =
+                    trace_payload::<ReviewerGateRequest>(record.payload.get("request"))
+                else {
+                    return;
+                };
+                self.record_reviewer_gate_request(&request);
+            }
+            "reviewer_gate_resolved" => {
+                let Some(decision) =
+                    trace_payload::<ReviewerGateDecision>(record.payload.get("decision"))
+                else {
+                    return;
+                };
+                self.record_reviewer_gate_decision(&decision);
+            }
             "task_owner_attached" => {
                 let Some(lease) = trace_payload::<TaskOwnerLease>(record.payload.get("lease"))
                 else {
@@ -1498,6 +1681,8 @@ impl ClientSnapshot {
         self.artifacts.clear();
         self.approvals.clear();
         self.memory_proposals.clear();
+        self.handoffs.clear();
+        self.reviewer_gates.clear();
         self.context_handles.clear();
         self.draft_input.clear();
         self.status.reset_telemetry();
@@ -1505,6 +1690,8 @@ impl ClientSnapshot {
         self.status.update_artifact_summary(&self.artifacts);
         self.status.update_approval_summary(&self.approvals);
         self.status.update_memory_summary(&self.memory_proposals);
+        self.status
+            .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
         self.status.update_context_handles_summary(
             &self.context_handles,
             &ClientContextBudgetSummary::default(),
@@ -1677,6 +1864,51 @@ impl ClientSnapshot {
             self.memory_proposals.push(proposal);
         }
         self.status.update_memory_summary(&self.memory_proposals);
+    }
+
+    fn record_handoff_summary(&mut self, summary: &AgentHandoffSummary) {
+        let handoff = ClientAgentHandoff::from_summary(summary);
+        if let Some(existing) = self
+            .handoffs
+            .iter_mut()
+            .find(|existing| existing.handoff_id == summary.handoff_id)
+        {
+            *existing = handoff;
+        } else {
+            self.handoffs.push(handoff);
+        }
+        self.status
+            .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
+    }
+
+    fn record_reviewer_gate_request(&mut self, request: &ReviewerGateRequest) {
+        let gate = ClientReviewerGate::pending_from_request(request);
+        if let Some(existing) = self
+            .reviewer_gates
+            .iter_mut()
+            .find(|existing| existing.gate_id == request.gate_id)
+        {
+            *existing = gate;
+        } else {
+            self.reviewer_gates.push(gate);
+        }
+        self.status
+            .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
+    }
+
+    fn record_reviewer_gate_decision(&mut self, decision: &ReviewerGateDecision) {
+        if let Some(existing) = self
+            .reviewer_gates
+            .iter_mut()
+            .find(|existing| existing.gate_id == decision.gate_id)
+        {
+            existing.apply_decision(decision);
+        } else {
+            self.reviewer_gates
+                .push(ClientReviewerGate::from_decision(decision));
+        }
+        self.status
+            .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
     }
 
     fn apply_artifact_refs_from_frame(&mut self, frame: &EventFrame) {

@@ -3,20 +3,24 @@
 use std::{fs, path::Path};
 
 use tessera_client::{
-    ClientApproval, ClientApprovalStatus, ClientArtifact, ClientContextBudgetSummary,
-    ClientContextHandle, ClientContextPlacement, ClientContextSourceKind, ClientIntent,
-    ClientMemoryProposal, ClientMemoryProposalStatus, ClientMessage, ClientMessageRole,
-    ClientProjection, ClientSnapshot, ClientStatus, ClientTask, ClientTelemetrySummary,
+    ClientAgentHandoff, ClientApproval, ClientApprovalStatus, ClientArtifact,
+    ClientContextBudgetSummary, ClientContextHandle, ClientContextPlacement,
+    ClientContextSourceKind, ClientIntent, ClientMemoryProposal, ClientMemoryProposalStatus,
+    ClientMessage, ClientMessageRole, ClientProjection, ClientReviewerGate,
+    ClientReviewerGateStatus, ClientSnapshot, ClientStatus, ClientTask, ClientTelemetrySummary,
 };
 use tessera_gui_bridge::{GuiCommandOutcome, GuiEvent, GuiProfile, GuiRuntimeMode, GuiShellState};
 use tessera_protocol::{
-    ApprovalId, ArtifactId, ArtifactKind, ClientInstanceId, ContextId, EventId, ItemId,
-    MemoryProposalId, RuntimeApiAuthMode, RuntimeApiAuthPolicy, RuntimeApiBindConfig,
-    RuntimeApiBindKind, RuntimeApiCommand, RuntimeApiCommandAck, RuntimeApiCommandEnvelope,
-    RuntimeApiCommandStatus, RuntimeApiEventStreamRequest, RuntimeApiQueueOverflow,
-    RuntimeApiQueuePolicy, RuntimeApiServerConfig, RuntimeInstanceId, TaskId, TaskKind,
-    TaskOwnerKind, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, ThreadId,
-    Timestamp, ToolCallId, ToolId, TraceRecord, TurnId,
+    AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, ApprovalId,
+    ArtifactId, ArtifactKind, ClientInstanceId, ContextId, CostEstimate, EventId, EventRange,
+    HandoffEvidenceKind, HandoffEvidenceRef, ItemId, MemoryProposalId, ReviewerDecisionKind,
+    ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RuntimeApiAuthMode,
+    RuntimeApiAuthPolicy, RuntimeApiBindConfig, RuntimeApiBindKind, RuntimeApiCommand,
+    RuntimeApiCommandAck, RuntimeApiCommandEnvelope, RuntimeApiCommandStatus,
+    RuntimeApiEventStreamRequest, RuntimeApiQueueOverflow, RuntimeApiQueuePolicy,
+    RuntimeApiServerConfig, RuntimeInstanceId, TaskId, TaskKind, TaskOwnerKind, TaskOwnerStatus,
+    TaskOwnershipId, TaskReattachMode, TaskStatus, ThreadId, Timestamp, ToolCallId, ToolId,
+    TraceRecord, TurnId,
 };
 use ts_rs::{Config, TS};
 
@@ -29,16 +33,21 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 ";
 
 const TRACE_EVENT_KIND_DECL: &str = "\
-export type TraceEventKind = \"thread_created\" | \"turn_started\" | \"user_message_recorded\" | \"provider_request_started\" | \"assistant_message_started\" | \"assistant_delta\" | \"assistant_reasoning_delta\" | \"assistant_message_completed\" | \"usage_reported\" | \"provider_capability_reported\" | \"route_decision_recorded\" | \"provider_request_completed\" | \"turn_completed\" | \"task_created\" | \"task_started\" | \"task_completed\" | \"task_failed\" | \"task_cancelled\" | \"task_pause_checkpoint_created\" | \"task_paused\" | \"task_resumed\" | \"runtime_instance_started\" | \"task_owner_attached\" | \"task_owner_heartbeat\" | \"task_owner_detached\" | \"task_owner_lost\" | \"task_reattach_recorded\" | \"agent_run_started\" | \"agent_step_started\" | \"agent_step_completed\" | \"agent_run_completed\" | \"no_progress_loop_detected\" | \"diagnostics_reported\" | \"memory_write_proposed\" | \"memory_write_applied\" | \"memory_write_rejected\" | \"artifact_created\" | \"snapshot_created\" | \"tool_call_requested\" | \"tool_policy_decision_recorded\" | \"sandbox_decision_recorded\" | \"os_sandbox_profile_selected\" | \"tool_dispatch_started\" | \"tool_dispatch_completed\" | \"tool_result\" | \"tool_repair_reported\" | \"tool_call_approved\" | \"tool_call_denied\" | \"error\" | \"done\";
+export type TraceEventKind = \"thread_created\" | \"turn_started\" | \"user_message_recorded\" | \"provider_request_started\" | \"assistant_message_started\" | \"assistant_delta\" | \"assistant_reasoning_delta\" | \"assistant_message_completed\" | \"usage_reported\" | \"provider_capability_reported\" | \"route_decision_recorded\" | \"provider_request_completed\" | \"turn_completed\" | \"task_created\" | \"task_started\" | \"task_completed\" | \"task_failed\" | \"task_cancelled\" | \"task_pause_checkpoint_created\" | \"task_paused\" | \"task_resumed\" | \"runtime_instance_started\" | \"task_owner_attached\" | \"task_owner_heartbeat\" | \"task_owner_detached\" | \"task_owner_lost\" | \"task_reattach_recorded\" | \"agent_run_started\" | \"agent_step_started\" | \"agent_step_completed\" | \"agent_run_completed\" | \"agent_handoff_recorded\" | \"reviewer_gate_requested\" | \"reviewer_gate_resolved\" | \"no_progress_loop_detected\" | \"diagnostics_reported\" | \"memory_write_proposed\" | \"memory_write_applied\" | \"memory_write_rejected\" | \"artifact_created\" | \"snapshot_created\" | \"tool_call_requested\" | \"tool_policy_decision_recorded\" | \"sandbox_decision_recorded\" | \"os_sandbox_profile_selected\" | \"tool_dispatch_started\" | \"tool_dispatch_completed\" | \"tool_result\" | \"tool_repair_reported\" | \"tool_call_approved\" | \"tool_call_denied\" | \"error\" | \"done\";
 ";
 
 pub fn generate_bindings() -> String {
     let cfg = Config::new().with_large_int("number");
     let mut output = String::from(HEADER);
 
+    push_decl::<AgentHandoffId>(&mut output, &cfg);
+    push_decl::<AgentHandoffMetrics>(&mut output, &cfg);
+    push_decl::<AgentHandoffStatus>(&mut output, &cfg);
+    push_decl::<AgentHandoffSummary>(&mut output, &cfg);
     push_decl::<ArtifactId>(&mut output, &cfg);
     push_decl::<ArtifactKind>(&mut output, &cfg);
     push_decl::<ApprovalId>(&mut output, &cfg);
+    push_decl::<ClientAgentHandoff>(&mut output, &cfg);
     push_decl::<ClientApproval>(&mut output, &cfg);
     push_decl::<ClientApprovalStatus>(&mut output, &cfg);
     push_decl::<ClientArtifact>(&mut output, &cfg);
@@ -53,19 +62,29 @@ pub fn generate_bindings() -> String {
     push_decl::<ClientMessage>(&mut output, &cfg);
     push_decl::<ClientMessageRole>(&mut output, &cfg);
     push_decl::<ClientProjection>(&mut output, &cfg);
+    push_decl::<ClientReviewerGate>(&mut output, &cfg);
+    push_decl::<ClientReviewerGateStatus>(&mut output, &cfg);
     push_decl::<ClientSnapshot>(&mut output, &cfg);
     push_decl::<ClientStatus>(&mut output, &cfg);
     push_decl::<ClientTask>(&mut output, &cfg);
     push_decl::<ClientTelemetrySummary>(&mut output, &cfg);
     push_decl::<ContextId>(&mut output, &cfg);
+    push_decl::<CostEstimate>(&mut output, &cfg);
     push_decl::<EventId>(&mut output, &cfg);
+    push_decl::<EventRange>(&mut output, &cfg);
     push_decl::<GuiCommandOutcome>(&mut output, &cfg);
     push_decl::<GuiEvent>(&mut output, &cfg);
     push_decl::<GuiProfile>(&mut output, &cfg);
     push_decl::<GuiRuntimeMode>(&mut output, &cfg);
     push_decl::<GuiShellState>(&mut output, &cfg);
+    push_decl::<HandoffEvidenceKind>(&mut output, &cfg);
+    push_decl::<HandoffEvidenceRef>(&mut output, &cfg);
     push_decl::<ItemId>(&mut output, &cfg);
     push_decl::<MemoryProposalId>(&mut output, &cfg);
+    push_decl::<ReviewerDecisionKind>(&mut output, &cfg);
+    push_decl::<ReviewerGateDecision>(&mut output, &cfg);
+    push_decl::<ReviewerGateId>(&mut output, &cfg);
+    push_decl::<ReviewerGateRequest>(&mut output, &cfg);
     push_decl::<RuntimeApiAuthMode>(&mut output, &cfg);
     push_decl::<RuntimeApiAuthPolicy>(&mut output, &cfg);
     push_decl::<RuntimeApiBindConfig>(&mut output, &cfg);
