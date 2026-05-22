@@ -1853,6 +1853,151 @@ async fn agent_loop_drives_mock_provider_and_persists_trace() {
 }
 
 #[tokio::test]
+async fn agent_loop_records_task_owner_attach_and_detach() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let loop_runner = AgentLoop::new(MockProvider::default(), store);
+
+    let outcome = loop_runner
+        .run_agent(mock_agent_request("summarize owner status"))
+        .await
+        .unwrap();
+
+    let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let event_kinds = records
+        .iter()
+        .map(|record| record.event_kind.as_str())
+        .collect::<Vec<_>>();
+    let task_started = event_kinds
+        .iter()
+        .position(|kind| *kind == "task_started")
+        .unwrap();
+    let owner_attached = event_kinds
+        .iter()
+        .position(|kind| *kind == "task_owner_attached")
+        .unwrap();
+    let task_completed = event_kinds
+        .iter()
+        .position(|kind| *kind == "task_completed")
+        .unwrap();
+    let owner_detached = event_kinds
+        .iter()
+        .position(|kind| *kind == "task_owner_detached")
+        .unwrap();
+
+    assert!(task_started < owner_attached);
+    assert!(owner_attached < task_completed);
+    assert!(task_completed < owner_detached);
+    assert_eq!(event_kinds.last(), Some(&"done"));
+
+    let attached = records
+        .iter()
+        .find(|record| record.event_kind == "task_owner_attached")
+        .unwrap();
+    assert_eq!(attached.payload["lease"]["owner_kind"], "execution");
+    assert_eq!(attached.payload["lease"]["status"], "attached");
+    assert_eq!(
+        attached.payload["lease"]["task_id"],
+        outcome.task_id.as_str()
+    );
+
+    let encoded_payloads = records
+        .iter()
+        .map(|record| record.payload.to_string())
+        .collect::<String>();
+    assert!(!encoded_payloads.contains("authorization"));
+    assert!(!encoded_payloads.contains("api_key"));
+    assert!(!encoded_payloads.contains("cookie"));
+    assert!(!encoded_payloads.contains("socket"));
+    assert!(!encoded_payloads.contains("env"));
+
+    let reader = RuntimeReader::new(outcome.store);
+    let owners = reader.list_task_owners("trace_agent_mock").unwrap();
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].task_id, outcome.task_id);
+    assert_eq!(owners[0].status, TaskOwnerStatus::Detached);
+    assert_eq!(
+        owners[0].reattach_mode,
+        TaskReattachMode::TerminalProjection
+    );
+}
+
+#[tokio::test]
+async fn agent_loop_records_paused_task_owner_as_resume_from_checkpoint() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let loop_runner = AgentLoop::new(MockProvider::default(), store);
+    let pause_token = RunPauseToken::new();
+    pause_token.pause("operator paused owner test");
+
+    let outcome = loop_runner
+        .run_agent_with_controls_and_event_sink(
+            mock_agent_request("pause owner test"),
+            RunControls {
+                event_timeout: None,
+                cancellation_token: None,
+                pause_token: Some(pause_token),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.status, TaskStatus::Paused);
+    let reader = RuntimeReader::new(outcome.store);
+    let owners = reader.list_task_owners(&outcome.trace_id).unwrap();
+
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].task_id, outcome.task_id);
+    assert_eq!(owners[0].status, TaskOwnerStatus::Detached);
+    assert_eq!(
+        owners[0].reattach_mode,
+        TaskReattachMode::ResumeFromCheckpoint
+    );
+    assert!(owners[0].checkpoint_id.is_some());
+    assert_eq!(
+        owners[0].reason.as_deref(),
+        Some("operator paused owner test")
+    );
+}
+
+#[tokio::test]
+async fn conversation_engine_records_task_owner_attach_and_detach() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let engine = ConversationEngine::new(MockProvider::default(), store);
+
+    let outcome = engine
+        .run_chat(ConversationRequest::mock("hello owner core"))
+        .await
+        .unwrap();
+
+    let records = outcome.store.read_trace_records(&outcome.trace_id).unwrap();
+    let event_kinds = records
+        .iter()
+        .map(|record| record.event_kind.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(event_kinds.contains(&"task_owner_attached"));
+    assert!(event_kinds.contains(&"task_owner_detached"));
+    assert_eq!(event_kinds.last(), Some(&"done"));
+
+    let reader = RuntimeReader::new(outcome.store);
+    let owners = reader.list_task_owners("trace_mock").unwrap();
+    let tasks = reader.list_tasks("trace_mock").unwrap();
+
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].kind, Some(TaskKind::Chat));
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].task_id, tasks[0].task_id);
+    assert_eq!(owners[0].status, TaskOwnerStatus::Detached);
+    assert_eq!(
+        owners[0].reattach_mode,
+        TaskReattachMode::TerminalProjection
+    );
+}
+
+#[tokio::test]
 async fn agent_loop_includes_instruction_context_and_traces_metadata_without_content() {
     let workspace = tempfile::tempdir().unwrap();
     std::fs::write(

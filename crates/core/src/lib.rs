@@ -2716,6 +2716,7 @@ struct RunContext {
     provider_id: ProviderId,
     profile_id: ModelProfileId,
     model: String,
+    owner_lease: Option<TaskOwnerLease>,
     seq: u64,
 }
 
@@ -3748,6 +3749,33 @@ fn task_owner_default_reattach_mode(status: TaskOwnerStatus) -> TaskReattachMode
     }
 }
 
+fn core_execution_owner_lease(context: &RunContext, reason: impl Into<String>) -> TaskOwnerLease {
+    TaskOwnerLease {
+        lease_id: TaskOwnershipId::new(),
+        task_id: context.task_id.clone(),
+        trace_id: context.trace_id.clone(),
+        runtime_id: RuntimeInstanceId::new(),
+        client_id: None,
+        owner_kind: TaskOwnerKind::Execution,
+        status: TaskOwnerStatus::Attached,
+        acquired_at: Timestamp::now_utc(),
+        heartbeat_interval_ms: 10_000,
+        expires_at: None,
+        last_heartbeat_at: None,
+        last_seq: Some(context.seq.saturating_sub(1)),
+        reason: Some(reason.into()),
+    }
+}
+
+fn task_owner_detached_event(context: &RunContext, reason: impl Into<String>) -> Option<RunEvent> {
+    let lease = context.owner_lease.as_ref()?;
+    Some(RunEvent::TaskOwnerDetached {
+        lease_id: lease.lease_id.clone(),
+        task_id: lease.task_id.clone(),
+        reason: Some(reason.into()),
+    })
+}
+
 fn apply_artifact_record(artifacts: &mut Vec<RuntimeArtifactSummary>, record: &TraceRecord) {
     if record.event_kind == "artifact_created" {
         if let Some(artifact_id) = trace_record_artifact_id(record) {
@@ -3975,6 +4003,7 @@ where
             provider_id: request.provider_id.clone(),
             profile_id: request.profile_id.clone(),
             model: request.model.clone(),
+            owner_lease: None,
             seq: 1,
         };
         let task_id = context.task_id.clone();
@@ -4032,6 +4061,11 @@ where
         });
         append_event!(RunEvent::TaskStarted {
             task_id: task_id.clone(),
+        });
+        let lease = core_execution_owner_lease(&context, "agent run started");
+        context.owner_lease = Some(lease.clone());
+        append_event!(RunEvent::TaskOwnerAttached {
+            lease: Box::new(lease),
         });
         let thread_id = context.thread_id.clone();
         append_event!(RunEvent::ThreadCreated { thread_id });
@@ -4428,6 +4462,9 @@ where
         append_event!(RunEvent::TaskCompleted {
             task_id: task_id.clone(),
         });
+        if let Some(event) = task_owner_detached_event(&context, "agent run completed") {
+            let _ = self.append_contextual(&mut context, event, &mut event_sink)?;
+        }
         append_event!(RunEvent::Done);
 
         Ok(AgentRunOutcome {
@@ -4461,6 +4498,9 @@ where
             },
             event_sink,
         )?;
+        if let Some(event) = task_owner_detached_event(context, reason.clone()) {
+            let _ = self.append_contextual(context, event, event_sink)?;
+        }
         let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
         let summary = agent_run_summary(
             &task_id,
@@ -4531,6 +4571,9 @@ where
             },
             event_sink,
         )?;
+        if let Some(event) = task_owner_detached_event(context, reason.clone()) {
+            let _ = self.append_contextual(context, event, event_sink)?;
+        }
         let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
         let summary = agent_run_summary(
             &task_id,
@@ -4596,6 +4639,9 @@ where
             },
             event_sink,
         )?;
+        if let Some(event) = task_owner_detached_event(context, normalized.message.clone()) {
+            let _ = self.append_contextual(context, event, event_sink)?;
+        }
         let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
         let _summary = agent_run_summary(
             &task_id,
@@ -4722,6 +4768,7 @@ where
             provider_id: request.provider_id.clone(),
             profile_id: request.profile_id.clone(),
             model: request.model.clone(),
+            owner_lease: None,
             seq: 1,
         };
         let user_item_id = ItemId::new();
@@ -4755,6 +4802,11 @@ where
         });
         let task_id = context.task_id.clone();
         append_event!(RunEvent::TaskStarted { task_id });
+        let lease = core_execution_owner_lease(&context, "chat run started");
+        context.owner_lease = Some(lease.clone());
+        append_event!(RunEvent::TaskOwnerAttached {
+            lease: Box::new(lease),
+        });
         let thread_id = context.thread_id.clone();
         append_event!(RunEvent::ThreadCreated { thread_id });
         let turn_id = context.turn_id.clone();
@@ -5000,6 +5052,9 @@ where
         append_event!(RunEvent::TurnCompleted { turn_id });
         let task_id = context.task_id.clone();
         append_event!(RunEvent::TaskCompleted { task_id });
+        if let Some(event) = task_owner_detached_event(&context, "chat run completed") {
+            let _ = self.append_contextual(&mut context, event, &mut event_sink)?;
+        }
         append_event!(RunEvent::Done);
 
         Ok(ConversationOutcome {
@@ -5026,10 +5081,13 @@ where
             context,
             RunEvent::TaskCancelled {
                 task_id,
-                reason: Some(reason),
+                reason: Some(reason.clone()),
             },
             event_sink,
         )?;
+        if let Some(event) = task_owner_detached_event(context, reason) {
+            let _ = self.append_contextual(context, event, event_sink)?;
+        }
         let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
 
         Ok(ConversationOutcome {
@@ -5081,10 +5139,13 @@ where
             context,
             RunEvent::TaskPaused {
                 task_id,
-                reason: Some(reason),
+                reason: Some(reason.clone()),
             },
             event_sink,
         )?;
+        if let Some(event) = task_owner_detached_event(context, reason) {
+            let _ = self.append_contextual(context, event, event_sink)?;
+        }
         let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
 
         Ok(ConversationOutcome {
@@ -5117,10 +5178,13 @@ where
             context,
             RunEvent::TaskFailed {
                 task_id,
-                error: normalized,
+                error: normalized.clone(),
             },
             event_sink,
         )?;
+        if let Some(event) = task_owner_detached_event(context, normalized.message.clone()) {
+            let _ = self.append_contextual(context, event, event_sink)?;
+        }
         let _ = self.append_contextual(context, RunEvent::Done, event_sink)?;
 
         Err(CoreError::Provider(error))
