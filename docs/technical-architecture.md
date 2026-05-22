@@ -1,6 +1,6 @@
 # Tessera Technical Architecture
 
-日期：2026-05-20
+日期：2026-05-22
 
 ## 1. 定位
 
@@ -15,7 +15,7 @@ Tessera 是一个 Rust-first、AI-friendly、agent-ready 的本地终端大模�
 - Replayable：所有运行都能通过 JSONL trace 回放和审计。
 - Auditable：未来所有工具调用必须经过 policy gate。
 - AI-friendly：代码边界小、协议清晰、fixture/replay 完整，方便 AI 稳定参与开发。
-- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已加入 no-tool single-agent loop、opt-in project instruction discovery/source reporting、explicit read-only Skill Runtime v1，并完成 background task ownership 的 trace-backed protocol / recorder / projection foundation 以及 no-tool chat/agent run owner attach/detach；工具、executable skills、默认/全局指令加载、background reattach 和多 agent 仍必须按门禁推进。
+- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已收口为 no-tool single-agent loop、opt-in project instruction discovery/source reporting、explicit read-only Skill Runtime v1、background task ownership trace-backed foundation、no-tool chat/agent run owner attach/detach 和 runtime API/app-server DTO alignment；v0.6 首个门禁是 structured handoff / reviewer gate foundation；工具、executable skills、默认/全局指令加载、background reattach、多 agent runtime 和 swarm 仍必须按门禁推进。
 
 ## 2. 技术选型
 
@@ -187,7 +187,7 @@ Tessera 的长期目标不是只做一个聊天终端，而是形成 CLI、TUI�
 - `Task`：chat run、agent run、subagent、tool run、automation job、learning job 都必须有可取消、可暂停、可恢复或可解释失败的生命周期。
 - `TaskOwnership`：future background tasks must have execution owner, observer, heartbeat, lost-owner and reattach metadata in trace before GUI/app-server/automation can control them. Current v0.5 foundation provides the protocol events, core recorder/projection, client projection, CLI read-only owner listing, and automatic owner attach/detach around no-tool chat/agent runs, but not daemon ownership transfer or provider socket freezing.
 - `Artifact`：diff、patch、test report、terminal output、browser evidence、subagent transcript、large provider metadata 都不应直接塞进上下文。
-- `Approval`：用户审批、reviewer gate、policy decision、GUI diff review 都必须 trace-backed。
+- `Approval` / `ReviewerGate`：用户审批、reviewer gate、policy decision、GUI diff review 都必须 trace-backed；v0.6 first foundation records handoff summaries, bounded evidence refs and reviewer decisions before any persistent sub-agent runtime.
 - `InstructionSource` / `ContextReference`：`AGENTS.md`、未来 `CLAUDE.md`、skills、hook output、MCP metadata 都只能作为有来源、有上限、可审计的 context 输入。
 - `RuntimeApi`：GUI、IDE、automation 和 remote client 只通过 typed messages / bounded queues / generated schemas 访问 core。Current v0.5 alignment provides `RuntimeApi*` DTOs, localhost-safe default bind/auth/queue metadata, generated TypeScript schema evidence, read-only event stream request mapping, and a bounded SSE frame buffer, but not a listening app-server.
 

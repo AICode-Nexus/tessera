@@ -58,6 +58,8 @@ pub struct ContextId(String);
 pub struct DiagnosticReportId(String);
 pub struct MemoryProposalId(String);
 pub struct AgentProfileId(String);
+pub struct AgentHandoffId(String);
+pub struct ReviewerGateId(String);
 ```
 
 ID 生成策略：
@@ -561,6 +563,18 @@ pub enum RunEvent {
 
 `AgentRunStarted` / `AgentStepStarted` / `AgentStepCompleted` / `AgentRunCompleted` 是 v0.5 no-tool single-agent loop 的标准生命周期事件。它们记录 `TaskKind::AgentRun` 的 provider-neutral run envelope、step index、step status、final summary 和 event evidence range；不得包含 provider-private raw response、hidden reasoning、tool output、shell command、file diff、secret 或 runtime handle。
 
+v0.6 first foundation will promote structured handoff/reviewer gate from reserved naming into concrete provider-neutral events:
+
+```rust
+pub enum PlannedV06RunEvent {
+    AgentHandoffRecorded { summary: AgentHandoffSummary },
+    ReviewerGateRequested { request: ReviewerGateRequest },
+    ReviewerGateResolved { decision: ReviewerGateDecision },
+}
+```
+
+These events are contract-first and replay-first. They do not start persistent child-agent runtime, execute tools, mutate workspaces, approve file diffs, or create a swarm scheduler.
+
 仍只预留、不执行的事件：
 
 ```rust
@@ -820,6 +834,81 @@ pub struct AgentRunSummary {
 ```
 
 `AgentProfile` 不包含 command、executable、shell、provider-private handle 或 runtime state。`AgentStepSummary` 和 `AgentRunSummary` 只记录 provider-neutral lifecycle/result metadata。Skill activation 已通过 `SkillActivated` 标准事件表达；后续 executable skill steps、tool request、handoff 和 completion 必须继续通过 core/protocol/trace 的标准事件表达。
+
+### Structured Handoff And Reviewer Gate Schema
+
+v0.6 first foundation defines structured handoff and reviewer gate records before any persistent sub-agent runtime. A handoff is a compact, replayable summary from a child or delegated task back to a parent task. A reviewer gate is a trace-backed decision point over that handoff and its evidence.
+
+```rust
+pub enum AgentHandoffStatus {
+    Completed,
+    Failed,
+    Paused,
+    Cancelled,
+}
+
+pub enum HandoffEvidenceKind {
+    TraceRange,
+    TranscriptArtifact,
+    SummaryArtifact,
+    DiffArtifact,
+    DiagnosticArtifact,
+    TestOutputArtifact,
+}
+
+pub struct HandoffEvidenceRef {
+    pub kind: HandoffEvidenceKind,
+    pub artifact_id: Option<ArtifactId>,
+    pub trace_id: Option<String>,
+    pub event_range: Option<EventRange>,
+    pub label: Option<String>,
+    pub summary: Option<String>,
+}
+
+pub struct AgentHandoffMetrics {
+    pub steps_completed: u32,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub estimated_cost: Option<CostEstimate>,
+}
+
+pub struct AgentHandoffSummary {
+    pub handoff_id: AgentHandoffId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub status: AgentHandoffStatus,
+    pub objective: String,
+    pub summary: String,
+    pub evidence: Vec<HandoffEvidenceRef>,
+    pub metrics: AgentHandoffMetrics,
+    pub evidence_event_range: Option<EventRange>,
+}
+
+pub enum ReviewerDecisionKind {
+    Accept,
+    Reject,
+    RequestRevision,
+}
+
+pub struct ReviewerGateRequest {
+    pub gate_id: ReviewerGateId,
+    pub handoff_id: AgentHandoffId,
+    pub parent_task_id: TaskId,
+    pub requested_decisions: Vec<ReviewerDecisionKind>,
+    pub evidence: Vec<HandoffEvidenceRef>,
+}
+
+pub struct ReviewerGateDecision {
+    pub gate_id: ReviewerGateId,
+    pub handoff_id: AgentHandoffId,
+    pub decision: ReviewerDecisionKind,
+    pub reviewer: String,
+    pub reason_code: String,
+    pub comment: Option<String>,
+}
+```
+
+`HandoffEvidenceRef` is metadata only. It may point at trace ranges or artifact IDs, but must not inline full transcripts, file contents, shell output, provider-private raw responses, hidden reasoning, API keys, cookies, authorization headers, or workspace diffs. `ReviewerGateDecision` records review state only; file mutation, Git mutation, checkpoint restore, and tool execution remain future v0.7+ gates.
 
 ## 9. Tool Descriptor / Policy / Dispatch / Repair Schema
 

@@ -77,6 +77,8 @@ Agent profile v0.5 foundation 的 `AgentProfile` 是 runtime metadata schema，�
 
 Project instruction discovery v0.5 使用 `instructions_discovered` trace event 记录 source report。该 event 只允许保存 `InstructionSource` metadata，不允许保存 `AGENTS.md` / `CLAUDE.md` 正文、provider prompt fragment、secret 或文件句柄。
 
+v0.6 structured handoff and reviewer gate foundation will use trace events for compact summaries and review decisions. Child transcripts, diffs, diagnostics and test outputs must stay behind artifact or trace-range references; handoff events must not inline large evidence or secrets.
+
 ## 4. Event Kind
 
 当前必须支持（v0.1 基线 + v0.2-v0.5 foundation/runtime signals）：
@@ -152,6 +154,18 @@ Runtime API / app-server alignment DTOs are not trace events by themselves. They
 
 这些 agent events 只表示 no-tool single-agent loop 生命周期。它们不得包含 provider-private raw response、hidden reasoning、tool output、shell command、file diff、secret、provider socket handle 或 background task handle。
 
+v0.6 first foundation reserves these concrete event names for structured handoff and reviewer gates:
+
+```text
+agent_handoff_recorded
+reviewer_gate_requested
+reviewer_gate_resolved
+```
+
+`agent_handoff_recorded` payload must contain `summary`, including handoff id, parent task id, optional child task id, status, objective, short summary, bounded evidence refs, metrics and optional evidence event range. `reviewer_gate_requested` payload must contain `request`, including gate id, handoff id, parent task id, requested decision kinds and evidence refs. `reviewer_gate_resolved` payload must contain `decision`, including gate id, handoff id, decision kind, reviewer label, reason code and optional comment.
+
+These events do not imply persistent child-agent runtime. They only make handoff and review state replayable for CLI/TUI/GUI/runtime API clients.
+
 仍只保留命名，不触发功能：
 
 ```text
@@ -185,6 +199,14 @@ window_layout_changed
 {"schema_version":1,"trace_id":"trace_01","seq":9,"event_id":"evt_09","timestamp":"2026-05-14T09:00:00.080Z","thread_id":"thread_01","turn_id":"turn_01","item_id":"item_assistant_01","task_id":"task_01","event_kind":"assistant_delta","payload":{"item_id":"item_assistant_01","text":"Hello"},"extension":null,"artifact_refs":[]}
 {"schema_version":1,"trace_id":"trace_01","seq":10,"event_id":"evt_10","timestamp":"2026-05-14T09:00:00.090Z","thread_id":"thread_01","turn_id":"turn_01","item_id":null,"task_id":"task_01","event_kind":"usage_reported","payload":{"input_tokens":10,"output_tokens":1,"total_tokens":11,"cache_read_tokens":0,"cache_write_tokens":0,"cache_miss_tokens":10,"latency_ms":15,"estimated_cost":null},"extension":null,"artifact_refs":[]}
 {"schema_version":1,"trace_id":"trace_01","seq":11,"event_id":"evt_11","timestamp":"2026-05-14T09:00:00.100Z","thread_id":"thread_01","turn_id":"turn_01","item_id":null,"task_id":"task_01","event_kind":"done","payload":{},"extension":null,"artifact_refs":[]}
+```
+
+Planned v0.6 handoff/reviewer gate examples:
+
+```jsonl
+{"schema_version":1,"trace_id":"trace_02","seq":41,"event_id":"evt_41","timestamp":"2026-05-22T09:00:00.000Z","thread_id":"thread_02","turn_id":null,"item_id":null,"task_id":"task_parent","event_kind":"agent_handoff_recorded","payload":{"summary":{"handoff_id":"handoff_01","parent_task_id":"task_parent","child_task_id":"task_child","status":"completed","objective":"review the protocol contract","summary":"Protocol changes are bounded to handoff and reviewer metadata.","evidence":[{"kind":"trace_range","artifact_id":null,"trace_id":"trace_02","event_range":{"start_seq":12,"end_seq":40},"label":"child trace","summary":"Child task lifecycle and result summary."}],"metrics":{"steps_completed":3,"input_tokens":1000,"output_tokens":250,"estimated_cost":null},"evidence_event_range":{"start_seq":12,"end_seq":40}}},"extension":null,"artifact_refs":[]}
+{"schema_version":1,"trace_id":"trace_02","seq":42,"event_id":"evt_42","timestamp":"2026-05-22T09:00:00.100Z","thread_id":"thread_02","turn_id":null,"item_id":null,"task_id":"task_parent","event_kind":"reviewer_gate_requested","payload":{"request":{"gate_id":"gate_01","handoff_id":"handoff_01","parent_task_id":"task_parent","requested_decisions":["accept","reject","request_revision"],"evidence":[{"kind":"trace_range","artifact_id":null,"trace_id":"trace_02","event_range":{"start_seq":12,"end_seq":40},"label":"child trace","summary":"Child task lifecycle and result summary."}]}},"extension":null,"artifact_refs":[]}
+{"schema_version":1,"trace_id":"trace_02","seq":43,"event_id":"evt_43","timestamp":"2026-05-22T09:00:00.200Z","thread_id":"thread_02","turn_id":null,"item_id":null,"task_id":"task_parent","event_kind":"reviewer_gate_resolved","payload":{"decision":{"gate_id":"gate_01","handoff_id":"handoff_01","decision":"accept","reviewer":"user","reason_code":"evidence_sufficient","comment":"Accept handoff summary; no workspace mutation occurred."}},"extension":null,"artifact_refs":[]}
 ```
 
 ## 6. SQLite Index

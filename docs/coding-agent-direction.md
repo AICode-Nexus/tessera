@@ -1,6 +1,6 @@
 # Coding-Agent Direction For Tessera
 
-日期：2026-05-19
+日期：2026-05-22
 
 本文把 DeepSeek-TUI、Reasonix、Codex CLI / App / App Server、Claude Code CLI / Desktop / Web 的方向沉淀为 Tessera 的产品和架构约束。它不是竞品功能清单，也不是要求逐项复刻。它回答一个问题：Tessera 要发展成现代 coding agent workbench 时，哪些能力必须提前设计成一等公民。
 
@@ -38,9 +38,9 @@ Tessera 只吸收长期结构：
 
 Tessera 处理方式：
 
-- v0.5 前只保留 chat/resume/tasks 等 headless primitives；不急着追平完整 coding-agent CLI。
-- v0.5 设计单 agent loop 时，同时定义 non-interactive agent run 的输入/输出 envelope，但先禁止 file mutation。
-- v0.5 设计 project instruction discovery：`AGENTS.md`、未来 `CLAUDE.md` / fallback names 只能作为 context references 进入 trace，必须有 precedence、byte limit、redaction 和 loaded-source report。
+- v0.5 已收口为 foundation-stable：chat/resume/tasks、no-tool single-agent loop、opt-in project instructions、explicit read-only skills、task ownership metadata 和 runtime API DTOs 可用，但不声称完整 coding-agent CLI。
+- v0.5 的 non-interactive agent run 只提供无工具、无文件修改的输入/输出 envelope。
+- v0.5 的 project instruction discovery 只支持 opt-in `AGENTS.md` / `CLAUDE.md` source report；default/global/user loading、Claude imports 和 `.claude/` 兼容性继续等待 precedence、byte limit、redaction 和 trace-reference gate。
 - v0.7 才进入 apply-patch、diff/test/checkpoint/rollback 和 code review command 方向。
 - runtime API / app-server 必须是 core 的薄协议壳，不能成为第二套 runtime。
 
@@ -58,7 +58,7 @@ Tessera 处理方式：
 Tessera 处理方式：
 
 - v0.2 的 GUI shell 只做 mock/replay 和 read-only projection 是正确的。
-- v0.5-v0.6 应先让 GUI 展示真实 task lifecycle、approvals、artifacts、background reattach 和 runtime events。
+- v0.5-v0.6 应先让 GUI 展示真实 task lifecycle、approvals、artifacts、task ownership metadata、handoff evidence 和 runtime events；background reattach 仍等待 app-server/listener/daemon owner gate。
 - v0.7 后 GUI 才能提供 Git/diff/review/patch controls，并且每个操作都要映射为 typed client intent 和 trace event。
 - Worktree mode 应成为 coding-agent workflow 的首选写入模式；local mode 只能在明确 scope 下启用。
 - Automations 后置到 task runtime、skills、worktree、sandbox、notifications 和 failure reporting 稳定之后。
@@ -76,8 +76,8 @@ Tessera 处理方式：
 
 Tessera 处理方式：
 
-- v0.5 skill runtime v1 优先兼容 `SKILL.md`，并记录 skill activation / step events。
-- v0.6 subagents 必须有 per-agent scope、model、tool permissions、memory scope、timeout、cost and depth limits。
+- v0.5 skill runtime v1 优先兼容 `SKILL.md`，并记录 explicit activation metadata；executable skills、default/global loading 和 skill install/update/delete 仍等待 future skill/tool policy gate。
+- v0.6 subagents 必须先有 handoff summary、evidence refs、reviewer gate、per-agent scope、model、tool permissions、memory scope、timeout、cost and depth limits。
 - v0.6 reviewer gate 是 subagent workflow 的最小安全闭环；没有 reviewer gate 不做 swarm。
 - Hook runtime 不早于 tool/policy/sandbox/checkpoint；hook 只能订阅标准 event，输出只能是 context、decision request 或 traced command proposal。
 - Background task 不是“把进程藏起来”；它必须有 owner、cancel、pause、resume/reattach、log/artifact、failure summary 和 replay contract。
@@ -115,22 +115,32 @@ Tessera 后续产品面应按同一运行时对象展开。
 
 ## 4. Roadmap Implications
 
-### v0.5 Must Tighten
+### v0.5 Is Foundation-Stable
 
-v0.5 should not only say "single agent loop". It must include:
+v0.5 is closed as foundation-stable, not runtime-complete. It includes:
 
 - Agent run envelope: input, active profile, context refs, instruction sources, stop policy, output summary.
 - Non-interactive run shape: machine-readable result, trace id, task id, evidence refs, exit status.
 - Project instruction discovery foundation: loaded-source report, precedence, byte limit, fallback names, redaction.
 - Skill runtime v1 foundation: `SKILL.md` discovery, activation trace, read-only references, no unchecked scripts.
-- Background task ownership: owner client, cancel/pause semantics, logs/artifacts, reattach summary.
+- Background task ownership: owner client metadata, cancel/pause semantics, heartbeat/lost-owner projection and explicit reattach outcome metadata.
 - App-server design alignment: JSON / JSON-RPC-compatible message shape, bounded queues, generated DTO/schema, localhost default. Current foundation covers metadata/schema shape only; listener, daemon ownership, remote control and provider execution remain gated.
+
+Deferred beyond v0.5:
+
+- Executable/default/global skills and skill install/update/delete.
+- Default/global/user instruction loading, Claude imports and `.claude/` compatibility.
+- Durable background reattach, app-server listener, provider socket freezing and runtime ownership transfer after process exit.
+- Non-chat task resume and real checkpoint restore.
 
 ### v0.6 Must Be Review-First
 
-v0.6 should add subagents only with:
+v0.6 should start with structured handoff and reviewer gate foundations. Persistent subagents should arrive only after these contracts are replayable:
 
-- Structured handoff records.
+- `AgentHandoffSummary` records with parent/child linkage, objective, status, short summary, metrics and evidence range.
+- `HandoffEvidenceRef` metadata for trace ranges, transcript artifacts, summary artifacts, diffs, diagnostics and test output, without inlining full transcripts or secrets.
+- `ReviewerGateRequest` records that ask for accept/reject/request-revision against a bounded evidence bundle.
+- `ReviewerGateDecision` records that make reviewer outcome trace-backed and inspectable from CLI/TUI/GUI/runtime API.
 - Parent/child task linkage.
 - Per-agent profile, scope, model, permissions, timeout and cost caps.
 - Transcript artifact handles instead of context dumping.

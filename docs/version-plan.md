@@ -1,6 +1,6 @@
 # Tessera Version Plan
 
-日期：2026-05-20
+日期：2026-05-22
 
 本文是 Tessera v0.1 到 v0.9 的版本路线图源文件。它回答每个版本“为什么存在、包含什么、不包含什么、怎样算完成”。`docs/global-plan.md` 只记录当前进度和下一步执行顺序；本文件记录跨版本边界。DeepSeek-TUI、Reasonix、Codex CLI / App / App Server、Claude Code CLI / Desktop / Web 等外部方向统一沉淀在 `docs/coding-agent-direction.md`，本文件只承接其中会改变版本边界和门禁的内容。
 
@@ -48,7 +48,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 | v0.3 | Tool policy and sandbox foundations | Foundation complete | Tool metadata, policy, approval, sandbox and checkpoint planners exist; no tool execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
 | v0.5 | Single-agent and resumable task foundations | Foundation stable | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server alignment DTOs are usable; runtime-complete work is explicitly staged into future gates. |
-| v0.6 | Persistent sub-agents and structured review | Planned | No persistent sub-agent runtime or reviewer gate yet. |
+| v0.6 | Persistent sub-agents and structured review | Planned | First foundation contract is structured handoff and reviewer gate evidence; no persistent sub-agent runtime yet. |
 | v0.7 | Project coding-agent workflow | Planned | No file-modifying coding-agent workflow, patch workflow, or GUI/TUI diff control yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
 | v0.9 | Learning proposal system | Planned | No automatic learning or self-modification; proposals only. |
@@ -198,6 +198,12 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 
 **Planned Scope:**
 
+- First foundation slice:
+  - `AgentHandoffSummary` with parent/child task linkage, handoff goal, result status, short summary, evidence references, token/cost/step metrics, and trace evidence range.
+  - `HandoffEvidenceRef` values for trace ranges, transcript artifacts, summary artifacts, diff artifacts, diagnostics, and test output. Evidence references are metadata only and must not inline secrets, full transcripts, file contents, provider-private responses, or command output.
+  - `ReviewerGateRequest` for asking a user, parent agent, or future reviewer policy to accept, reject, or request revision over a handoff summary and bounded evidence bundle.
+  - `ReviewerGateDecision` with accept/reject/request-revision status, reviewer identity label, reason code, optional comment, and trace-backed decision record.
+  - Read-only projection so CLI/TUI/GUI/runtime API can inspect handoff state without loading full child transcripts or owning runtime execution.
 - Persistent sub-agent sessions.
 - Structured handoff records.
 - Reviewer gate.
@@ -210,7 +216,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 
 **Excluded:**
 
-- Swarm scheduler, autonomous file mutation without reviewer gate, invisible child-agent state, unbounded recursion, background fan-out without owner/cancel semantics, and cross-agent memory writes without scope schema.
+- Swarm scheduler, autonomous file mutation without reviewer gate, invisible child-agent state, unbounded recursion, background fan-out without owner/cancel semantics, persistent child-agent runtime before handoff/reviewer events are replayable, and cross-agent memory writes without scope schema.
 
 **Dependencies:**
 
@@ -218,7 +224,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Stable task lifecycle and trace replay.
 - Tool policy and approval surfaces.
 
-**Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable; reviewer gate can accept, reject, or request revision without relying on UI-only state.
+**Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable; reviewer gate can accept, reject, or request revision without relying on UI-only state. The first foundation milestone is complete when protocol/trace/client projections can represent handoff summaries and reviewer decisions without starting persistent sub-agents, executing tools, mutating workspaces, or depending on UI-only state.
 
 ## 11. v0.7: Project Coding-Agent Workflow
 

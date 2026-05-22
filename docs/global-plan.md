@@ -1,6 +1,6 @@
 # Tessera Global Plan
 
-日期：2026-05-20
+日期：2026-05-22
 
 本文是 Tessera 当前进度仪表盘和执行控制面。它不再承担完整版本路线图职责；完整 v0.1-v0.9 版本边界见 [Version Plan](version-plan.md)。v0.1 的详细历史计划仍保留在 [v0.1 Plan](v0.1-plan.md)。
 
@@ -42,7 +42,7 @@
 | v0.3 | Tool policy and sandbox foundations | [~] Foundation complete | Tool descriptor, policy gate, approval projection, sandbox decision, OS sandbox planner, checkpoint planner; no execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | [~] Foundation complete | RuntimeHttpApi shape, metadata-only MCP adapter, diagnostics event, memory proposal UI; no server/runtime/store. |
 | v0.5 | Single-agent and resumable task foundations | [~] Foundation stable | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server DTO alignment; runtime-complete gaps are staged into future gates. |
-| v0.6 | Persistent sub-agents and structured review | [ ] Planned | No persistent sub-agent runtime, structured handoff, or reviewer gate yet. |
+| v0.6 | Persistent sub-agents and structured review | [ ] Planned | Structured handoff/reviewer gate design is the next foundation; no persistent sub-agent runtime yet. |
 | v0.7 | Project coding-agent workflow | [ ] Planned | No apply-patch, diff/test/checkpoint/rollback, worktree mutation, or GUI/TUI diff workflow yet. |
 | v0.8 | Swarm scheduler | [!] Blocked | Requires v0.6 structured handoff and reviewer gate. |
 | v0.9 | Learning proposal system | [ ] Planned | No learning runtime; proposals only by design. |
@@ -127,11 +127,10 @@
 - [ ] Non-chat task resume: future structured task handoff/reviewer gate.
 - [ ] Real checkpoint restore semantics: future workspace mutation/checkpoint restore/revert/policy/sandbox/trace gate.
 
-### v0.6-v0.9 Not Started
+### v0.6-v0.9 Planned Or Blocked
 
-- [ ] Persistent sub-agent sessions.
-- [ ] Structured handoff.
-- [ ] Reviewer gate.
+- [ ] Structured handoff and reviewer gate protocol events/projection.
+- [ ] Persistent sub-agent sessions after handoff/reviewer events are replayable.
 - [ ] Hook runtime.
 - [ ] Automation runtime.
 - [ ] Coding-agent diff/test/checkpoint/rollback workflow.
@@ -156,11 +155,12 @@ The next implementation slices should stay conservative and preserve the current
 9. [x] Implement trace-backed background task ownership foundation from `docs/superpowers/plans/2026-05-20-v0.5-background-task-ownership-v1.md`.
 10. [x] Decide and implement automatic no-tool run owner attach/detach as a separate behavior-changing slice for current `AgentLoop` and `ConversationEngine` traces.
 11. [x] Align runtime API / app-server shape before GUI live-provider path: auth, bounded queues, generated schemas, localhost default, no duplicate runtime.
-12. [ ] Only after v0.5 is stable, design v0.6 structured handoff and reviewer gate.
-13. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-14. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
-15. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
-16. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
+12. [x] After v0.5 is foundation-stable, design v0.6 structured handoff and reviewer gate.
+13. [ ] Implement provider-neutral handoff/reviewer protocol events and read-only projection before any persistent sub-agent runtime.
+14. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+15. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
+16. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
+17. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
 
 ## 8. Mandatory Gates
 
