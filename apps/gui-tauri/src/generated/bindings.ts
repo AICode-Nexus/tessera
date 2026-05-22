@@ -11,6 +11,8 @@ export type AgentHandoffStatus = "completed" | "failed" | "paused" | "cancelled"
 
 export type AgentHandoffSummary = { handoff_id: AgentHandoffId, parent_task_id: TaskId, child_task_id: TaskId | null, status: AgentHandoffStatus, objective: string, summary: string, evidence: Array<HandoffEvidenceRef>, metrics: AgentHandoffMetrics, evidence_event_range: EventRange | null, };
 
+export type AgentProfileId = string;
+
 export type ArtifactId = string;
 
 export type ArtifactKind = "trace" | "export" | "provider_raw_metadata" | "tool_output" | "patch" | "test_report" | "agent_transcript";
@@ -51,9 +53,13 @@ export type ClientReviewerGate = { gate_id: ReviewerGateId, handoff_id: AgentHan
 
 export type ClientReviewerGateStatus = "pending" | "accepted" | "rejected" | "revision_requested";
 
-export type ClientSnapshot = { status: ClientStatus, projection: ClientProjection, tasks: Array<ClientTask>, artifacts: Array<ClientArtifact>, approvals: Array<ClientApproval>, memory_proposals: Array<ClientMemoryProposal>, handoffs: Array<ClientAgentHandoff>, reviewer_gates: Array<ClientReviewerGate>, context_handles: Array<ClientContextHandle>, draft_input: string, };
+export type ClientSnapshot = { status: ClientStatus, projection: ClientProjection, tasks: Array<ClientTask>, artifacts: Array<ClientArtifact>, approvals: Array<ClientApproval>, memory_proposals: Array<ClientMemoryProposal>, handoffs: Array<ClientAgentHandoff>, reviewer_gates: Array<ClientReviewerGate>, subagent_sessions: Array<ClientSubagentSession>, context_handles: Array<ClientContextHandle>, draft_input: string, };
 
-export type ClientStatus = { active_profile: string, available_profiles: Array<string>, reasoning_visible: boolean, task_summary: string, artifact_summary: string, approval_summary: string, memory_summary: string, handoff_summary: string, usage_summary: string, cache_summary: string, cost_summary: string, context_summary: string, context_handles_summary: string, telemetry: ClientTelemetrySummary, };
+export type ClientStatus = { active_profile: string, available_profiles: Array<string>, reasoning_visible: boolean, task_summary: string, artifact_summary: string, approval_summary: string, memory_summary: string, handoff_summary: string, subagent_summary: string, usage_summary: string, cache_summary: string, cost_summary: string, context_summary: string, context_handles_summary: string, telemetry: ClientTelemetrySummary, };
+
+export type ClientSubagentSession = { session_id: SubagentSessionId, parent_task_id: TaskId, child_task_id: TaskId | null, profile_id: AgentProfileId, objective: string, status: ClientSubagentSessionStatus, scope_labels: Array<string>, tool_permission_labels: Array<string>, memory_scope_labels: Array<string>, transcript_artifact_id: ArtifactId | null, max_steps: number, max_depth: number, timeout_ms: number | null, max_child_sessions: number, estimated_cost: number | null, cost_currency: string | null, concurrency_slot: string | null, approval_inactive_policy: string | null, approval_reviewer_gate_id: ReviewerGateId | null, approval_id: ApprovalId | null, approval_forwarded_from_parent: boolean, };
+
+export type ClientSubagentSessionStatus = "planned" | "active" | "waiting_for_approval" | "inactive" | "completed" | "failed" | "cancelled" | "handed_off";
 
 export type ClientTask = { task_id: TaskId, kind: TaskKind | null, status: TaskStatus, thread_id: ThreadId | null, turn_id: TurnId | null, created_at: Timestamp | null, started_at: Timestamp | null, finished_at: Timestamp | null, cancel_reason: string | null, error_code: string | null, error_message: string | null, owner_lease_id: TaskOwnershipId | null, owner_runtime_id: RuntimeInstanceId | null, owner_client_id: ClientInstanceId | null, owner_kind: TaskOwnerKind | null, owner_status: TaskOwnerStatus | null, owner_reattach_mode: TaskReattachMode | null, owner_last_heartbeat_at: Timestamp | null, owner_expires_at: Timestamp | null, owner_last_seq: number | null, owner_reason: string | null, };
 
@@ -119,6 +125,18 @@ export type RuntimeApiServerConfig = { version: string, bind: RuntimeApiBindConf
 
 export type RuntimeInstanceId = string;
 
+export type SubagentApprovalForwarding = { inactive_policy: SubagentInactivePolicy, reviewer_gate_id: ReviewerGateId | null, approval_id: ApprovalId | null, forwarded_from_parent: boolean, };
+
+export type SubagentInactivePolicy = "pause_parent" | "queue_decision" | "require_reviewer";
+
+export type SubagentSessionCaps = { max_steps: number, max_depth: number, timeout_ms: number | null, max_child_sessions: number, max_estimated_cost: CostEstimate | null, concurrency_slot: string | null, };
+
+export type SubagentSessionDescriptor = { session_id: SubagentSessionId, parent_task_id: TaskId, child_task_id: TaskId | null, profile_id: AgentProfileId, objective: string, status: SubagentSessionStatus, scope_labels: Array<string>, tool_permission_labels: Array<string>, memory_scope_labels: Array<string>, transcript_artifact_id: ArtifactId | null, caps: SubagentSessionCaps, approval_forwarding: SubagentApprovalForwarding | null, };
+
+export type SubagentSessionId = string;
+
+export type SubagentSessionStatus = "planned" | "active" | "waiting_for_approval" | "inactive" | "completed" | "failed" | "cancelled" | "handed_off";
+
 export type TaskId = string;
 
 export type TaskKind = "chat" | "replay" | "tool_run" | "agent_run" | "multi_agent_run" | "swarm_run" | "learning_job";
@@ -141,7 +159,7 @@ export type ToolCallId = string;
 
 export type ToolId = string;
 
-export type TraceEventKind = "thread_created" | "turn_started" | "user_message_recorded" | "provider_request_started" | "assistant_message_started" | "assistant_delta" | "assistant_reasoning_delta" | "assistant_message_completed" | "usage_reported" | "provider_capability_reported" | "route_decision_recorded" | "provider_request_completed" | "turn_completed" | "task_created" | "task_started" | "task_completed" | "task_failed" | "task_cancelled" | "task_pause_checkpoint_created" | "task_paused" | "task_resumed" | "runtime_instance_started" | "task_owner_attached" | "task_owner_heartbeat" | "task_owner_detached" | "task_owner_lost" | "task_reattach_recorded" | "agent_run_started" | "agent_step_started" | "agent_step_completed" | "agent_run_completed" | "agent_handoff_recorded" | "reviewer_gate_requested" | "reviewer_gate_resolved" | "no_progress_loop_detected" | "diagnostics_reported" | "memory_write_proposed" | "memory_write_applied" | "memory_write_rejected" | "artifact_created" | "snapshot_created" | "tool_call_requested" | "tool_policy_decision_recorded" | "sandbox_decision_recorded" | "os_sandbox_profile_selected" | "tool_dispatch_started" | "tool_dispatch_completed" | "tool_result" | "tool_repair_reported" | "tool_call_approved" | "tool_call_denied" | "error" | "done";
+export type TraceEventKind = "thread_created" | "turn_started" | "user_message_recorded" | "provider_request_started" | "assistant_message_started" | "assistant_delta" | "assistant_reasoning_delta" | "assistant_message_completed" | "usage_reported" | "provider_capability_reported" | "route_decision_recorded" | "provider_request_completed" | "turn_completed" | "task_created" | "task_started" | "task_completed" | "task_failed" | "task_cancelled" | "task_pause_checkpoint_created" | "task_paused" | "task_resumed" | "runtime_instance_started" | "task_owner_attached" | "task_owner_heartbeat" | "task_owner_detached" | "task_owner_lost" | "task_reattach_recorded" | "agent_run_started" | "agent_step_started" | "agent_step_completed" | "agent_run_completed" | "agent_handoff_recorded" | "reviewer_gate_requested" | "reviewer_gate_resolved" | "subagent_session_planned" | "subagent_session_started" | "subagent_session_waiting_for_approval" | "subagent_session_inactive" | "subagent_session_completed" | "no_progress_loop_detected" | "diagnostics_reported" | "memory_write_proposed" | "memory_write_applied" | "memory_write_rejected" | "artifact_created" | "snapshot_created" | "tool_call_requested" | "tool_policy_decision_recorded" | "sandbox_decision_recorded" | "os_sandbox_profile_selected" | "tool_dispatch_started" | "tool_dispatch_completed" | "tool_result" | "tool_repair_reported" | "tool_call_approved" | "tool_call_denied" | "error" | "done";
 
 
 export type TraceRecord = { schema_version: number, trace_id: string, seq: number, event_id: EventId, timestamp: Timestamp, thread_id: ThreadId | null, turn_id: TurnId | null, item_id: ItemId | null, task_id: TaskId | null, event_kind: string, payload: JsonValue, extension: { [key in string]: JsonValue } | null, artifact_refs: Array<ArtifactId>, };

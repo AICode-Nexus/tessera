@@ -7,7 +7,8 @@ use tessera_protocol::{
     ArtifactId, ArtifactKind, ClientInstanceId, ContextId, ContextPlacement, ContextReference,
     ContextSourceKind, EventFrame, EventRange, HandoffEvidenceRef, ItemId, MemoryProposal,
     MemoryProposalId, MemoryProposalStatus, ReviewerDecisionKind, ReviewerGateDecision,
-    ReviewerGateId, ReviewerGateRequest, RunEvent, RuntimeInstanceId, TaskId, TaskKind,
+    ReviewerGateId, ReviewerGateRequest, RunEvent, RuntimeInstanceId, SubagentInactivePolicy,
+    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus, TaskId, TaskKind,
     TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
     TaskReattachMode, TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolApproval,
     ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect, TraceRecord, TurnId,
@@ -593,6 +594,104 @@ impl ClientReviewerGate {
     }
 }
 
+/// UI-neutral sub-agent session status shared by terminal and future GUI shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientSubagentSessionStatus {
+    Planned,
+    Active,
+    WaitingForApproval,
+    Inactive,
+    Completed,
+    Failed,
+    Cancelled,
+    HandedOff,
+}
+
+impl From<SubagentSessionStatus> for ClientSubagentSessionStatus {
+    fn from(status: SubagentSessionStatus) -> Self {
+        match status {
+            SubagentSessionStatus::Planned => Self::Planned,
+            SubagentSessionStatus::Active => Self::Active,
+            SubagentSessionStatus::WaitingForApproval => Self::WaitingForApproval,
+            SubagentSessionStatus::Inactive => Self::Inactive,
+            SubagentSessionStatus::Completed => Self::Completed,
+            SubagentSessionStatus::Failed => Self::Failed,
+            SubagentSessionStatus::Cancelled => Self::Cancelled,
+            SubagentSessionStatus::HandedOff => Self::HandedOff,
+        }
+    }
+}
+
+/// UI-neutral sub-agent session metadata projection.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientSubagentSession {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub profile_id: tessera_protocol::AgentProfileId,
+    pub objective: String,
+    pub status: ClientSubagentSessionStatus,
+    pub scope_labels: Vec<String>,
+    pub tool_permission_labels: Vec<String>,
+    pub memory_scope_labels: Vec<String>,
+    pub transcript_artifact_id: Option<ArtifactId>,
+    pub max_steps: u32,
+    pub max_depth: u32,
+    pub timeout_ms: Option<u64>,
+    pub max_child_sessions: u32,
+    pub estimated_cost: Option<f64>,
+    pub cost_currency: Option<String>,
+    pub concurrency_slot: Option<String>,
+    pub approval_inactive_policy: Option<String>,
+    pub approval_reviewer_gate_id: Option<ReviewerGateId>,
+    pub approval_id: Option<ApprovalId>,
+    pub approval_forwarded_from_parent: bool,
+}
+
+impl ClientSubagentSession {
+    fn from_descriptor(session: &SubagentSessionDescriptor) -> Self {
+        let approval = session.approval_forwarding.as_ref();
+        Self {
+            session_id: session.session_id.clone(),
+            parent_task_id: session.parent_task_id.clone(),
+            child_task_id: session.child_task_id.clone(),
+            profile_id: session.profile_id.clone(),
+            objective: session.objective.clone(),
+            status: session.status.into(),
+            scope_labels: session.scope_labels.clone(),
+            tool_permission_labels: session.tool_permission_labels.clone(),
+            memory_scope_labels: session.memory_scope_labels.clone(),
+            transcript_artifact_id: session.transcript_artifact_id.clone(),
+            max_steps: session.caps.max_steps,
+            max_depth: session.caps.max_depth,
+            timeout_ms: session.caps.timeout_ms,
+            max_child_sessions: session.caps.max_child_sessions,
+            estimated_cost: session
+                .caps
+                .max_estimated_cost
+                .as_ref()
+                .map(|cost| cost.amount),
+            cost_currency: session
+                .caps
+                .max_estimated_cost
+                .as_ref()
+                .map(|cost| cost.currency.clone()),
+            concurrency_slot: session.caps.concurrency_slot.clone(),
+            approval_inactive_policy: approval
+                .map(|forwarding| inactive_policy_label(forwarding.inactive_policy).to_string()),
+            approval_reviewer_gate_id: approval
+                .and_then(|forwarding| forwarding.reviewer_gate_id.clone()),
+            approval_id: approval.and_then(|forwarding| forwarding.approval_id.clone()),
+            approval_forwarded_from_parent: approval
+                .map(|forwarding| forwarding.forwarded_from_parent)
+                .unwrap_or(false),
+        }
+    }
+}
+
 /// Provider-neutral telemetry projection shared by terminal and future GUI shells.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
@@ -753,6 +852,8 @@ pub struct ClientStatus {
     pub memory_summary: String,
     #[serde(default)]
     pub handoff_summary: String,
+    #[serde(default)]
+    pub subagent_summary: String,
     pub usage_summary: String,
     pub cache_summary: String,
     pub cost_summary: String,
@@ -795,6 +896,7 @@ impl ClientStatus {
             approval_summary: "approvals 0 pending".to_string(),
             memory_summary: "memory 0 pending".to_string(),
             handoff_summary: "handoffs 0 / reviews 0 pending".to_string(),
+            subagent_summary: "subagents 0 / active 0 / waiting 0 / inactive 0".to_string(),
             usage_summary: "usage in 0 / out 0 / total 0".to_string(),
             cache_summary: "cache 0/0".to_string(),
             cost_summary: "CNY 0.0000".to_string(),
@@ -891,6 +993,25 @@ impl ClientStatus {
             .filter(|gate| gate.status == ClientReviewerGateStatus::Pending)
             .count();
         self.handoff_summary = format!("handoffs {} / reviews {pending} pending", handoffs.len());
+    }
+
+    fn update_subagent_summary(&mut self, sessions: &[ClientSubagentSession]) {
+        let active = sessions
+            .iter()
+            .filter(|session| session.status == ClientSubagentSessionStatus::Active)
+            .count();
+        let waiting = sessions
+            .iter()
+            .filter(|session| session.status == ClientSubagentSessionStatus::WaitingForApproval)
+            .count();
+        let inactive = sessions
+            .iter()
+            .filter(|session| session.status == ClientSubagentSessionStatus::Inactive)
+            .count();
+        self.subagent_summary = format!(
+            "subagents {} / active {active} / waiting {waiting} / inactive {inactive}",
+            sessions.len()
+        );
     }
 
     fn update_context_handles_summary(
@@ -1060,6 +1181,8 @@ pub struct ClientSnapshot {
     #[serde(default)]
     pub reviewer_gates: Vec<ClientReviewerGate>,
     #[serde(default)]
+    pub subagent_sessions: Vec<ClientSubagentSession>,
+    #[serde(default)]
     pub context_handles: Vec<ClientContextHandle>,
     pub draft_input: String,
 }
@@ -1085,6 +1208,7 @@ impl ClientSnapshot {
             memory_proposals: Vec::new(),
             handoffs: Vec::new(),
             reviewer_gates: Vec::new(),
+            subagent_sessions: Vec::new(),
             context_handles: Vec::new(),
             draft_input: String::new(),
         }
@@ -1268,6 +1392,13 @@ impl ClientSnapshot {
             }
             RunEvent::ReviewerGateResolved { decision } => {
                 self.record_reviewer_gate_decision(decision);
+            }
+            RunEvent::SubagentSessionPlanned { session }
+            | RunEvent::SubagentSessionStarted { session }
+            | RunEvent::SubagentSessionWaitingForApproval { session }
+            | RunEvent::SubagentSessionInactive { session }
+            | RunEvent::SubagentSessionCompleted { session } => {
+                self.record_subagent_session(session);
             }
             RunEvent::TaskOwnerAttached { lease } => {
                 let task = self.task_mut_or_insert(&lease.task_id);
@@ -1580,6 +1711,18 @@ impl ClientSnapshot {
                 };
                 self.record_reviewer_gate_decision(&decision);
             }
+            "subagent_session_planned"
+            | "subagent_session_started"
+            | "subagent_session_waiting_for_approval"
+            | "subagent_session_inactive"
+            | "subagent_session_completed" => {
+                let Some(session) =
+                    trace_payload::<SubagentSessionDescriptor>(record.payload.get("session"))
+                else {
+                    return;
+                };
+                self.record_subagent_session(&session);
+            }
             "task_owner_attached" => {
                 let Some(lease) = trace_payload::<TaskOwnerLease>(record.payload.get("lease"))
                 else {
@@ -1683,6 +1826,7 @@ impl ClientSnapshot {
         self.memory_proposals.clear();
         self.handoffs.clear();
         self.reviewer_gates.clear();
+        self.subagent_sessions.clear();
         self.context_handles.clear();
         self.draft_input.clear();
         self.status.reset_telemetry();
@@ -1692,6 +1836,7 @@ impl ClientSnapshot {
         self.status.update_memory_summary(&self.memory_proposals);
         self.status
             .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
+        self.status.update_subagent_summary(&self.subagent_sessions);
         self.status.update_context_handles_summary(
             &self.context_handles,
             &ClientContextBudgetSummary::default(),
@@ -1911,6 +2056,20 @@ impl ClientSnapshot {
             .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
     }
 
+    fn record_subagent_session(&mut self, session: &SubagentSessionDescriptor) {
+        let projected = ClientSubagentSession::from_descriptor(session);
+        if let Some(existing) = self
+            .subagent_sessions
+            .iter_mut()
+            .find(|existing| existing.session_id == session.session_id)
+        {
+            *existing = projected;
+        } else {
+            self.subagent_sessions.push(projected);
+        }
+        self.status.update_subagent_summary(&self.subagent_sessions);
+    }
+
     fn apply_artifact_refs_from_frame(&mut self, frame: &EventFrame) {
         if frame.artifact_refs.is_empty() {
             return;
@@ -2110,6 +2269,14 @@ fn client_memory_proposal_status_from_str(value: &str) -> Option<ClientMemoryPro
         "applied" => Some(ClientMemoryProposalStatus::Applied),
         "rejected" => Some(ClientMemoryProposalStatus::Rejected),
         _ => None,
+    }
+}
+
+fn inactive_policy_label(policy: SubagentInactivePolicy) -> &'static str {
+    match policy {
+        SubagentInactivePolicy::PauseParent => "pause_parent",
+        SubagentInactivePolicy::QueueDecision => "queue_decision",
+        SubagentInactivePolicy::RequireReviewer => "require_reviewer",
     }
 }
 

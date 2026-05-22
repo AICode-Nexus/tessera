@@ -15,6 +15,9 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type ClientMemoryProposal"));
     assert!(bindings.contains("export type ClientAgentHandoff"));
     assert!(bindings.contains("export type ClientReviewerGate"));
+    assert!(bindings.contains("export type ClientSubagentSession"));
+    assert!(bindings.contains("export type SubagentSessionDescriptor"));
+    assert!(bindings.contains("export type SubagentSessionCaps"));
     assert!(bindings.contains("export type AgentHandoffSummary"));
     assert!(bindings.contains("export type ReviewerGateRequest"));
     assert!(bindings.contains("export type ReviewerGateDecision"));
@@ -38,6 +41,8 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("agent_handoff_recorded"));
     assert!(bindings.contains("reviewer_gate_requested"));
     assert!(bindings.contains("reviewer_gate_resolved"));
+    assert!(bindings.contains("subagent_session_planned"));
+    assert!(bindings.contains("subagent_session_waiting_for_approval"));
     assert!(bindings.contains("approve_tool_call"));
     assert!(bindings.contains("deny_tool_call"));
     assert!(bindings.contains("accept_memory_proposal"));
@@ -49,6 +54,8 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(!bindings.contains("execute_shell"));
     assert!(!bindings.contains("start_child_agent"));
     assert!(!bindings.contains("spawn_subagent"));
+    assert!(!bindings.contains("start_scheduler"));
+    assert!(!bindings.contains("execute_tool"));
 }
 
 #[test]

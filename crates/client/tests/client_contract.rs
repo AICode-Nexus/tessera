@@ -2,6 +2,7 @@ use tessera_client::{
     ClientApprovalStatus, ClientContextBudgetSummary, ClientContextPlacement,
     ClientContextSourceKind, ClientIntent, ClientMemoryProposalStatus, ClientMessageRole,
     ClientProjection, ClientReviewerGateStatus, ClientSnapshot, ClientStatus,
+    ClientSubagentSessionStatus,
 };
 use tessera_protocol::{
     AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, ApprovalId,
@@ -10,9 +11,11 @@ use tessera_protocol::{
     EventRange, HandoffEvidenceKind, HandoffEvidenceRef, ItemId, MemoryProposal, MemoryProposalId,
     MemoryProposalStatus, NormalizedError, PolicyDecisionId, PolicyOutcome, ProviderCapability,
     ProviderId, ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest,
-    RunEvent, RuntimeInstanceId, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind,
-    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, Timestamp,
-    ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect,
+    RunEvent, RuntimeInstanceId, SubagentApprovalForwarding, SubagentInactivePolicy,
+    SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
+    TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus,
+    TaskOwnershipId, TaskReattachMode, TaskStatus, Timestamp, ToolApproval, ToolCallId, ToolId,
+    ToolPermission, ToolPolicyDecision, ToolSideEffect,
 };
 
 #[test]
@@ -660,6 +663,140 @@ fn client_snapshot_projects_handoff_reviewer_state_from_replayed_records() {
     assert_eq!(
         snapshot.reviewer_gates[0].reason_code.as_deref(),
         Some("needs_more_tests")
+    );
+}
+
+fn subagent_session(status: SubagentSessionStatus) -> SubagentSessionDescriptor {
+    SubagentSessionDescriptor {
+        session_id: SubagentSessionId::from_static("subagent_session_review"),
+        parent_task_id: TaskId::from_static("task_parent_subagent"),
+        child_task_id: Some(TaskId::from_static("task_child_subagent")),
+        profile_id: tessera_protocol::AgentProfileId::from_static("agent_profile_reviewer"),
+        objective: "review protocol metadata".to_string(),
+        status,
+        scope_labels: vec!["workspace:read".to_string()],
+        tool_permission_labels: vec!["filesystem_read".to_string()],
+        memory_scope_labels: vec!["none".to_string()],
+        transcript_artifact_id: Some(ArtifactId::from_static("artifact_child_transcript")),
+        caps: SubagentSessionCaps {
+            max_steps: 4,
+            max_depth: 1,
+            timeout_ms: Some(30_000),
+            max_child_sessions: 0,
+            max_estimated_cost: Some(CostEstimate {
+                amount: 0.02,
+                currency: "USD".to_string(),
+                input_cost: Some(0.008),
+                output_cost: Some(0.012),
+                cache_read_cost: None,
+                cache_write_cost: None,
+            }),
+            concurrency_slot: Some("reviewer-1".to_string()),
+        },
+        approval_forwarding: Some(SubagentApprovalForwarding {
+            inactive_policy: SubagentInactivePolicy::RequireReviewer,
+            reviewer_gate_id: Some(ReviewerGateId::from_static("gate_subagent_review")),
+            approval_id: Some(ApprovalId::from_static("approval_subagent_review")),
+            forwarded_from_parent: false,
+        }),
+    }
+}
+
+#[test]
+fn client_snapshot_projects_subagent_session_metadata_from_live_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_subagent_live",
+        1,
+        RunEvent::SubagentSessionPlanned {
+            session: subagent_session(SubagentSessionStatus::Planned),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_subagent_live",
+        2,
+        RunEvent::SubagentSessionStarted {
+            session: subagent_session(SubagentSessionStatus::Active),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_subagent_live",
+        3,
+        RunEvent::SubagentSessionWaitingForApproval {
+            session: subagent_session(SubagentSessionStatus::WaitingForApproval),
+        },
+    ));
+
+    assert_eq!(snapshot.subagent_sessions.len(), 1);
+    assert_eq!(
+        snapshot.subagent_sessions[0].session_id,
+        SubagentSessionId::from_static("subagent_session_review")
+    );
+    assert_eq!(
+        snapshot.subagent_sessions[0].status,
+        ClientSubagentSessionStatus::WaitingForApproval
+    );
+    assert_eq!(snapshot.subagent_sessions[0].max_steps, 4);
+    assert_eq!(snapshot.subagent_sessions[0].max_depth, 1);
+    assert_eq!(snapshot.subagent_sessions[0].estimated_cost, Some(0.02));
+    assert_eq!(
+        snapshot.subagent_sessions[0].transcript_artifact_id,
+        Some(ArtifactId::from_static("artifact_child_transcript"))
+    );
+    assert_eq!(
+        snapshot.status.subagent_summary,
+        "subagents 1 / active 0 / waiting 1 / inactive 0"
+    );
+}
+
+#[test]
+fn client_snapshot_projects_subagent_session_metadata_from_replayed_records() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    for record in [
+        EventFrame::new(
+            "trace_subagent_replay",
+            1,
+            RunEvent::SubagentSessionPlanned {
+                session: subagent_session(SubagentSessionStatus::Planned),
+            },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_subagent_replay",
+            2,
+            RunEvent::SubagentSessionInactive {
+                session: subagent_session(SubagentSessionStatus::Inactive),
+            },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_subagent_replay",
+            3,
+            RunEvent::SubagentSessionCompleted {
+                session: subagent_session(SubagentSessionStatus::HandedOff),
+            },
+        )
+        .to_trace_record(),
+    ] {
+        snapshot.apply_trace_record(&record);
+    }
+
+    assert_eq!(snapshot.subagent_sessions.len(), 1);
+    assert_eq!(
+        snapshot.subagent_sessions[0].status,
+        ClientSubagentSessionStatus::HandedOff
+    );
+    assert_eq!(
+        snapshot.subagent_sessions[0]
+            .approval_inactive_policy
+            .as_deref(),
+        Some("require_reviewer")
+    );
+    assert_eq!(
+        snapshot.status.subagent_summary,
+        "subagents 1 / active 0 / waiting 0 / inactive 0"
     );
 }
 

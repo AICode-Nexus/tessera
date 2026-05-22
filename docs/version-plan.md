@@ -48,7 +48,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 | v0.3 | Tool policy and sandbox foundations | Foundation complete | Tool metadata, policy, approval, sandbox and checkpoint planners exist; no tool execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
 | v0.5 | Single-agent and resumable task foundations | Foundation stable | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server alignment DTOs are usable; runtime-complete work is explicitly staged into future gates. |
-| v0.6 | Persistent sub-agents and structured review | Foundation complete | Provider-neutral structured handoff and reviewer gate protocol events, client projection, and GUI bindings exist; persistent sub-agent runtime is not implemented yet. |
+| v0.6 | Persistent sub-agents and structured review | Foundation complete | Provider-neutral structured handoff, reviewer gate, and sub-agent session metadata events, client projection, and GUI bindings exist; persistent sub-agent runtime is not implemented yet. |
 | v0.7 | Project coding-agent workflow | Planned | No file-modifying coding-agent workflow, patch workflow, or GUI/TUI diff control yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
 | v0.9 | Learning proposal system | Planned | No automatic learning or self-modification; proposals only. |
@@ -211,27 +211,25 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Handoff/reviewer DTOs for handoff id, reviewer gate id, evidence refs, metrics, summary, request and decision metadata.
 - Read-only `tessera-client` handoff/reviewer projection from live events and replayed trace records.
 - Generated GUI TypeScript bindings for handoff/reviewer DTOs and trace event kinds.
-
-**Next Foundation Slice:**
-
 - `SubagentSessionId` and `SubagentSessionDescriptor` for durable child-session metadata over trace.
 - Parent/child task linkage that references existing `TaskId` values without spawning a scheduler by itself.
 - Transcript artifact handles so parent sessions can inspect summaries/evidence without loading full child transcripts into context.
 - `SubagentSessionCaps` for max steps, max depth, timeout, child-session count, optional cost cap and concurrency slot label.
 - `SubagentApprovalForwarding` for inactive-child handling, reviewer gate linkage and optional approval id metadata.
 - `SubagentSessionStatus` covering planned, active, waiting for approval, inactive, completed, failed, cancelled and handed off states.
+- Provider-neutral `SubagentSessionPlanned`, `SubagentSessionStarted`, `SubagentSessionWaitingForApproval`, `SubagentSessionInactive`, and `SubagentSessionCompleted` metadata events.
+- Read-only `tessera-client` sub-agent session projection from live events and replayed trace records.
+- Generated GUI TypeScript bindings for sub-agent session DTOs and trace event kinds.
 
 **Remaining Runtime Scope:**
 
-- Persistent sub-agent sessions.
-- Structured handoff records.
-- Reviewer gate.
-- Parent/child task linkage.
-- Agent transcript artifact handles.
-- Per-agent scope, cost, recursion, and concurrency limits.
-- Approval forwarding and inactive-child task handling.
+- Persistent child-agent execution and scheduling over the recorded session metadata.
+- Runtime lifecycle ownership for child sessions, including start/stop/reattach semantics.
+- Transcript artifact creation and retention lifecycle.
+- Runtime enforcement of per-agent scope, cost, recursion, timeout and concurrency limits.
+- Runtime approval forwarding and inactive-child task handling.
 - Skill-scoped subagent entrypoints.
-- Structured evidence bundles that GUI/TUI can inspect without loading full transcripts.
+- Structured evidence publication from real child runs.
 
 **Excluded:**
 
@@ -243,7 +241,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Stable task lifecycle and trace replay.
 - Tool policy and approval surfaces.
 
-**Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable; reviewer gate can accept, reject, or request revision without relying on UI-only state. The first foundation milestone is complete: protocol/trace/client projections can represent handoff summaries and reviewer decisions without starting persistent sub-agents, executing tools, mutating workspaces, or depending on UI-only state. The next foundation milestone is complete when persistent sub-agent session metadata, caps, transcript artifact handles, approval forwarding metadata and inactive-child handling state are replayable and projected without starting a scheduler. Runtime completion still requires persistent child execution, parent/child task scheduling, approval forwarding runtime and transcript artifact lifecycle.
+**Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable; reviewer gate can accept, reject, or request revision without relying on UI-only state. The v0.6 foundation milestones are complete: protocol/trace/client projections can represent handoff summaries, reviewer decisions, persistent sub-agent session metadata, caps, transcript artifact handles, approval forwarding metadata and inactive-child handling state without starting persistent sub-agents, executing tools, mutating workspaces, starting a scheduler, or depending on UI-only state. Runtime completion still requires persistent child execution, parent/child task scheduling, approval forwarding runtime and transcript artifact lifecycle.
 
 ## 11. v0.7: Project Coding-Agent Workflow
 
