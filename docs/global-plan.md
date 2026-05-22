@@ -120,6 +120,7 @@
 - [x] Provider-neutral sub-agent session metadata events: `subagent_session_planned`, `subagent_session_started`, `subagent_session_waiting_for_approval`, `subagent_session_inactive`, and `subagent_session_completed`.
 - [x] Sub-agent session DTOs for parent/child task linkage, transcript artifact handles, scope labels, caps, approval forwarding metadata and inactive-child policy.
 - [x] Read-only `tessera-client` and GUI binding projection for sub-agent session metadata from live events and replayed trace records.
+- [x] Persistent sub-agent scheduler/runtime ownership design gate: future runtime must route through core, task ownership, transcript artifact handles, policy-mediated approval forwarding, deterministic inactive-child handling, and explicit cancellation/reattach metadata before child execution.
 
 ## 6. Current Gaps
 
@@ -139,7 +140,9 @@
 
 ### v0.6-v0.9 Planned Or Blocked
 
-- [ ] Persistent sub-agent runtime scheduling after session metadata is replayable.
+- [ ] Provider-neutral sub-agent runtime ownership events for scheduler decisions, transcript artifacts, approval forwarding, inactive policy, and cancellation.
+- [ ] Core `SubagentRuntimeCoordinator` skeleton without provider calls or child execution.
+- [ ] Persistent sub-agent runtime scheduling after coordinator skeleton, ownership events, and transcript artifact lifecycle are replayable.
 - [ ] Runtime transcript artifact lifecycle for real child-agent runs.
 - [ ] Runtime approval forwarding and inactive-child handling over reviewer-gated session metadata.
 - [ ] Hook runtime.
@@ -170,11 +173,14 @@ The next implementation slices should stay conservative and preserve the current
 13. [x] Implement provider-neutral handoff/reviewer protocol events and read-only projection before any persistent sub-agent runtime.
 14. [x] Design persistent sub-agent session foundation over existing handoff/reviewer events: parent/child task linkage, transcript artifacts, caps, approval forwarding and inactive-child handling.
 15. [x] Implement provider-neutral sub-agent session metadata events and read-only projection before any persistent scheduler.
-16. [ ] Design persistent sub-agent scheduler/runtime ownership over session metadata: parent/child lifecycle, transcript artifact lifecycle, approval forwarding runtime, inactive-child handling, and cancellation/reattach boundaries.
-17. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-18. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
-19. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
-20. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
+16. [x] Design persistent sub-agent scheduler/runtime ownership over session metadata: parent/child lifecycle, transcript artifact lifecycle, approval forwarding runtime, inactive-child handling, and cancellation/reattach boundaries.
+17. [ ] Add provider-neutral sub-agent runtime ownership event contract before scheduler implementation.
+18. [ ] Add a non-executing core `SubagentRuntimeCoordinator` skeleton that validates caps/policy and records decisions without provider calls.
+19. [ ] Add read-only client and GUI projection for runtime ownership metadata.
+20. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+21. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
+22. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
+23. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
 
 ## 8. Mandatory Gates
 

@@ -94,6 +94,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - SkillManifest / AgentProfile / ToolDescriptor 等只读 metadata schema。
 - v0.6 structured handoff / reviewer gate DTOs (`AgentHandoffSummary`, `HandoffEvidenceRef`, `ReviewerGateRequest`, `ReviewerGateDecision`).
 - v0.6 sub-agent session metadata DTOs (`SubagentSessionDescriptor`, caps and approval forwarding metadata).
+- Future v0.6 sub-agent runtime ownership event DTOs, but only as provider-neutral metadata.
 
 允许依赖：
 
@@ -126,6 +127,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - Skill / agent / tool metadata 的只读 registry foundation，以及 explicit read-only Skill Runtime v1 的 discovery/activation/context rendering。
 - No-tool single-agent loop 的 run/step lifecycle 编排。
 - Structured handoff / reviewer gate events 的 core-owned recording/routing; sub-agent session metadata recording/routing; no persistent sub-agent scheduler before session gates are replayable.
+- Future `SubagentRuntimeCoordinator` ownership: scheduler decisions, cap validation, transcript artifact lifecycle metadata, approval-forwarding policy records, inactive-child policy records and cancellation/reattach metadata before any child execution.
 
 允许依赖：
 
@@ -147,6 +149,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - tool-using 或 background agent runtime。
 - persistent sub-agent fan-out, swarm scheduling, reviewer bypass, file mutation or workspace restore through handoff/reviewer metadata.
 - automatic approval forwarding, inactive-child execution, background fan-out or provider calls through sub-agent session metadata.
+- child-session scheduling outside `core`, provider-owned sub-agent loops, UI/client-owned schedulers, or storage-owned runtime state machines.
 
 ### providers
 
@@ -299,6 +302,7 @@ TUI 是 view，不是 runtime。
 - UI-neutral intent。
 - status / message / task projection。
 - approval / memory / context / task ownership / handoff-reviewer / sub-agent session projection。
+- future sub-agent runtime ownership projection as read-only metadata only。
 - trace record 到 view model 的纯函数转换。
 - keymap、command palette 和 GUI action 的共享 command schema。
 

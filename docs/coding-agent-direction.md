@@ -142,11 +142,13 @@ v0.6 should start with structured handoff and reviewer gate foundations. Persist
 - `ReviewerGateRequest` records that ask for accept/reject/request-revision against a bounded evidence bundle.
 - `ReviewerGateDecision` records that make reviewer outcome trace-backed and inspectable from CLI/TUI/GUI/runtime API.
 - `SubagentSessionDescriptor` records that make child-session scope, caps, transcript artifacts, approval forwarding and inactive-child policy visible before any persistent scheduler exists.
+- Persistent sub-agent scheduler/runtime ownership must live in core, reuse task lifecycle and task ownership records, and publish runtime decisions before any child provider call.
 - Parent/child task linkage.
 - Per-agent profile, scope, model, permissions, timeout and cost caps.
 - Transcript artifact handles instead of context dumping.
 - Reviewer gate before code-modifying results are accepted.
 - Approval forwarding semantics for inactive child tasks as trace metadata first; automatic forwarding remains gated behind policy/reviewer/runtime implementation.
+- Inactive child handling must be deterministic: pause parent, queue decision, or require reviewer. Silent continuation is not a valid subagent UX.
 
 ### v0.7 Must Be Coding-Workflow Complete
 
@@ -191,7 +193,7 @@ These gates complement `docs/version-plan.md`.
 - No automation runtime before task ownership, logs, notifications, setup verification and workspace isolation exist.
 - No app-server listener before auth, bounded queues, health checks and generated schemas exist; the current `RuntimeApi*` DTOs satisfy schema/auth/queue shape but not listener readiness by themselves.
 - No GUI Git mutation before diff, checkpoint, policy and trace semantics exist.
-- No subagent fan-out before explicit caps, parent/child trace linkage, transcript artifact handles and reviewer gate exist.
+- No subagent fan-out before explicit caps, parent/child trace linkage, core-owned runtime decisions, transcript artifact handles and reviewer gate exist.
 - No MCP environment forwarding without explicit env allowlist and secret redaction.
 - No web search or computer-use default-on behavior without policy, source attribution and replay-safe event records.
 

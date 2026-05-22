@@ -220,6 +220,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Provider-neutral `SubagentSessionPlanned`, `SubagentSessionStarted`, `SubagentSessionWaitingForApproval`, `SubagentSessionInactive`, and `SubagentSessionCompleted` metadata events.
 - Read-only `tessera-client` sub-agent session projection from live events and replayed trace records.
 - Generated GUI TypeScript bindings for sub-agent session DTOs and trace event kinds.
+- Persistent sub-agent runtime ownership design gate: future scheduling must be coordinated by `core`, record task ownership and lifecycle events, publish transcript artifact handles, mediate approval forwarding through policy/reviewer gates, and make inactive-child handling deterministic before child execution is enabled.
 
 **Remaining Runtime Scope:**
 
@@ -240,6 +241,8 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - v0.5 single-agent loop.
 - Stable task lifecycle and trace replay.
 - Tool policy and approval surfaces.
+
+**Runtime Ownership Gate:** Persistent sub-agent runtime cannot begin with direct child execution. The next runtime-capable slices must first add provider-neutral runtime decision events, a non-executing `SubagentRuntimeCoordinator` in `core`, transcript artifact lifecycle records, approval-forwarding policy records, inactive-child policy records, and cancellation/reattach metadata. CLI, TUI, GUI, client, providers and storage must not schedule child sessions or bypass core.
 
 **Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable; reviewer gate can accept, reject, or request revision without relying on UI-only state. The v0.6 foundation milestones are complete: protocol/trace/client projections can represent handoff summaries, reviewer decisions, persistent sub-agent session metadata, caps, transcript artifact handles, approval forwarding metadata and inactive-child handling state without starting persistent sub-agents, executing tools, mutating workspaces, starting a scheduler, or depending on UI-only state. Runtime completion still requires persistent child execution, parent/child task scheduling, approval forwarding runtime and transcript artifact lifecycle.
 
