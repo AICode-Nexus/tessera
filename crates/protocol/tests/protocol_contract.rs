@@ -16,12 +16,13 @@ use tessera_protocol::{
     SkillActivationStatus, SkillActivationStep, SkillEntrypoint, SkillEntrypointFormat, SkillId,
     SkillLoadStatus, SkillManifest, SkillPolicy, SkillRedactionStatus, SkillReferenceSource,
     SkillRequirements, SkillSource, SkillSourceKind, SkillStepKind, SkillStepStatus, SnapshotId,
-    SnapshotKind, TaskId, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
-    TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, Timestamp, ToolApproval, ToolCallId,
-    ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission,
-    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolResultId,
-    ToolResultStatus, ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail,
-    WorkspaceScope,
+    SnapshotKind, SubagentApprovalForwarding, SubagentInactivePolicy, SubagentSessionCaps,
+    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus, TaskId, TaskOwnerKind,
+    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId,
+    TaskStatus, Timestamp, ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch,
+    ToolDispatchId, ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind,
+    ToolRepairReport, ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
+    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 
 #[test]
@@ -671,6 +672,117 @@ fn handoff_reviewer_gate_request_and_decision_are_traceable_without_runtime_exec
     );
     assert!(requested.payload().get("provider_request").is_none());
     assert!(resolved.payload().get("tool_call").is_none());
+}
+
+fn subagent_session_descriptor(status: SubagentSessionStatus) -> SubagentSessionDescriptor {
+    SubagentSessionDescriptor {
+        session_id: SubagentSessionId::from_static("subagent_session_review"),
+        parent_task_id: TaskId::from_static("task_parent_subagent"),
+        child_task_id: Some(TaskId::from_static("task_child_subagent")),
+        profile_id: AgentProfileId::from_static("agent_profile_reviewer"),
+        objective: "review protocol metadata".to_string(),
+        status,
+        scope_labels: vec!["workspace:read".to_string(), "docs".to_string()],
+        tool_permission_labels: vec!["filesystem_read".to_string()],
+        memory_scope_labels: vec!["none".to_string()],
+        transcript_artifact_id: Some(ArtifactId::from_static("artifact_child_transcript")),
+        caps: SubagentSessionCaps {
+            max_steps: 4,
+            max_depth: 1,
+            timeout_ms: Some(30_000),
+            max_child_sessions: 0,
+            max_estimated_cost: Some(CostEstimate {
+                amount: 0.02,
+                currency: "USD".to_string(),
+                input_cost: Some(0.008),
+                output_cost: Some(0.012),
+                cache_read_cost: None,
+                cache_write_cost: None,
+            }),
+            concurrency_slot: Some("reviewer-1".to_string()),
+        },
+        approval_forwarding: Some(SubagentApprovalForwarding {
+            inactive_policy: SubagentInactivePolicy::RequireReviewer,
+            reviewer_gate_id: Some(ReviewerGateId::from_static("gate_subagent_review")),
+            approval_id: Some(ApprovalId::from_static("approval_subagent_review")),
+            forwarded_from_parent: false,
+        }),
+    }
+}
+
+#[test]
+fn subagent_session_descriptor_serializes_caps_transcript_and_forwarding_without_runtime_execution()
+{
+    let descriptor = subagent_session_descriptor(SubagentSessionStatus::Planned);
+    let json = serde_json::to_value(&descriptor).unwrap();
+
+    assert_eq!(json["session_id"], "subagent_session_review");
+    assert_eq!(json["parent_task_id"], "task_parent_subagent");
+    assert_eq!(json["child_task_id"], "task_child_subagent");
+    assert_eq!(json["profile_id"], "agent_profile_reviewer");
+    assert_eq!(json["status"], "planned");
+    assert_eq!(json["transcript_artifact_id"], "artifact_child_transcript");
+    assert_eq!(json["caps"]["max_steps"], 4);
+    assert_eq!(json["caps"]["max_depth"], 1);
+    assert_eq!(json["caps"]["max_child_sessions"], 0);
+    assert_eq!(
+        json["approval_forwarding"]["inactive_policy"],
+        "require_reviewer"
+    );
+    assert_eq!(
+        json["approval_forwarding"]["reviewer_gate_id"],
+        "gate_subagent_review"
+    );
+
+    let encoded = json.to_string();
+    assert!(!encoded.contains("authorization"));
+    assert!(!encoded.contains("api_key"));
+    assert!(!encoded.contains("cookie"));
+    assert!(!encoded.contains("command"));
+    assert!(!encoded.contains("executable"));
+    assert!(!encoded.contains("shell"));
+    assert!(!encoded.contains("provider_private"));
+    assert!(!encoded.contains("workspace_diff"));
+}
+
+#[test]
+fn subagent_session_events_are_traceable_metadata_without_scheduler() {
+    let parent_task_id = TaskId::from_static("task_parent_subagent");
+    let planned = RunEvent::SubagentSessionPlanned {
+        session: subagent_session_descriptor(SubagentSessionStatus::Planned),
+    };
+    let started = RunEvent::SubagentSessionStarted {
+        session: subagent_session_descriptor(SubagentSessionStatus::Active),
+    };
+    let waiting = RunEvent::SubagentSessionWaitingForApproval {
+        session: subagent_session_descriptor(SubagentSessionStatus::WaitingForApproval),
+    };
+    let inactive = RunEvent::SubagentSessionInactive {
+        session: subagent_session_descriptor(SubagentSessionStatus::Inactive),
+    };
+    let completed = RunEvent::SubagentSessionCompleted {
+        session: subagent_session_descriptor(SubagentSessionStatus::HandedOff),
+    };
+
+    assert_eq!(planned.kind(), "subagent_session_planned");
+    assert_eq!(started.kind(), "subagent_session_started");
+    assert_eq!(waiting.kind(), "subagent_session_waiting_for_approval");
+    assert_eq!(inactive.kind(), "subagent_session_inactive");
+    assert_eq!(completed.kind(), "subagent_session_completed");
+    assert_eq!(planned.task_id(), Some(parent_task_id.clone()));
+    assert_eq!(completed.task_id(), Some(parent_task_id));
+    assert_eq!(planned.payload()["session"]["status"], "planned");
+    assert_eq!(completed.payload()["session"]["status"], "handed_off");
+
+    let record = EventFrame::new("trace_subagent_session", 1, planned).to_trace_record();
+    assert_eq!(record.event_kind, "subagent_session_planned");
+    assert_eq!(
+        record.payload["session"]["caps"]["concurrency_slot"],
+        "reviewer-1"
+    );
+    assert!(record.payload.get("scheduler").is_none());
+    assert!(record.payload.get("provider_request").is_none());
+    assert!(record.payload.get("tool_call").is_none());
 }
 
 #[test]

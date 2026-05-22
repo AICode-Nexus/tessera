@@ -957,10 +957,10 @@ pub struct SubagentSessionDescriptor {
 }
 ```
 
-Planned event names:
+Implemented foundation event names:
 
 ```rust
-pub enum PlannedSubagentSessionRunEvent {
+pub enum SubagentSessionRunEvent {
     SubagentSessionPlanned { session: SubagentSessionDescriptor },
     SubagentSessionStarted { session: SubagentSessionDescriptor },
     SubagentSessionWaitingForApproval { session: SubagentSessionDescriptor },
@@ -969,7 +969,7 @@ pub enum PlannedSubagentSessionRunEvent {
 }
 ```
 
-These events only describe session state. They must not start child runs, call providers, execute tools, forward approvals automatically, mutate workspaces, restore checkpoints, or create swarm scheduling.
+These events only describe session state. They do not start child runs, call providers, execute tools, forward approvals automatically, mutate workspaces, restore checkpoints, or create swarm scheduling.
 
 ## 9. Tool Descriptor / Policy / Dispatch / Repair Schema
 

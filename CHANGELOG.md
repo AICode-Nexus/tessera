@@ -42,6 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added v0.6 provider-neutral `agent_handoff_recorded`, `reviewer_gate_requested`, and `reviewer_gate_resolved` protocol events with bounded evidence references and reviewer decision metadata, without starting persistent sub-agents or tool execution.
 - Added read-only `tessera-client` and GUI binding projection for v0.6 handoff summaries and reviewer gates from live events and replayed trace records.
 - Added the v0.6 persistent sub-agent session foundation design, covering parent/child task linkage, transcript artifact handles, caps, approval forwarding metadata, and inactive-child handling before any scheduler or fan-out runtime.
+- Added v0.6 provider-neutral sub-agent session metadata events for planned, started, waiting-for-approval, inactive and completed session states without starting a scheduler or child runtime.
 - Added release identity metadata so `tessera --version` reports both the crate version and build git SHA.
 - Added a provider-neutral `ToolDescriptor` schema and read-only `ToolRegistry` for tool metadata, with `parallel_safe` defaulting to false and no tool execution path.
 - Added tool call request, policy decision, and approval trace metadata plus a draft `PolicyGate` that produces `allow` / `ask_user` / `deny` decisions without executing tools.

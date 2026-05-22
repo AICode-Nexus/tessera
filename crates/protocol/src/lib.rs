@@ -88,6 +88,7 @@ id_type!(MemoryProposalId, "memory_proposal");
 id_type!(AgentProfileId, "agent_profile");
 id_type!(AgentHandoffId, "agent_handoff");
 id_type!(ReviewerGateId, "reviewer_gate");
+id_type!(SubagentSessionId, "subagent_session");
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
@@ -953,6 +954,69 @@ pub struct ReviewerGateDecision {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentSessionStatus {
+    Planned,
+    Active,
+    WaitingForApproval,
+    Inactive,
+    Completed,
+    Failed,
+    Cancelled,
+    HandedOff,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentInactivePolicy {
+    PauseParent,
+    QueueDecision,
+    RequireReviewer,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct SubagentSessionCaps {
+    pub max_steps: u32,
+    pub max_depth: u32,
+    pub timeout_ms: Option<u64>,
+    pub max_child_sessions: u32,
+    pub max_estimated_cost: Option<CostEstimate>,
+    pub concurrency_slot: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct SubagentApprovalForwarding {
+    pub inactive_policy: SubagentInactivePolicy,
+    pub reviewer_gate_id: Option<ReviewerGateId>,
+    pub approval_id: Option<ApprovalId>,
+    pub forwarded_from_parent: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct SubagentSessionDescriptor {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub profile_id: AgentProfileId,
+    pub objective: String,
+    pub status: SubagentSessionStatus,
+    #[serde(default)]
+    pub scope_labels: Vec<String>,
+    #[serde(default)]
+    pub tool_permission_labels: Vec<String>,
+    #[serde(default)]
+    pub memory_scope_labels: Vec<String>,
+    pub transcript_artifact_id: Option<ArtifactId>,
+    pub caps: SubagentSessionCaps,
+    pub approval_forwarding: Option<SubagentApprovalForwarding>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolPermission {
     FilesystemRead,
@@ -1438,6 +1502,21 @@ pub enum RunEvent {
     ReviewerGateResolved {
         decision: ReviewerGateDecision,
     },
+    SubagentSessionPlanned {
+        session: SubagentSessionDescriptor,
+    },
+    SubagentSessionStarted {
+        session: SubagentSessionDescriptor,
+    },
+    SubagentSessionWaitingForApproval {
+        session: SubagentSessionDescriptor,
+    },
+    SubagentSessionInactive {
+        session: SubagentSessionDescriptor,
+    },
+    SubagentSessionCompleted {
+        session: SubagentSessionDescriptor,
+    },
     NoProgressLoopDetected {
         task_id: TaskId,
         signal: NoProgressLoop,
@@ -1536,6 +1615,13 @@ impl RunEvent {
             Self::AgentHandoffRecorded { .. } => "agent_handoff_recorded",
             Self::ReviewerGateRequested { .. } => "reviewer_gate_requested",
             Self::ReviewerGateResolved { .. } => "reviewer_gate_resolved",
+            Self::SubagentSessionPlanned { .. } => "subagent_session_planned",
+            Self::SubagentSessionStarted { .. } => "subagent_session_started",
+            Self::SubagentSessionWaitingForApproval { .. } => {
+                "subagent_session_waiting_for_approval"
+            }
+            Self::SubagentSessionInactive { .. } => "subagent_session_inactive",
+            Self::SubagentSessionCompleted { .. } => "subagent_session_completed",
             Self::NoProgressLoopDetected { .. } => "no_progress_loop_detected",
             Self::DiagnosticsReported { .. } => "diagnostics_reported",
             Self::MemoryWriteProposed { .. } => "memory_write_proposed",
@@ -1593,6 +1679,11 @@ impl RunEvent {
             Self::AgentRunCompleted { summary } => Some(summary.task_id.clone()),
             Self::AgentHandoffRecorded { summary } => Some(summary.parent_task_id.clone()),
             Self::ReviewerGateRequested { request } => Some(request.parent_task_id.clone()),
+            Self::SubagentSessionPlanned { session }
+            | Self::SubagentSessionStarted { session }
+            | Self::SubagentSessionWaitingForApproval { session }
+            | Self::SubagentSessionInactive { session }
+            | Self::SubagentSessionCompleted { session } => Some(session.parent_task_id.clone()),
             _ => None,
         }
     }
@@ -1736,6 +1827,11 @@ impl RunEvent {
             Self::AgentHandoffRecorded { summary } => json!({ "summary": summary }),
             Self::ReviewerGateRequested { request } => json!({ "request": request }),
             Self::ReviewerGateResolved { decision } => json!({ "decision": decision }),
+            Self::SubagentSessionPlanned { session }
+            | Self::SubagentSessionStarted { session }
+            | Self::SubagentSessionWaitingForApproval { session }
+            | Self::SubagentSessionInactive { session }
+            | Self::SubagentSessionCompleted { session } => json!({ "session": session }),
             Self::NoProgressLoopDetected { task_id, signal } => {
                 json!({ "task_id": task_id, "signal": signal })
             }

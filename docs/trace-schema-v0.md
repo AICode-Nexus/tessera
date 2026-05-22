@@ -122,6 +122,11 @@ agent_run_completed
 agent_handoff_recorded
 reviewer_gate_requested
 reviewer_gate_resolved
+subagent_session_planned
+subagent_session_started
+subagent_session_waiting_for_approval
+subagent_session_inactive
+subagent_session_completed
 no_progress_loop_detected
 diagnostics_reported
 memory_write_proposed
@@ -162,16 +167,6 @@ Runtime API / app-server alignment DTOs are not trace events by themselves. They
 `agent_handoff_recorded` payload must contain `summary`, including handoff id, parent task id, optional child task id, status, objective, short summary, bounded evidence refs, metrics and optional evidence event range. `reviewer_gate_requested` payload must contain `request`, including gate id, handoff id, parent task id, requested decision kinds and evidence refs. `reviewer_gate_resolved` payload must contain `decision`, including gate id, handoff id, decision kind, reviewer label, reason code and optional comment.
 
 These events do not imply persistent child-agent runtime. They only make handoff and review state replayable for CLI/TUI/GUI/runtime API clients.
-
-Planned v0.6 sub-agent session event names:
-
-```text
-subagent_session_planned
-subagent_session_started
-subagent_session_waiting_for_approval
-subagent_session_inactive
-subagent_session_completed
-```
 
 Each payload must contain `session`, including session id, parent task id, optional child task id, agent profile id, objective, status, scope labels, tool permission labels, memory scope labels, optional transcript artifact id, caps and optional approval forwarding metadata. These payloads must not contain executable command, shell command, provider-private handles, API keys, cookies, authorization headers, tool output, file contents, workspace diffs or scheduler handles.
 
