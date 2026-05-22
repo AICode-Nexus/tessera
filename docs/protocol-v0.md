@@ -334,6 +334,48 @@ pub struct TaskReattachRecord {
 
 这些结构只能记录 runtime/client/lease/status/seq/reason 等 metadata，不得保存 provider socket、headers、API key、cookie、env、命令行 secret、tool output 或文件内容。
 
+v0.5 runtime API / app-server alignment 增加 wire DTO shape，但仍不启动 listener：
+
+```rust
+pub const RUNTIME_API_PROTOCOL_VERSION: &str = "v0";
+
+pub enum RuntimeApiBindKind {
+    LocalhostTcp,
+    UnixSocket,
+}
+
+pub enum RuntimeApiAuthMode {
+    LoopbackDevToken,
+    OsUserSession,
+}
+
+pub enum RuntimeApiQueueOverflow {
+    RejectNew,
+}
+
+pub struct RuntimeApiServerConfig {
+    pub version: String,
+    pub bind: RuntimeApiBindConfig,
+    pub auth: RuntimeApiAuthPolicy,
+    pub queue: RuntimeApiQueuePolicy,
+}
+
+pub enum RuntimeApiCommand {
+    ListEvents(RuntimeApiEventStreamRequest),
+    SubscribeEvents(RuntimeApiEventStreamRequest),
+}
+
+pub struct RuntimeApiCommandEnvelope {
+    pub command_id: String,
+    pub client_id: Option<ClientInstanceId>,
+    pub trace_id: Option<String>,
+    pub since_seq: Option<u64>,
+    pub command: RuntimeApiCommand,
+}
+```
+
+`RuntimeApiServerConfig::localhost_default()` uses `127.0.0.1`, no fixed port, `LoopbackDevToken`, bounded event/client queue capacities, and `RejectNew` overflow semantics. These DTOs may be exported to generated TypeScript as schema evidence for GUI/app-server clients, but they do not create an app-server crate, bind a socket, store auth token values, call providers, execute tools, or own runtime scheduling. `RuntimeApiCommand` currently covers read-only event listing/subscription shape only; future mutation commands must map to core runtime commands or `ClientIntent` and enter policy/trace before execution.
+
 ### 4.5 Artifact
 
 Artifact 是大输出或外部化资源引用。v0.1 主要用于 trace、export、large provider metadata 或后续 tool output 的预留。

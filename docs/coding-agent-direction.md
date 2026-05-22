@@ -124,7 +124,7 @@ v0.5 should not only say "single agent loop". It must include:
 - Project instruction discovery foundation: loaded-source report, precedence, byte limit, fallback names, redaction.
 - Skill runtime v1 foundation: `SKILL.md` discovery, activation trace, read-only references, no unchecked scripts.
 - Background task ownership: owner client, cancel/pause semantics, logs/artifacts, reattach summary.
-- App-server design alignment: JSON / JSON-RPC-compatible message shape, bounded queues, generated DTO/schema, localhost default.
+- App-server design alignment: JSON / JSON-RPC-compatible message shape, bounded queues, generated DTO/schema, localhost default. Current foundation covers metadata/schema shape only; listener, daemon ownership, remote control and provider execution remain gated.
 
 ### v0.6 Must Be Review-First
 
@@ -178,7 +178,7 @@ These gates complement `docs/version-plan.md`.
 - No instruction-file ingestion without precedence rules, byte limits, source reporting and secret redaction.
 - No hook runtime before tool/policy/sandbox/checkpoint exist; hooks may propose, not bypass.
 - No automation runtime before task ownership, logs, notifications, setup verification and workspace isolation exist.
-- No app-server listener before auth, bounded queues, health checks and generated schemas exist.
+- No app-server listener before auth, bounded queues, health checks and generated schemas exist; the current `RuntimeApi*` DTOs satisfy schema/auth/queue shape but not listener readiness by themselves.
 - No GUI Git mutation before diff, checkpoint, policy and trace semantics exist.
 - No subagent fan-out before explicit caps, parent/child trace linkage, transcript artifact handles and reviewer gate exist.
 - No MCP environment forwarding without explicit env allowlist and secret redaction.

@@ -606,10 +606,11 @@ Codex App Server / Claude Desktop-Web style clients 需要比 read-only HTTP/SSE
 推荐边界：
 
 - 后续 `app-server` crate 只能依赖 core public runtime API、client/protocol DTO、config 和 auth/session helpers。
-- 使用 typed messages、bounded queues、generated schemas 和 explicit protocol version。
-- 默认只绑定 localhost 或 unix socket。
+- 使用 `RuntimeApi*` typed messages、bounded queues、generated schemas 和 explicit protocol version。
+- 默认只绑定 localhost 或 unix socket；当前 foundation 只提供 `RuntimeApiServerConfig::localhost_default()` metadata，不启动 listener。
 - 所有 mutation command 都必须变成 core runtime command 或 `ClientIntent`，并进入 policy/trace。
 - 支持 reconnect：client 通过 task snapshot、trace id 和 `since_seq` 恢复。
+- `RuntimeHttpApi` 和 `RuntimeApiEventBuffer` 是 future transport helper，不得被解释为独立 runtime owner。
 
 禁止：
 
@@ -618,6 +619,7 @@ Codex App Server / Claude Desktop-Web style clients 需要比 read-only HTTP/SSE
 - app server 执行 shell/file/git tool。
 - app server 持有独立 task scheduler。
 - app server 暴露未授权远程控制端口。
+- 把 generated TypeScript DTO 当成可执行 runtime 或 auth/session store。
 
 ### hooks
 

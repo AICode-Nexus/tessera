@@ -47,7 +47,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 | v0.2 | Read-only projection and GUI-ready surfaces | Complete | Read-only runtime/query/projection foundations are usable; no runtime HTTP server. |
 | v0.3 | Tool policy and sandbox foundations | Foundation complete | Tool metadata, policy, approval, sandbox and checkpoint planners exist; no tool execution. |
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
-| v0.5 | Single-agent and resumable task foundations | In progress | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, and automatic no-tool chat/agent owner attach/detach are usable; tools, executable skills, daemon/app-server listener, background reattach, and default-on/global instruction loading are not. |
+| v0.5 | Single-agent and resumable task foundations | In progress | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server alignment DTOs are usable; tools, executable skills, daemon/app-server listener, background reattach, and default-on/global instruction loading are not. |
 | v0.6 | Persistent sub-agents and structured review | Planned | No persistent sub-agent runtime or reviewer gate yet. |
 | v0.7 | Project coding-agent workflow | Planned | No file-modifying coding-agent workflow, patch workflow, or GUI/TUI diff control yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
@@ -173,6 +173,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Background task ownership design spec and implementation plan for trace-backed owner leases, heartbeat metadata, lost-owner projection, and explicit reattach outcomes.
 - Trace-backed background task ownership foundation: protocol IDs/events, core recorder, `RuntimeReader::list_task_owners`, client owner projection, and `tessera tasks --owners --trace <trace_id>` read-only CLI output.
 - Automatic owner attach/detach integration around no-tool `ConversationEngine` and `AgentLoop` traces, including terminal owner projection for completed runs and checkpoint-based reattach metadata for paused runs.
+- Runtime API / app-server alignment DTOs: explicit protocol version, localhost/unix-socket bind metadata, auth policy metadata, bounded queue policy, read-only event command envelopes, core event stream request mapping, bounded SSE frame buffer, and generated TypeScript schema evidence without a listening server.
 
 **Remaining:**
 
@@ -182,13 +183,12 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Daemon/app-server listener for durable observation/control.
 - Non-chat task resume.
 - Real checkpoint restore semantics.
-- Runtime API / app-server design alignment: typed messages, bounded queues, generated schemas, localhost default, and auth model, without a second runtime.
 
 **Excluded Until Later:**
 
 - Provider socket freezing, workspace restore/revert, tool execution, sub-agent persistence, hook runtime, automation runtime, swarm scheduling, and learning runtime.
 
-**Exit Criteria:** A single-agent loop can run against provider-neutral observations, obey cancellation/pause/no-progress controls, write trace, emit machine-readable summaries, and be replayed without relying on UI state. Full v0.5 completion additionally requires runtime API/app-server alignment and honest resume semantics without provider socket freezing.
+**Exit Criteria:** A single-agent loop can run against provider-neutral observations, obey cancellation/pause/no-progress controls, write trace, emit machine-readable summaries, and be replayed without relying on UI state. Full v0.5 completion additionally requires honest resume semantics without provider socket freezing.
 
 ## 10. v0.6: Persistent Sub-Agents And Structured Review
 
