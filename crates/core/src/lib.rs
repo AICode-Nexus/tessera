@@ -1,3 +1,9 @@
+mod subagent_runtime;
+
+pub use subagent_runtime::{
+    SubagentCompletionRequest, SubagentRuntimeCoordinator, SubagentRuntimeStartRequest,
+};
+
 use futures::TryStreamExt;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
