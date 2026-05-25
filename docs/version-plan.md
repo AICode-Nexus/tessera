@@ -230,12 +230,13 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Non-executing core helper that validates and emits approval-forwarding and inactive-policy metadata without automatic forwarding, child execution, storage writes, provider calls, tools or UI.
 - Non-executing core helper that validates and emits cancellation cascade metadata without cancelling child runtime, freezing provider sockets, writing storage, executing tools or driving UI.
 - Non-executing core helper that bridges sub-agent child task ids to task owner attach/detach metadata without starting child scheduling, provider execution, heartbeat loops, storage writes, tools or UI.
+- Non-executing core helper that bridges sub-agent child task ids to task owner heartbeat, lost-owner and reattach metadata without heartbeat loops, lost-owner detection, provider resume, provider socket freezing, storage writes, tools or UI.
 
 **Remaining Runtime Scope:**
 
 - Persistent child-agent execution and scheduling over the recorded session metadata.
 - Runtime lifecycle ownership for real child sessions, including start/stop/reattach semantics beyond metadata-only decisions.
-- Executable child task ownership persistence, heartbeat loops, lost-owner detection and automatic reattach.
+- Executable child task ownership persistence, heartbeat loops, lost-owner detection and automatic reattach/resume.
 - Transcript body storage, retention, summarization, and parent-context ingestion for real child runs.
 - Runtime enforcement of per-agent scope, cost, recursion, timeout and concurrency limits.
 - Automatic approval forwarding and inactive-child task execution.
@@ -253,7 +254,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Stable task lifecycle and trace replay.
 - Tool policy and approval surfaces.
 
-**Runtime Ownership Gate:** Persistent sub-agent runtime cannot begin with direct child execution. The current foundation provides provider-neutral runtime ownership records, transcript artifact lifecycle records, approval-forwarding records, inactive-policy records, cancellation cascade records, a child task owner metadata bridge, a non-executing `SubagentRuntimeCoordinator` in `core`, and read-only projection of transcript artifact, lifecycle, approval-forwarding, inactive-policy and cancellation metadata. The next runtime-capable slices must integrate real child task lifecycle, task ownership persistence, heartbeat/lost-owner handling, transcript body persistence/retention, automatic approval-forwarding execution, inactive-child execution and executable cancellation/reattach handling before provider-backed child execution. CLI, TUI, GUI, client, providers and storage must not schedule child sessions or bypass core.
+**Runtime Ownership Gate:** Persistent sub-agent runtime cannot begin with direct child execution. The current foundation provides provider-neutral runtime ownership records, transcript artifact lifecycle records, approval-forwarding records, inactive-policy records, cancellation cascade records, child task owner metadata bridges for attach/detach/heartbeat/lost/reattach, a non-executing `SubagentRuntimeCoordinator` in `core`, and read-only projection of transcript artifact, lifecycle, approval-forwarding, inactive-policy and cancellation metadata. The next runtime-capable slices must integrate real child task lifecycle, task ownership persistence, heartbeat/lost-owner handling, transcript body persistence/retention, automatic approval-forwarding execution, inactive-child execution and executable cancellation/reattach handling before provider-backed child execution. CLI, TUI, GUI, client, providers and storage must not schedule child sessions or bypass core.
 
 **Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable; reviewer gate can accept, reject, or request revision without relying on UI-only state. The v0.6 foundation milestones are complete: protocol/trace/client projections can represent handoff summaries, reviewer decisions, persistent sub-agent session metadata, caps, transcript artifact handles, transcript artifact lifecycle metadata, runtime ownership decisions, approval forwarding metadata, inactive-child policy state and cancellation metadata without starting persistent sub-agents, executing tools, mutating workspaces, starting an executing scheduler, or depending on UI-only state. Runtime completion still requires persistent child execution, parent/child task scheduling, automatic approval forwarding, inactive-child execution and transcript body storage/retention/summarization.
 
