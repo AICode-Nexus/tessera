@@ -7,7 +7,9 @@ use tessera_client::{
     ClientSubagentSessionStatus, ClientSubagentTranscriptArtifactStatus,
 };
 use tessera_protocol::{
-    AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, ApprovalId,
+    AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary,
+    ApplyPatchDryRunOperationKind, ApplyPatchDryRunOperationSummary, ApplyPatchPreflightBlocker,
+    ApplyPatchPreflightId, ApplyPatchPreflightRecord, ApplyPatchPreflightStatus, ApprovalId,
     ApprovalStatus, ArtifactId, ArtifactKind, ClientInstanceId,
     CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextId, ContextPlacement,
     ContextReference, ContextSource, ContextSourceKind, CostEstimate, ErrorSource, EventFrame,
@@ -696,6 +698,26 @@ fn mutation_request(status: MutationRequestStatus) -> MutationRequestProposal {
     }
 }
 
+fn apply_patch_preflight(status: ApplyPatchPreflightStatus) -> ApplyPatchPreflightRecord {
+    ApplyPatchPreflightRecord {
+        preflight_id: ApplyPatchPreflightId::from_static("apply_patch_preflight_client"),
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        request_id: MutationRequestId::from_static("mutation_request_client_apply"),
+        patch_id: PatchProposalId::from_static("patch_proposal_client"),
+        status,
+        blockers: vec![ApplyPatchPreflightBlocker::ExecutorUnavailable],
+        affected_paths: vec!["crates/client/src/lib.rs".to_string()],
+        operations: vec![ApplyPatchDryRunOperationSummary {
+            path: "crates/client/src/lib.rs".to_string(),
+            operation: ApplyPatchDryRunOperationKind::Modify,
+        }],
+        executor_blocked: true,
+        executor_block_reason: "apply_patch_executor_not_implemented".to_string(),
+        evidence: vec![coding_diff_evidence()],
+    }
+}
+
 #[test]
 fn client_snapshot_projects_coding_workflow_metadata_from_live_events() {
     let mut snapshot = ClientSnapshot::new("mock-default");
@@ -773,7 +795,7 @@ fn client_snapshot_projects_coding_workflow_metadata_from_live_events() {
     assert!(workflow.restore_plans[0].execution_blocked);
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / blocked restores 1"
+        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / apply-patch preflights 0 / blocked restores 1"
     );
 }
 
@@ -832,7 +854,7 @@ fn client_snapshot_projects_mutation_request_proposals_from_live_and_replayed_ev
     );
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 1 / blocked restores 0"
+        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 1 / apply-patch preflights 0 / blocked restores 0"
     );
 
     let mut replayed = ClientSnapshot::new("mock-default");
@@ -854,6 +876,63 @@ fn client_snapshot_projects_mutation_request_proposals_from_live_and_replayed_ev
     assert_eq!(
         replayed.coding_workflows[0].mutation_requests[0].policy_decision_id,
         Some(PolicyDecisionId::from_static("policy_client_apply"))
+    );
+}
+
+#[test]
+fn client_snapshot_projects_apply_patch_preflight_from_live_and_replayed_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    snapshot.apply_event(&EventFrame::new(
+        "trace_apply_patch_preflight_live",
+        1,
+        RunEvent::ApplyPatchPreflightRecorded {
+            record: apply_patch_preflight(ApplyPatchPreflightStatus::DryRunReady),
+        },
+    ));
+
+    assert_eq!(snapshot.coding_workflows.len(), 1);
+    let workflow = &snapshot.coding_workflows[0];
+    assert_eq!(workflow.apply_patch_preflights.len(), 1);
+    assert_eq!(
+        workflow.apply_patch_preflights[0].status,
+        ApplyPatchPreflightStatus::DryRunReady
+    );
+    assert_eq!(
+        workflow.apply_patch_preflights[0].blockers,
+        vec![ApplyPatchPreflightBlocker::ExecutorUnavailable]
+    );
+    assert_eq!(
+        workflow.apply_patch_preflights[0].affected_paths,
+        vec!["crates/client/src/lib.rs".to_string()]
+    );
+    assert_eq!(
+        workflow.apply_patch_preflights[0].operations[0].operation,
+        ApplyPatchDryRunOperationKind::Modify
+    );
+    assert!(workflow.apply_patch_preflights[0].executor_blocked);
+    assert_eq!(
+        snapshot.status.coding_workflow_summary,
+        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 0 / apply-patch preflights 1 / blocked restores 0"
+    );
+
+    let mut replayed = ClientSnapshot::new("mock-default");
+    let record = EventFrame::new(
+        "trace_apply_patch_preflight_replay",
+        1,
+        RunEvent::ApplyPatchPreflightRecorded {
+            record: apply_patch_preflight(ApplyPatchPreflightStatus::Blocked),
+        },
+    )
+    .to_trace_record();
+    replayed.apply_trace_record(&record);
+
+    assert_eq!(
+        replayed.coding_workflows[0].apply_patch_preflights[0].status,
+        ApplyPatchPreflightStatus::Blocked
+    );
+    assert_eq!(
+        replayed.coding_workflows[0].apply_patch_preflights[0].operations[0].path,
+        "crates/client/src/lib.rs"
     );
 }
 
@@ -891,7 +970,7 @@ fn client_snapshot_projects_coding_workflow_metadata_from_replayed_records() {
     );
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / blocked restores 1"
+        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / apply-patch preflights 0 / blocked restores 1"
     );
 }
 

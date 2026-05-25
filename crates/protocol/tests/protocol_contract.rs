@@ -1,11 +1,13 @@
 use tessera_protocol::{
     AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, AgentProfile,
-    AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ApprovalId, ApprovalStatus,
-    ArtifactBodyRecord, ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind, ClientInstanceId,
-    CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextBudget, ContextId,
-    ContextPlacement, ContextReference, ContextSource, ContextSourceKind, CostEstimate, Diagnostic,
-    DiagnosticRange, DiagnosticReport, DiagnosticReportId, DiagnosticSeverity, EventFrame,
-    EventRange, HandoffEvidenceKind, HandoffEvidenceRef, InstructionLoadStatus,
+    AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary,
+    ApplyPatchDryRunOperationKind, ApplyPatchDryRunOperationSummary, ApplyPatchPreflightBlocker,
+    ApplyPatchPreflightId, ApplyPatchPreflightRecord, ApplyPatchPreflightStatus, ApprovalId,
+    ApprovalStatus, ArtifactBodyRecord, ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind,
+    ClientInstanceId, CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextBudget,
+    ContextId, ContextPlacement, ContextReference, ContextSource, ContextSourceKind, CostEstimate,
+    Diagnostic, DiagnosticRange, DiagnosticReport, DiagnosticReportId, DiagnosticSeverity,
+    EventFrame, EventRange, HandoffEvidenceKind, HandoffEvidenceRef, InstructionLoadStatus,
     InstructionRedactionStatus, InstructionSource, InstructionSourceKind, ItemId, MemoryProposal,
     MemoryProposalId, MemoryProposalStatus, ModelProfileId, MutationMode, MutationRequestId,
     MutationRequestOperationKind, MutationRequestProposal, MutationRequestStatus, NoProgressAction,
@@ -1654,6 +1656,63 @@ fn mutation_request_proposals_are_traceable_without_execution() {
     assert_eq!(
         frame.to_trace_record().event_kind,
         "mutation_request_proposal_recorded"
+    );
+}
+
+#[test]
+fn apply_patch_preflight_records_are_traceable_without_execution() {
+    let workflow_id = CodingWorkflowId::from_static("coding_workflow_apply_patch_preflight");
+    let task_id = TaskId::from_static("task_apply_patch_preflight");
+    let preflight_id = ApplyPatchPreflightId::from_static("apply_patch_preflight_contract");
+    let record = ApplyPatchPreflightRecord {
+        preflight_id: preflight_id.clone(),
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        request_id: MutationRequestId::from_static("mutation_request_apply_patch_preflight"),
+        patch_id: PatchProposalId::from_static("patch_proposal_apply_patch_preflight"),
+        status: ApplyPatchPreflightStatus::DryRunReady,
+        blockers: vec![ApplyPatchPreflightBlocker::ExecutorUnavailable],
+        affected_paths: vec!["docs/README.md".to_string()],
+        operations: vec![ApplyPatchDryRunOperationSummary {
+            path: "docs/README.md".to_string(),
+            operation: ApplyPatchDryRunOperationKind::Modify,
+        }],
+        executor_blocked: true,
+        executor_block_reason: "apply_patch_executor_not_implemented".to_string(),
+        evidence: vec![HandoffEvidenceRef {
+            kind: HandoffEvidenceKind::DiffArtifact,
+            artifact_id: Some(ArtifactId::from_static(
+                "artifact_apply_patch_preflight_diff",
+            )),
+            trace_id: None,
+            event_range: None,
+            label: Some("dry-run diff".to_string()),
+            summary: Some("dry-run summary only".to_string()),
+        }],
+    };
+
+    let event = RunEvent::ApplyPatchPreflightRecorded {
+        record: record.clone(),
+    };
+
+    assert_eq!(event.kind(), "apply_patch_preflight_recorded");
+    assert_eq!(event.task_id(), Some(task_id));
+    let payload = event.payload();
+    assert_eq!(payload["record"]["preflight_id"], preflight_id.as_str());
+    assert_eq!(payload["record"]["workflow_id"], workflow_id.as_str());
+    assert_eq!(payload["record"]["status"], "dry_run_ready");
+    assert_eq!(payload["record"]["blockers"][0], "executor_unavailable");
+    assert_eq!(payload["record"]["affected_paths"][0], "docs/README.md");
+    assert_eq!(payload["record"]["operations"][0]["operation"], "modify");
+    assert_eq!(payload["record"]["executor_blocked"], true);
+    assert!(payload.get("patch_body").is_none());
+    assert!(payload.get("apply_command").is_none());
+    assert!(payload.get("workspace_handle").is_none());
+
+    let frame = EventFrame::new("trace_apply_patch_preflight", 1, event);
+    assert_eq!(
+        frame.to_trace_record().event_kind,
+        "apply_patch_preflight_recorded"
     );
 }
 

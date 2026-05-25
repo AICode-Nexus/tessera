@@ -44,6 +44,11 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type MutationRequestProposal"));
     assert!(bindings.contains("export type MutationRequestOperationKind"));
     assert!(bindings.contains("export type MutationRequestStatus"));
+    assert!(bindings.contains("export type ApplyPatchPreflightRecord"));
+    assert!(bindings.contains("export type ApplyPatchPreflightStatus"));
+    assert!(bindings.contains("export type ApplyPatchPreflightBlocker"));
+    assert!(bindings.contains("export type ApplyPatchDryRunOperationSummary"));
+    assert!(bindings.contains("export type ApplyPatchDryRunOperationKind"));
     assert!(bindings.contains("export type PatchProposal"));
     assert!(bindings.contains("export type PatchApplicationRecord"));
     assert!(bindings.contains("export type TestPlanRecord"));
@@ -63,6 +68,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type RuntimeApiCommandAck"));
     assert!(bindings.contains("context_handles"));
     assert!(bindings.contains("coding_workflows"));
+    assert!(bindings.contains("apply_patch_preflights"));
     assert!(bindings.contains("loopback_dev_token"));
     assert!(bindings.contains("localhost_tcp"));
     assert!(bindings.contains("submit_prompt"));
@@ -77,6 +83,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("coding_workflow_started"));
     assert!(bindings.contains("workspace_mutation_scope_recorded"));
     assert!(bindings.contains("mutation_request_proposal_recorded"));
+    assert!(bindings.contains("apply_patch_preflight_recorded"));
     assert!(bindings.contains("patch_proposal_recorded"));
     assert!(bindings.contains("patch_application_recorded"));
     assert!(bindings.contains("test_plan_recorded"));
@@ -108,7 +115,9 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(!bindings.contains("store_transcript_body"));
     assert!(!bindings.contains("summarize_child_transcript"));
     assert!(!bindings.contains("execute_tool"));
-    assert!(!bindings.contains("apply_patch"));
+    assert!(!bindings.contains("\"apply_patch\""));
+    assert!(!bindings.contains("apply_patch_command"));
+    assert!(!bindings.contains("run_apply_patch"));
     assert!(!bindings.contains("restore_workspace"));
     assert!(!bindings.contains("git_commit"));
 }

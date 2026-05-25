@@ -3,17 +3,17 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tessera_protocol::{
-    AgentHandoffId, AgentHandoffStatus, AgentHandoffSummary, ApprovalId, ApprovalStatus,
-    ArtifactId, ArtifactKind, ClientInstanceId, CodingWorkflowId, ContextId, ContextPlacement,
-    ContextReference, ContextSourceKind, EventFrame, EventRange, HandoffEvidenceRef, ItemId,
-    MemoryProposal, MemoryProposalId, MemoryProposalStatus, MutationRequestProposal,
-    PatchApplicationRecord, PatchProposal, RestorePlanRecord, ReviewBundle, ReviewerDecisionKind,
-    ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RunEvent, RuntimeInstanceId,
-    SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
-    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
-    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
-    SubagentRuntimeDecisionKind, SubagentSessionDescriptor, SubagentSessionId,
-    SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
+    AgentHandoffId, AgentHandoffStatus, AgentHandoffSummary, ApplyPatchPreflightRecord, ApprovalId,
+    ApprovalStatus, ArtifactId, ArtifactKind, ClientInstanceId, CodingWorkflowId, ContextId,
+    ContextPlacement, ContextReference, ContextSourceKind, EventFrame, EventRange,
+    HandoffEvidenceRef, ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus,
+    MutationRequestProposal, PatchApplicationRecord, PatchProposal, RestorePlanRecord,
+    ReviewBundle, ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest,
+    RunEvent, RuntimeInstanceId, SubagentApprovalForwardingRecord,
+    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
+    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
+    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionDescriptor,
+    SubagentSessionId, SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
     SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskKind,
     TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
     TaskReattachMode, TaskReattachRecord, TaskStatus, TestPlanRecord, TestRunRecord, ThreadId,
@@ -983,6 +983,7 @@ pub struct ClientCodingWorkflow {
     pub active: bool,
     pub workspace_scope: Option<WorkspaceMutationScope>,
     pub mutation_requests: Vec<MutationRequestProposal>,
+    pub apply_patch_preflights: Vec<ApplyPatchPreflightRecord>,
     pub patch_proposals: Vec<PatchProposal>,
     pub patch_applications: Vec<PatchApplicationRecord>,
     pub test_plans: Vec<TestPlanRecord>,
@@ -1000,6 +1001,7 @@ impl ClientCodingWorkflow {
             active: true,
             workspace_scope: None,
             mutation_requests: Vec::new(),
+            apply_patch_preflights: Vec::new(),
             patch_proposals: Vec::new(),
             patch_applications: Vec::new(),
             test_plans: Vec::new(),
@@ -1043,6 +1045,19 @@ impl ClientCodingWorkflow {
             *existing = proposal.clone();
         } else {
             self.patch_proposals.push(proposal.clone());
+        }
+    }
+
+    fn record_apply_patch_preflight(&mut self, record: &ApplyPatchPreflightRecord) {
+        self.task_id = record.task_id.clone();
+        if let Some(existing) = self
+            .apply_patch_preflights
+            .iter_mut()
+            .find(|existing| existing.preflight_id == record.preflight_id)
+        {
+            *existing = record.clone();
+        } else {
+            self.apply_patch_preflights.push(record.clone());
         }
     }
 
@@ -1447,13 +1462,17 @@ impl ClientStatus {
             .iter()
             .map(|workflow| workflow.mutation_requests.len())
             .sum::<usize>();
+        let apply_patch_preflights = workflows
+            .iter()
+            .map(|workflow| workflow.apply_patch_preflights.len())
+            .sum::<usize>();
         let blocked_restores = workflows
             .iter()
             .flat_map(|workflow| workflow.restore_plans.iter())
             .filter(|plan| plan.execution_blocked)
             .count();
         self.coding_workflow_summary = format!(
-            "coding workflows {} / patches {patches} / tests {tests} / reviews {reviews} / mutation requests {mutation_requests} / blocked restores {blocked_restores}",
+            "coding workflows {} / patches {patches} / tests {tests} / reviews {reviews} / mutation requests {mutation_requests} / apply-patch preflights {apply_patch_preflights} / blocked restores {blocked_restores}",
             workflows.len()
         );
     }
@@ -1941,6 +1960,9 @@ impl ClientSnapshot {
             RunEvent::MutationRequestProposalRecorded { proposal } => {
                 self.record_coding_workflow_mutation_request(proposal);
             }
+            RunEvent::ApplyPatchPreflightRecorded { record } => {
+                self.record_coding_workflow_apply_patch_preflight(record);
+            }
             RunEvent::PatchProposalRecorded { proposal } => {
                 self.record_coding_workflow_patch_proposal(proposal);
             }
@@ -2323,6 +2345,14 @@ impl ClientSnapshot {
                     return;
                 };
                 self.record_coding_workflow_mutation_request(&proposal);
+            }
+            "apply_patch_preflight_recorded" => {
+                let Some(record) =
+                    trace_payload::<ApplyPatchPreflightRecord>(record.payload.get("record"))
+                else {
+                    return;
+                };
+                self.record_coding_workflow_apply_patch_preflight(&record);
             }
             "patch_proposal_recorded" => {
                 let Some(proposal) = trace_payload::<PatchProposal>(record.payload.get("proposal"))
@@ -2839,6 +2869,20 @@ impl ClientSnapshot {
             &proposal.diff_artifacts,
             ArtifactKind::Patch,
             "patch_proposal_recorded",
+        );
+        self.status.update_artifact_summary(&self.artifacts);
+        self.refresh_coding_workflow_summary();
+    }
+
+    fn record_coding_workflow_apply_patch_preflight(&mut self, record: &ApplyPatchPreflightRecord) {
+        {
+            let workflow = self.coding_workflow_mut_or_insert(&record.workflow_id, &record.task_id);
+            workflow.record_apply_patch_preflight(record);
+        }
+        self.record_evidence_artifacts(
+            &record.evidence,
+            ArtifactKind::Patch,
+            "apply_patch_preflight_recorded",
         );
         self.status.update_artifact_summary(&self.artifacts);
         self.refresh_coding_workflow_summary();
