@@ -1,9 +1,9 @@
 use tessera_protocol::{
     ApprovalId, ArtifactId, EventRange, ReviewerGateId, RunEvent, SubagentApprovalForwardingRecord,
-    SubagentApprovalForwardingStatus, SubagentInactiveParentAction, SubagentInactivePolicy,
-    SubagentInactivePolicyRecord, SubagentRuntimeDecision, SubagentRuntimeDecisionKind,
-    SubagentSessionDescriptor, SubagentTranscriptArtifactLifecycleRecord,
-    SubagentTranscriptArtifactStatus,
+    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
+    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
+    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionDescriptor,
+    SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactStatus, TaskId,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,6 +42,14 @@ pub struct SubagentInactivePolicyRequest {
     pub session: SubagentSessionDescriptor,
     pub policy: SubagentInactivePolicy,
     pub parent_action: SubagentInactiveParentAction,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubagentCancellationRequest {
+    pub session: SubagentSessionDescriptor,
+    pub source_task_id: TaskId,
+    pub cascade: SubagentCancellationCascade,
     pub reason: String,
 }
 
@@ -203,6 +211,63 @@ impl SubagentRuntimeCoordinator {
         self.record_inactive_policy(request)
             .map(|inactive| RunEvent::SubagentInactivePolicyRecorded { inactive })
     }
+
+    pub fn record_cancellation(
+        &self,
+        request: SubagentCancellationRequest,
+    ) -> Result<SubagentCancellationRecord, SubagentRuntimeError> {
+        validate_cancellation(&request)?;
+
+        Ok(SubagentCancellationRecord {
+            session_id: request.session.session_id,
+            parent_task_id: request.session.parent_task_id,
+            source_task_id: request.source_task_id,
+            reason: request.reason,
+            cascade: request.cascade,
+        })
+    }
+
+    pub fn cancellation_event(
+        &self,
+        request: SubagentCancellationRequest,
+    ) -> Result<RunEvent, SubagentRuntimeError> {
+        self.record_cancellation(request)
+            .map(|cancellation| RunEvent::SubagentCancellationRecorded { cancellation })
+    }
+}
+
+fn validate_cancellation(
+    request: &SubagentCancellationRequest,
+) -> Result<(), SubagentRuntimeError> {
+    if request.reason.trim().is_empty() {
+        return Err(SubagentRuntimeError::new(
+            "reason is required for sub-agent cancellation",
+        ));
+    }
+
+    let source_matches_parent = request.source_task_id == request.session.parent_task_id;
+    let source_matches_child = request
+        .session
+        .child_task_id
+        .as_ref()
+        .map(|child_task_id| request.source_task_id == *child_task_id)
+        .unwrap_or(false);
+
+    if !source_matches_parent && !source_matches_child {
+        return Err(SubagentRuntimeError::new(
+            "source_task_id must match parent_task_id or child_task_id",
+        ));
+    }
+
+    if request.cascade == SubagentCancellationCascade::CancelChild
+        && request.session.child_task_id.is_none()
+    {
+        return Err(SubagentRuntimeError::new(
+            "child_task_id is required for cancel_child cascade",
+        ));
+    }
+
+    Ok(())
 }
 
 fn validate_approval_forwarding(

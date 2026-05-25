@@ -1,13 +1,13 @@
 use tessera_core::{
-    SubagentApprovalForwardingRequest, SubagentCompletionRequest, SubagentInactivePolicyRequest,
-    SubagentRuntimeCoordinator, SubagentRuntimeStartRequest,
+    SubagentApprovalForwardingRequest, SubagentCancellationRequest, SubagentCompletionRequest,
+    SubagentInactivePolicyRequest, SubagentRuntimeCoordinator, SubagentRuntimeStartRequest,
     SubagentTranscriptArtifactLifecycleRequest,
 };
 use tessera_protocol::{
     AgentProfileId, ApprovalId, ArtifactId, CostEstimate, EventRange, ReviewerGateId, RunEvent,
-    SubagentApprovalForwarding, SubagentApprovalForwardingStatus, SubagentInactiveParentAction,
-    SubagentInactivePolicy, SubagentRuntimeDecisionKind, SubagentSessionCaps,
-    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
+    SubagentApprovalForwarding, SubagentApprovalForwardingStatus, SubagentCancellationCascade,
+    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentRuntimeDecisionKind,
+    SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
     SubagentTranscriptArtifactStatus, TaskId,
 };
 
@@ -399,4 +399,145 @@ fn subagent_approval_policy_rejects_mismatched_inactive_policy_action() {
     assert!(error
         .to_string()
         .contains("queue_decision inactive policy requires queue_decision parent action"));
+}
+
+#[test]
+fn subagent_cancellation_core_cancel_child_requires_child_task_id() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let mut session = subagent_session(SubagentSessionStatus::Active);
+    session.child_task_id = None;
+
+    let error = coordinator.record_cancellation(SubagentCancellationRequest {
+        session,
+        source_task_id: TaskId::from_static("task_parent_subagent"),
+        cascade: SubagentCancellationCascade::CancelChild,
+        reason: "parent requested child cancellation".to_string(),
+    });
+
+    let error = error.expect_err("cancel_child should require a child task id");
+    assert!(error
+        .to_string()
+        .contains("child_task_id is required for cancel_child cascade"));
+}
+
+#[test]
+fn subagent_cancellation_core_cancel_child_record_preserves_source_and_cascade() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let record = coordinator.record_cancellation(SubagentCancellationRequest {
+        session: subagent_session(SubagentSessionStatus::Active),
+        source_task_id: TaskId::from_static("task_parent_subagent"),
+        cascade: SubagentCancellationCascade::CancelChild,
+        reason: "parent interruption should cancel active child".to_string(),
+    });
+
+    let record = record.expect("cancel child metadata should be recordable");
+    assert_eq!(
+        record.session_id,
+        SubagentSessionId::from_static("subagent_session_review")
+    );
+    assert_eq!(
+        record.parent_task_id,
+        TaskId::from_static("task_parent_subagent")
+    );
+    assert_eq!(
+        record.source_task_id,
+        TaskId::from_static("task_parent_subagent")
+    );
+    assert_eq!(record.cascade, SubagentCancellationCascade::CancelChild);
+    assert_eq!(
+        record.reason,
+        "parent interruption should cancel active child"
+    );
+}
+
+#[test]
+fn subagent_cancellation_core_rejects_unrelated_source_task() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error = coordinator.record_cancellation(SubagentCancellationRequest {
+        session: subagent_session(SubagentSessionStatus::Active),
+        source_task_id: TaskId::from_static("task_unrelated"),
+        cascade: SubagentCancellationCascade::ObserveOnly,
+        reason: "foreign task should not affect this sub-agent session".to_string(),
+    });
+
+    let error = error.expect_err("unrelated source task should be rejected");
+    assert!(error
+        .to_string()
+        .contains("source_task_id must match parent_task_id or child_task_id"));
+}
+
+#[test]
+fn subagent_cancellation_core_observe_only_event_is_metadata_only() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let event = coordinator.cancellation_event(SubagentCancellationRequest {
+        session: subagent_session(SubagentSessionStatus::Active),
+        source_task_id: TaskId::from_static("task_child_subagent"),
+        cascade: SubagentCancellationCascade::ObserveOnly,
+        reason: "child reported cancellation already handled externally".to_string(),
+    });
+
+    let event = event.expect("observe-only cancellation should emit metadata");
+    assert_eq!(event.kind(), "subagent_cancellation_recorded");
+    assert_eq!(
+        event.task_id(),
+        Some(TaskId::from_static("task_parent_subagent"))
+    );
+    let payload = event.payload();
+    assert_eq!(payload["cancellation"]["cascade"], "observe_only");
+    assert_eq!(
+        payload["cancellation"]["source_task_id"],
+        "task_child_subagent"
+    );
+    assert!(payload.get("provider_request").is_none());
+    assert!(payload.get("tool_call").is_none());
+    assert!(payload.get("scheduler_loop").is_none());
+    assert!(payload.get("storage_write").is_none());
+    assert!(payload.get("ui_action").is_none());
+
+    match event {
+        RunEvent::SubagentCancellationRecorded { cancellation } => {
+            assert_eq!(
+                cancellation.reason,
+                "child reported cancellation already handled externally"
+            );
+        }
+        other => panic!("unexpected event: {other:?}"),
+    }
+}
+
+#[test]
+fn subagent_cancellation_core_queue_cancellation_preserves_reason() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let record = coordinator.record_cancellation(SubagentCancellationRequest {
+        session: subagent_session(SubagentSessionStatus::WaitingForApproval),
+        source_task_id: TaskId::from_static("task_parent_subagent"),
+        cascade: SubagentCancellationCascade::QueueCancellation,
+        reason: "queue cancellation until reviewer decision resolves".to_string(),
+    });
+
+    let record = record.expect("queued cancellation metadata should be recordable");
+    assert_eq!(
+        record.reason,
+        "queue cancellation until reviewer decision resolves"
+    );
+    assert_eq!(
+        record.cascade,
+        SubagentCancellationCascade::QueueCancellation
+    );
+}
+
+#[test]
+fn subagent_cancellation_core_rejects_empty_reason() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error = coordinator.record_cancellation(SubagentCancellationRequest {
+        session: subagent_session(SubagentSessionStatus::Active),
+        source_task_id: TaskId::from_static("task_parent_subagent"),
+        cascade: SubagentCancellationCascade::ObserveOnly,
+        reason: "   ".to_string(),
+    });
+
+    let error = error.expect_err("cancellation metadata should require a reason");
+    assert!(error
+        .to_string()
+        .contains("reason is required for sub-agent cancellation"));
 }
