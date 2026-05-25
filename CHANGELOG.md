@@ -56,6 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added read-only `tessera-client` and GUI binding projection for v0.6 sub-agent transcript artifact lifecycle records, including artifact handles and reserved/published/sealed/abandoned status summaries.
 - Added read-only `tessera-client` and GUI binding projection for v0.6 sub-agent runtime ownership metadata from live events and replayed trace records.
 - Added a metadata-only v0.7 coding-agent workflow foundation with provider-neutral protocol events, a non-executing core coordinator, and read-only client/GUI projection for workspace mutation scope, patch proposals, patch application records, test plans/runs, review bundles, and restore plans without apply-patch, file mutation, shell/test execution, checkpoint restore, or Git mutation.
+- Added the v0.7 apply-patch executor gate design and implementation plan for non-mutating preflight and dry-run readiness before any file-writing executor.
 - Added release identity metadata so `tessera --version` reports both the crate version and build git SHA.
 - Added a provider-neutral `ToolDescriptor` schema and read-only `ToolRegistry` for tool metadata, with `parallel_safe` defaulting to false and no tool execution path.
 - Added tool call request, policy decision, and approval trace metadata plus a draft `PolicyGate` that produces `allow` / `ask_user` / `deny` decisions without executing tools.
