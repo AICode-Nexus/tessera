@@ -89,6 +89,12 @@ id_type!(AgentProfileId, "agent_profile");
 id_type!(AgentHandoffId, "agent_handoff");
 id_type!(ReviewerGateId, "reviewer_gate");
 id_type!(SubagentSessionId, "subagent_session");
+id_type!(CodingWorkflowId, "coding_workflow");
+id_type!(PatchProposalId, "patch_proposal");
+id_type!(TestPlanId, "test_plan");
+id_type!(TestRunId, "test_run");
+id_type!(ReviewBundleId, "review_bundle");
+id_type!(RestorePlanId, "restore_plan");
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
@@ -956,6 +962,153 @@ pub struct ReviewerGateDecision {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+pub enum MutationMode {
+    WorktreeFirst,
+    ExplicitLocal,
+    ReadOnlyProposal,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum PatchApplicationOutcome {
+    Planned,
+    Applied,
+    Conflict,
+    Rejected,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum TestRunStatus {
+    Planned,
+    Passed,
+    Failed,
+    Cancelled,
+    Error,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum CodingWorkflowEvidenceRedactionStatus {
+    Clean,
+    Redacted,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct WorkspaceMutationScope {
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub root_label: String,
+    #[serde(default)]
+    pub allowed_paths: Vec<String>,
+    #[serde(default)]
+    pub denied_paths: Vec<String>,
+    pub mutation_mode: MutationMode,
+    pub worktree_required: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct PatchProposal {
+    pub patch_id: PatchProposalId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub summary: String,
+    #[serde(default)]
+    pub touched_paths: Vec<String>,
+    #[serde(default)]
+    pub diff_artifacts: Vec<HandoffEvidenceRef>,
+    #[serde(default)]
+    pub risk_labels: Vec<String>,
+    pub required_checkpoint_id: Option<SnapshotId>,
+    pub reviewer_gate_id: Option<ReviewerGateId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct PatchApplicationRecord {
+    pub patch_id: PatchProposalId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub checkpoint_id: Option<SnapshotId>,
+    pub outcome: PatchApplicationOutcome,
+    #[serde(default)]
+    pub conflict_paths: Vec<String>,
+    #[serde(default)]
+    pub applied_paths: Vec<String>,
+    #[serde(default)]
+    pub artifact_refs: Vec<ArtifactId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct TestPlanRecord {
+    pub test_plan_id: TestPlanId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    #[serde(default)]
+    pub command_labels: Vec<String>,
+    #[serde(default)]
+    pub affected_paths: Vec<String>,
+    #[serde(default)]
+    pub required_artifact_kinds: Vec<ArtifactKind>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct TestRunRecord {
+    pub test_run_id: TestRunId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub test_plan_id: Option<TestPlanId>,
+    pub command_label: String,
+    pub status: TestRunStatus,
+    pub exit_code: Option<i32>,
+    pub duration_ms: Option<u64>,
+    pub stdout_artifact_id: Option<ArtifactId>,
+    pub stderr_artifact_id: Option<ArtifactId>,
+    #[serde(default)]
+    pub diagnostics: Vec<HandoffEvidenceRef>,
+    pub redaction_status: CodingWorkflowEvidenceRedactionStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ReviewBundle {
+    pub review_bundle_id: ReviewBundleId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub reviewer_gate_id: ReviewerGateId,
+    #[serde(default)]
+    pub patch_ids: Vec<PatchProposalId>,
+    #[serde(default)]
+    pub test_run_ids: Vec<TestRunId>,
+    #[serde(default)]
+    pub evidence: Vec<HandoffEvidenceRef>,
+    pub summary: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct RestorePlanRecord {
+    pub restore_plan_id: RestorePlanId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub checkpoint_id: SnapshotId,
+    #[serde(default)]
+    pub target_paths: Vec<String>,
+    pub reason: String,
+    pub execution_blocked: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
 pub enum SubagentSessionStatus {
     Planned,
     Active,
@@ -1615,6 +1768,32 @@ pub enum RunEvent {
     ReviewerGateResolved {
         decision: ReviewerGateDecision,
     },
+    CodingWorkflowStarted {
+        workflow_id: CodingWorkflowId,
+        task_id: TaskId,
+        objective: String,
+    },
+    WorkspaceMutationScopeRecorded {
+        scope: WorkspaceMutationScope,
+    },
+    PatchProposalRecorded {
+        proposal: PatchProposal,
+    },
+    PatchApplicationRecorded {
+        record: PatchApplicationRecord,
+    },
+    TestPlanRecorded {
+        plan: TestPlanRecord,
+    },
+    TestRunRecorded {
+        record: TestRunRecord,
+    },
+    ReviewBundleRecorded {
+        bundle: ReviewBundle,
+    },
+    RestorePlanRecorded {
+        plan: RestorePlanRecord,
+    },
     SubagentSessionPlanned {
         session: SubagentSessionDescriptor,
     },
@@ -1746,6 +1925,14 @@ impl RunEvent {
             Self::AgentHandoffRecorded { .. } => "agent_handoff_recorded",
             Self::ReviewerGateRequested { .. } => "reviewer_gate_requested",
             Self::ReviewerGateResolved { .. } => "reviewer_gate_resolved",
+            Self::CodingWorkflowStarted { .. } => "coding_workflow_started",
+            Self::WorkspaceMutationScopeRecorded { .. } => "workspace_mutation_scope_recorded",
+            Self::PatchProposalRecorded { .. } => "patch_proposal_recorded",
+            Self::PatchApplicationRecorded { .. } => "patch_application_recorded",
+            Self::TestPlanRecorded { .. } => "test_plan_recorded",
+            Self::TestRunRecorded { .. } => "test_run_recorded",
+            Self::ReviewBundleRecorded { .. } => "review_bundle_recorded",
+            Self::RestorePlanRecorded { .. } => "restore_plan_recorded",
             Self::SubagentSessionPlanned { .. } => "subagent_session_planned",
             Self::SubagentSessionStarted { .. } => "subagent_session_started",
             Self::SubagentSessionWaitingForApproval { .. } => {
@@ -1813,6 +2000,7 @@ impl RunEvent {
             | Self::TaskOwnerLost { task_id, .. }
             | Self::AgentRunStarted { task_id, .. }
             | Self::AgentStepStarted { task_id, .. }
+            | Self::CodingWorkflowStarted { task_id, .. }
             | Self::NoProgressLoopDetected { task_id, .. } => Some(task_id.clone()),
             Self::TaskPauseCheckpointCreated { checkpoint } => Some(checkpoint.task_id.clone()),
             Self::TaskOwnerAttached { lease } => Some(lease.task_id.clone()),
@@ -1822,6 +2010,13 @@ impl RunEvent {
             Self::AgentRunCompleted { summary } => Some(summary.task_id.clone()),
             Self::AgentHandoffRecorded { summary } => Some(summary.parent_task_id.clone()),
             Self::ReviewerGateRequested { request } => Some(request.parent_task_id.clone()),
+            Self::WorkspaceMutationScopeRecorded { scope } => Some(scope.task_id.clone()),
+            Self::PatchProposalRecorded { proposal } => Some(proposal.task_id.clone()),
+            Self::PatchApplicationRecorded { record } => Some(record.task_id.clone()),
+            Self::TestPlanRecorded { plan } => Some(plan.task_id.clone()),
+            Self::TestRunRecorded { record } => Some(record.task_id.clone()),
+            Self::ReviewBundleRecorded { bundle } => Some(bundle.task_id.clone()),
+            Self::RestorePlanRecorded { plan } => Some(plan.task_id.clone()),
             Self::SubagentSessionPlanned { session }
             | Self::SubagentSessionStarted { session }
             | Self::SubagentSessionWaitingForApproval { session }
@@ -1988,6 +2183,22 @@ impl RunEvent {
             Self::AgentHandoffRecorded { summary } => json!({ "summary": summary }),
             Self::ReviewerGateRequested { request } => json!({ "request": request }),
             Self::ReviewerGateResolved { decision } => json!({ "decision": decision }),
+            Self::CodingWorkflowStarted {
+                workflow_id,
+                task_id,
+                objective,
+            } => json!({
+                "workflow_id": workflow_id,
+                "task_id": task_id,
+                "objective": objective,
+            }),
+            Self::WorkspaceMutationScopeRecorded { scope } => json!({ "scope": scope }),
+            Self::PatchProposalRecorded { proposal } => json!({ "proposal": proposal }),
+            Self::PatchApplicationRecorded { record } => json!({ "record": record }),
+            Self::TestPlanRecorded { plan } => json!({ "plan": plan }),
+            Self::TestRunRecorded { record } => json!({ "record": record }),
+            Self::ReviewBundleRecorded { bundle } => json!({ "bundle": bundle }),
+            Self::RestorePlanRecorded { plan } => json!({ "plan": plan }),
             Self::SubagentSessionPlanned { session }
             | Self::SubagentSessionStarted { session }
             | Self::SubagentSessionWaitingForApproval { session }

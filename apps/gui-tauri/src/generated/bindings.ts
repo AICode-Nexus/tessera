@@ -29,6 +29,10 @@ export type ClientArtifact = { artifact_id: ArtifactId, kind: ArtifactKind | nul
 
 export type ClientInstanceId = string;
 
+export type CodingWorkflowEvidenceRedactionStatus = "clean" | "redacted";
+
+export type CodingWorkflowId = string;
+
 export type ClientContextBudgetSummary = { max_tokens: number, reserved_output_tokens: number, available_tokens: number, used_tokens: number, remaining_tokens: number, stable_prefix_tokens: number, append_only_transcript_tokens: number, volatile_scratch_tokens: number, over_budget: boolean, };
 
 export type ClientContextHandle = { context_id: ContextId, source_kind: ClientContextSourceKind, source_uri: string | null, label: string | null, placement: ClientContextPlacement, estimated_tokens: number, pinned: boolean, summary: string | null, };
@@ -113,6 +117,24 @@ export type ItemId = string;
 
 export type MemoryProposalId = string;
 
+export type MutationMode = "worktree_first" | "explicit_local" | "read_only_proposal";
+
+export type PatchApplicationOutcome = "planned" | "applied" | "conflict" | "rejected";
+
+export type PatchApplicationRecord = { patch_id: PatchProposalId, workflow_id: CodingWorkflowId, task_id: TaskId, checkpoint_id: SnapshotId | null, outcome: PatchApplicationOutcome, conflict_paths: Array<string>, applied_paths: Array<string>, artifact_refs: Array<ArtifactId>, };
+
+export type PatchProposal = { patch_id: PatchProposalId, workflow_id: CodingWorkflowId, task_id: TaskId, summary: string, touched_paths: Array<string>, diff_artifacts: Array<HandoffEvidenceRef>, risk_labels: Array<string>, required_checkpoint_id: SnapshotId | null, reviewer_gate_id: ReviewerGateId | null, };
+
+export type PatchProposalId = string;
+
+export type RestorePlanId = string;
+
+export type RestorePlanRecord = { restore_plan_id: RestorePlanId, workflow_id: CodingWorkflowId, task_id: TaskId, checkpoint_id: SnapshotId, target_paths: Array<string>, reason: string, execution_blocked: boolean, };
+
+export type ReviewBundle = { review_bundle_id: ReviewBundleId, workflow_id: CodingWorkflowId, task_id: TaskId, reviewer_gate_id: ReviewerGateId, patch_ids: Array<PatchProposalId>, test_run_ids: Array<TestRunId>, evidence: Array<HandoffEvidenceRef>, summary: string, };
+
+export type ReviewBundleId = string;
+
 export type ReviewerDecisionKind = "accept" | "reject" | "request_revision";
 
 export type ReviewerGateDecision = { gate_id: ReviewerGateId, handoff_id: AgentHandoffId, decision: ReviewerDecisionKind, reviewer: string, reason_code: string, comment: string | null, };
@@ -195,6 +217,16 @@ export type TaskReattachMode = "observe_existing_owner" | "resume_from_checkpoin
 
 export type TaskStatus = "pending" | "running" | "waiting_for_approval" | "paused" | "completed" | "failed" | "cancelled";
 
+export type TestPlanId = string;
+
+export type TestPlanRecord = { test_plan_id: TestPlanId, workflow_id: CodingWorkflowId, task_id: TaskId, command_labels: Array<string>, affected_paths: Array<string>, required_artifact_kinds: Array<ArtifactKind>, };
+
+export type TestRunId = string;
+
+export type TestRunRecord = { test_run_id: TestRunId, workflow_id: CodingWorkflowId, task_id: TaskId, test_plan_id: TestPlanId | null, command_label: string, status: TestRunStatus, exit_code: number | null, duration_ms: number | null, stdout_artifact_id: ArtifactId | null, stderr_artifact_id: ArtifactId | null, diagnostics: Array<HandoffEvidenceRef>, redaction_status: CodingWorkflowEvidenceRedactionStatus, };
+
+export type TestRunStatus = "planned" | "passed" | "failed" | "cancelled" | "error";
+
 export type ThreadId = string;
 
 export type Timestamp = string;
@@ -203,9 +235,11 @@ export type ToolCallId = string;
 
 export type ToolId = string;
 
-export type TraceEventKind = "thread_created" | "turn_started" | "user_message_recorded" | "provider_request_started" | "assistant_message_started" | "assistant_delta" | "assistant_reasoning_delta" | "assistant_message_completed" | "usage_reported" | "provider_capability_reported" | "route_decision_recorded" | "provider_request_completed" | "turn_completed" | "task_created" | "task_started" | "task_completed" | "task_failed" | "task_cancelled" | "task_pause_checkpoint_created" | "task_paused" | "task_resumed" | "runtime_instance_started" | "task_owner_attached" | "task_owner_heartbeat" | "task_owner_detached" | "task_owner_lost" | "task_reattach_recorded" | "agent_run_started" | "agent_step_started" | "agent_step_completed" | "agent_run_completed" | "agent_handoff_recorded" | "reviewer_gate_requested" | "reviewer_gate_resolved" | "subagent_session_planned" | "subagent_session_started" | "subagent_session_waiting_for_approval" | "subagent_session_inactive" | "subagent_session_completed" | "subagent_runtime_decision_recorded" | "subagent_transcript_artifact_recorded" | "subagent_transcript_artifact_lifecycle_recorded" | "subagent_approval_forwarding_recorded" | "subagent_inactive_policy_recorded" | "subagent_cancellation_recorded" | "no_progress_loop_detected" | "diagnostics_reported" | "memory_write_proposed" | "memory_write_applied" | "memory_write_rejected" | "artifact_created" | "snapshot_created" | "tool_call_requested" | "tool_policy_decision_recorded" | "sandbox_decision_recorded" | "os_sandbox_profile_selected" | "tool_dispatch_started" | "tool_dispatch_completed" | "tool_result" | "tool_repair_reported" | "tool_call_approved" | "tool_call_denied" | "error" | "done";
+export type TraceEventKind = "thread_created" | "turn_started" | "user_message_recorded" | "provider_request_started" | "assistant_message_started" | "assistant_delta" | "assistant_reasoning_delta" | "assistant_message_completed" | "usage_reported" | "provider_capability_reported" | "route_decision_recorded" | "provider_request_completed" | "turn_completed" | "task_created" | "task_started" | "task_completed" | "task_failed" | "task_cancelled" | "task_pause_checkpoint_created" | "task_paused" | "task_resumed" | "runtime_instance_started" | "task_owner_attached" | "task_owner_heartbeat" | "task_owner_detached" | "task_owner_lost" | "task_reattach_recorded" | "agent_run_started" | "agent_step_started" | "agent_step_completed" | "agent_run_completed" | "agent_handoff_recorded" | "reviewer_gate_requested" | "reviewer_gate_resolved" | "coding_workflow_started" | "workspace_mutation_scope_recorded" | "patch_proposal_recorded" | "patch_application_recorded" | "test_plan_recorded" | "test_run_recorded" | "review_bundle_recorded" | "restore_plan_recorded" | "subagent_session_planned" | "subagent_session_started" | "subagent_session_waiting_for_approval" | "subagent_session_inactive" | "subagent_session_completed" | "subagent_runtime_decision_recorded" | "subagent_transcript_artifact_recorded" | "subagent_transcript_artifact_lifecycle_recorded" | "subagent_approval_forwarding_recorded" | "subagent_inactive_policy_recorded" | "subagent_cancellation_recorded" | "no_progress_loop_detected" | "diagnostics_reported" | "memory_write_proposed" | "memory_write_applied" | "memory_write_rejected" | "artifact_created" | "snapshot_created" | "tool_call_requested" | "tool_policy_decision_recorded" | "sandbox_decision_recorded" | "os_sandbox_profile_selected" | "tool_dispatch_started" | "tool_dispatch_completed" | "tool_result" | "tool_repair_reported" | "tool_call_approved" | "tool_call_denied" | "error" | "done";
 
 
 export type TraceRecord = { schema_version: number, trace_id: string, seq: number, event_id: EventId, timestamp: Timestamp, thread_id: ThreadId | null, turn_id: TurnId | null, item_id: ItemId | null, task_id: TaskId | null, event_kind: string, payload: JsonValue, extension: { [key in string]: JsonValue } | null, artifact_refs: Array<ArtifactId>, };
 
 export type TurnId = string;
+
+export type WorkspaceMutationScope = { workflow_id: CodingWorkflowId, task_id: TaskId, root_label: string, allowed_paths: Array<string>, denied_paths: Array<string>, mutation_mode: MutationMode, worktree_required: boolean, reason: string | null, };

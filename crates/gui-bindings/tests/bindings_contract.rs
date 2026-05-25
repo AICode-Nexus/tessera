@@ -35,6 +35,15 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type AgentHandoffSummary"));
     assert!(bindings.contains("export type ReviewerGateRequest"));
     assert!(bindings.contains("export type ReviewerGateDecision"));
+    assert!(bindings.contains("export type CodingWorkflowId"));
+    assert!(bindings.contains("export type WorkspaceMutationScope"));
+    assert!(bindings.contains("export type MutationMode"));
+    assert!(bindings.contains("export type PatchProposal"));
+    assert!(bindings.contains("export type PatchApplicationRecord"));
+    assert!(bindings.contains("export type TestPlanRecord"));
+    assert!(bindings.contains("export type TestRunRecord"));
+    assert!(bindings.contains("export type ReviewBundle"));
+    assert!(bindings.contains("export type RestorePlanRecord"));
     assert!(bindings.contains("export type ClientSnapshot"));
     assert!(bindings.contains("export type ContextId"));
     assert!(bindings.contains("export type GuiCommandOutcome"));
@@ -55,6 +64,14 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("agent_handoff_recorded"));
     assert!(bindings.contains("reviewer_gate_requested"));
     assert!(bindings.contains("reviewer_gate_resolved"));
+    assert!(bindings.contains("coding_workflow_started"));
+    assert!(bindings.contains("workspace_mutation_scope_recorded"));
+    assert!(bindings.contains("patch_proposal_recorded"));
+    assert!(bindings.contains("patch_application_recorded"));
+    assert!(bindings.contains("test_plan_recorded"));
+    assert!(bindings.contains("test_run_recorded"));
+    assert!(bindings.contains("review_bundle_recorded"));
+    assert!(bindings.contains("restore_plan_recorded"));
     assert!(bindings.contains("subagent_session_planned"));
     assert!(bindings.contains("subagent_session_waiting_for_approval"));
     assert!(bindings.contains("subagent_runtime_decision_recorded"));
@@ -78,6 +95,9 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(!bindings.contains("store_transcript_body"));
     assert!(!bindings.contains("summarize_child_transcript"));
     assert!(!bindings.contains("execute_tool"));
+    assert!(!bindings.contains("apply_patch"));
+    assert!(!bindings.contains("restore_workspace"));
+    assert!(!bindings.contains("git_commit"));
 }
 
 #[test]

@@ -1,14 +1,17 @@
 use tessera_protocol::{
     AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, AgentProfile,
     AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ApprovalId, ApprovalStatus,
-    ArtifactId, ClientInstanceId, ContextBudget, ContextId, ContextPlacement, ContextReference,
-    ContextSource, ContextSourceKind, CostEstimate, Diagnostic, DiagnosticRange, DiagnosticReport,
+    ArtifactId, ArtifactKind, ClientInstanceId, CodingWorkflowEvidenceRedactionStatus,
+    CodingWorkflowId, ContextBudget, ContextId, ContextPlacement, ContextReference, ContextSource,
+    ContextSourceKind, CostEstimate, Diagnostic, DiagnosticRange, DiagnosticReport,
     DiagnosticReportId, DiagnosticSeverity, EventFrame, EventRange, HandoffEvidenceKind,
     HandoffEvidenceRef, InstructionLoadStatus, InstructionRedactionStatus, InstructionSource,
     InstructionSourceKind, ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus,
-    ModelProfileId, NoProgressAction, NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem,
-    OsSandboxMode, OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId, OsSandboxShell,
-    PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, ReviewerDecisionKind,
+    ModelProfileId, MutationMode, NoProgressAction, NoProgressLoop, NoProgressSignalKind,
+    OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId,
+    OsSandboxShell, PatchApplicationOutcome, PatchApplicationRecord, PatchProposal,
+    PatchProposalId, PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId,
+    RestorePlanId, RestorePlanRecord, ReviewBundle, ReviewBundleId, ReviewerDecisionKind,
     ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RouteDecision, RouteDecisionId,
     RouteStrategy, RunEvent, RuntimeApiCommand, RuntimeApiCommandAck, RuntimeApiCommandEnvelope,
     RuntimeApiCommandStatus, RuntimeApiEventStreamRequest, RuntimeApiServerConfig,
@@ -23,11 +26,12 @@ use tessera_protocol::{
     SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
     SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactRecord,
     SubagentTranscriptArtifactStatus, TaskId, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus,
-    TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, Timestamp,
-    ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId,
-    ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
-    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
-    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, TestPlanId,
+    TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus, Timestamp, ToolApproval, ToolCallId,
+    ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission,
+    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolResultId,
+    ToolResultStatus, ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail,
+    WorkspaceMutationScope, WorkspaceScope,
 };
 
 #[test]
@@ -1405,6 +1409,176 @@ fn snapshot_created_event_records_checkpoint_without_restore_action() {
     );
     assert!(record.payload.get("restore_command").is_none());
     assert!(record.payload.get("revert_command").is_none());
+}
+
+#[test]
+fn coding_workflow_events_are_traceable_without_mutation_execution() {
+    let task_id = TaskId::from_static("task_coding_workflow");
+    let workflow_id = CodingWorkflowId::from_static("coding_workflow_patch_review");
+    let patch_id = PatchProposalId::from_static("patch_proposal_readme");
+    let checkpoint_id = SnapshotId::from_static("snapshot_before_patch");
+    let reviewer_gate_id = ReviewerGateId::from_static("reviewer_gate_patch");
+    let diff_artifact_id = ArtifactId::from_static("artifact_diff_readme");
+    let stdout_artifact_id = ArtifactId::from_static("artifact_test_stdout");
+
+    let scope = WorkspaceMutationScope {
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        root_label: "project".to_string(),
+        allowed_paths: vec!["docs/**".to_string()],
+        denied_paths: vec![".env".to_string()],
+        mutation_mode: MutationMode::WorktreeFirst,
+        worktree_required: true,
+        reason: Some("coding workflow must isolate writes".to_string()),
+    };
+    let patch = PatchProposal {
+        patch_id: patch_id.clone(),
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        summary: "Update README wording".to_string(),
+        touched_paths: vec!["docs/README.md".to_string()],
+        diff_artifacts: vec![HandoffEvidenceRef {
+            kind: HandoffEvidenceKind::DiffArtifact,
+            artifact_id: Some(diff_artifact_id.clone()),
+            trace_id: None,
+            event_range: None,
+            label: Some("proposed diff".to_string()),
+            summary: Some("One documentation-only diff".to_string()),
+        }],
+        risk_labels: vec!["docs_only".to_string()],
+        required_checkpoint_id: Some(checkpoint_id.clone()),
+        reviewer_gate_id: Some(reviewer_gate_id.clone()),
+    };
+    let test_plan = TestPlanRecord {
+        test_plan_id: TestPlanId::from_static("test_plan_docs_check"),
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        command_labels: vec!["git diff --check".to_string()],
+        affected_paths: vec!["docs/README.md".to_string()],
+        required_artifact_kinds: vec![ArtifactKind::TestReport],
+    };
+    let test_run = TestRunRecord {
+        test_run_id: TestRunId::from_static("test_run_docs_check"),
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        test_plan_id: Some(test_plan.test_plan_id.clone()),
+        command_label: "git diff --check".to_string(),
+        status: TestRunStatus::Passed,
+        exit_code: Some(0),
+        duration_ms: Some(12),
+        stdout_artifact_id: Some(stdout_artifact_id.clone()),
+        stderr_artifact_id: None,
+        diagnostics: Vec::new(),
+        redaction_status: CodingWorkflowEvidenceRedactionStatus::Clean,
+    };
+    let review_bundle = ReviewBundle {
+        review_bundle_id: ReviewBundleId::from_static("review_bundle_patch"),
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        reviewer_gate_id: reviewer_gate_id.clone(),
+        patch_ids: vec![patch_id.clone()],
+        test_run_ids: vec![test_run.test_run_id.clone()],
+        evidence: patch.diff_artifacts.clone(),
+        summary: "Patch is ready for review with docs check evidence.".to_string(),
+    };
+    let restore_plan = RestorePlanRecord {
+        restore_plan_id: RestorePlanId::from_static("restore_plan_patch"),
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        checkpoint_id,
+        target_paths: vec!["docs/README.md".to_string()],
+        reason: "rollback if review rejects patch".to_string(),
+        execution_blocked: true,
+    };
+
+    let events = [
+        RunEvent::CodingWorkflowStarted {
+            workflow_id: workflow_id.clone(),
+            task_id: task_id.clone(),
+            objective: "prepare a reviewed docs patch".to_string(),
+        },
+        RunEvent::WorkspaceMutationScopeRecorded {
+            scope: scope.clone(),
+        },
+        RunEvent::PatchProposalRecorded {
+            proposal: patch.clone(),
+        },
+        RunEvent::PatchApplicationRecorded {
+            record: PatchApplicationRecord {
+                patch_id,
+                workflow_id: workflow_id.clone(),
+                task_id: task_id.clone(),
+                checkpoint_id: Some(SnapshotId::from_static("snapshot_before_patch")),
+                outcome: PatchApplicationOutcome::Planned,
+                conflict_paths: Vec::new(),
+                applied_paths: Vec::new(),
+                artifact_refs: vec![diff_artifact_id],
+            },
+        },
+        RunEvent::TestPlanRecorded { plan: test_plan },
+        RunEvent::TestRunRecorded {
+            record: test_run.clone(),
+        },
+        RunEvent::ReviewBundleRecorded {
+            bundle: review_bundle,
+        },
+        RunEvent::RestorePlanRecorded { plan: restore_plan },
+    ];
+
+    let event_kinds = events.iter().map(RunEvent::kind).collect::<Vec<_>>();
+    assert_eq!(
+        event_kinds,
+        vec![
+            "coding_workflow_started",
+            "workspace_mutation_scope_recorded",
+            "patch_proposal_recorded",
+            "patch_application_recorded",
+            "test_plan_recorded",
+            "test_run_recorded",
+            "review_bundle_recorded",
+            "restore_plan_recorded"
+        ]
+    );
+    assert!(events
+        .iter()
+        .all(|event| event.task_id() == Some(task_id.clone())));
+
+    let patch_payload = events[2].payload();
+    assert_eq!(
+        patch_payload["proposal"]["touched_paths"][0],
+        "docs/README.md"
+    );
+    assert_eq!(
+        patch_payload["proposal"]["diff_artifacts"][0]["artifact_id"],
+        "artifact_diff_readme"
+    );
+    assert_eq!(
+        patch_payload["proposal"]["required_checkpoint_id"],
+        "snapshot_before_patch"
+    );
+    assert_eq!(
+        patch_payload["proposal"]["reviewer_gate_id"],
+        "reviewer_gate_patch"
+    );
+
+    let test_payload = events[5].payload();
+    assert_eq!(
+        test_payload["record"]["stdout_artifact_id"],
+        stdout_artifact_id.as_str()
+    );
+    assert!(test_payload["record"].get("stdout").is_none());
+    assert!(test_payload["record"].get("stderr").is_none());
+
+    let restore_payload = events[7].payload();
+    assert_eq!(restore_payload["plan"]["execution_blocked"], true);
+    assert!(restore_payload.get("restore_command").is_none());
+    assert!(restore_payload.get("revert_command").is_none());
+
+    let encoded = serde_json::to_string(&events[2].payload()).unwrap();
+    assert!(!encoded.contains("BEGIN PATCH"));
+    assert!(!encoded.contains("authorization"));
+    assert!(!encoded.contains("api_key"));
+    assert!(!encoded.contains("cookie"));
 }
 
 #[test]

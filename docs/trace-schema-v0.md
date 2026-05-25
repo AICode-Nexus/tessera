@@ -83,6 +83,8 @@ The next v0.6 persistent sub-agent session foundation will add trace events for 
 
 v0.6 sub-agent runtime ownership events record scheduler decisions, transcript artifact publication, approval forwarding state, inactive-child policy decisions and cancellation cascade metadata. These events still do not execute child providers or tools; they are the replayable contract that a future core-owned coordinator must satisfy before runtime execution.
 
+v0.7 coding-agent workflow foundation adds trace events for workflow scope, patch proposals, diff artifact refs, checkpoint/reviewer requirements, test evidence refs, review bundles and restore plans. These events are metadata-only until future policy/sandbox/checkpoint/reviewer-gated executors apply patches, run tests, restore checkpoints or mutate Git.
+
 ## 4. Event Kind
 
 当前必须支持（v0.1 基线 + v0.2-v0.5 foundation/runtime signals）：
@@ -124,6 +126,14 @@ agent_run_completed
 agent_handoff_recorded
 reviewer_gate_requested
 reviewer_gate_resolved
+coding_workflow_started
+workspace_mutation_scope_recorded
+patch_proposal_recorded
+patch_application_recorded
+test_plan_recorded
+test_run_recorded
+review_bundle_recorded
+restore_plan_recorded
 subagent_session_planned
 subagent_session_started
 subagent_session_waiting_for_approval
@@ -175,6 +185,10 @@ Runtime API / app-server alignment DTOs are not trace events by themselves. They
 `agent_handoff_recorded` payload must contain `summary`, including handoff id, parent task id, optional child task id, status, objective, short summary, bounded evidence refs, metrics and optional evidence event range. `reviewer_gate_requested` payload must contain `request`, including gate id, handoff id, parent task id, requested decision kinds and evidence refs. `reviewer_gate_resolved` payload must contain `decision`, including gate id, handoff id, decision kind, reviewer label, reason code and optional comment.
 
 These events do not imply persistent child-agent runtime. They only make handoff and review state replayable for CLI/TUI/GUI/runtime API clients.
+
+`coding_workflow_started` payload must contain `workflow_id`, `task_id` and `objective`. `workspace_mutation_scope_recorded` payload must contain `scope`, including workflow id, task id, root label, allowed/denied relative paths, mutation mode, worktree requirement and optional reason. `patch_proposal_recorded` payload must contain `proposal`, including patch id, workflow id, task id, summary, touched paths, diff artifact refs, optional checkpoint id and optional reviewer gate id. `patch_application_recorded` payload must contain `record`, including patch id, workflow id, task id, optional checkpoint id, outcome, conflict/applied path summaries and artifact refs. `test_plan_recorded` payload must contain `plan`; `test_run_recorded` payload must contain `record` with artifact refs for stdout/stderr rather than inline command output. `review_bundle_recorded` payload must contain `bundle`; `restore_plan_recorded` payload must contain `plan` with `execution_blocked` for metadata-only restore plans.
+
+These coding workflow events must not contain patch bodies, file contents, stdout/stderr bodies, shell command execution handles, provider-private handles, API keys, cookies, authorization headers, hidden reasoning, checkpoint restore commands or Git mutation commands. They are replayable evidence and gate metadata only; they do not apply patches, write files, run commands, restore checkpoints, stage commits, push branches or open PRs.
 
 Each payload must contain `session`, including session id, parent task id, optional child task id, agent profile id, objective, status, scope labels, tool permission labels, memory scope labels, optional transcript artifact id, caps and optional approval forwarding metadata. These payloads must not contain executable command, shell command, provider-private handles, API keys, cookies, authorization headers, tool output, file contents, workspace diffs or scheduler handles.
 
