@@ -1,7 +1,12 @@
+mod apply_patch_gate;
 mod coding_workflow;
 mod mutation_enforcement;
 mod subagent_runtime;
 
+pub use apply_patch_gate::{
+    ApplyPatchGate, ApplyPatchGateBlocker, ApplyPatchGateRecord, ApplyPatchGateRequest,
+    ApplyPatchGateStatus,
+};
 pub use coding_workflow::{
     CodingWorkflowArtifactBodyRequest, CodingWorkflowCheckpointLifecycleRequest,
     CodingWorkflowCoordinator, CodingWorkflowError, CodingWorkflowPatchApplicationRequest,
