@@ -46,7 +46,7 @@ fn subagent_session(status: SubagentSessionStatus) -> SubagentSessionDescriptor 
 
 #[test]
 fn subagent_runtime_coordinator_rejects_sessions_over_depth_caps() {
-    let coordinator = SubagentRuntimeCoordinator::default();
+    let coordinator = SubagentRuntimeCoordinator;
     let decision = coordinator.plan_start(SubagentRuntimeStartRequest {
         session: subagent_session(SubagentSessionStatus::Planned),
         current_depth: 2,
@@ -63,7 +63,7 @@ fn subagent_runtime_coordinator_rejects_sessions_over_depth_caps() {
 
 #[test]
 fn subagent_runtime_coordinator_records_decision_events_without_provider_or_tool_execution() {
-    let coordinator = SubagentRuntimeCoordinator::default();
+    let coordinator = SubagentRuntimeCoordinator;
     let event = coordinator.plan_start_event(SubagentRuntimeStartRequest {
         session: subagent_session(SubagentSessionStatus::Planned),
         current_depth: 1,
@@ -83,7 +83,7 @@ fn subagent_runtime_coordinator_records_decision_events_without_provider_or_tool
 
 #[test]
 fn subagent_runtime_coordinator_requires_transcript_artifact_before_completion() {
-    let coordinator = SubagentRuntimeCoordinator::default();
+    let coordinator = SubagentRuntimeCoordinator;
     let mut session = subagent_session(SubagentSessionStatus::Completed);
     session.transcript_artifact_id = None;
     let decision = coordinator.plan_completion(SubagentCompletionRequest { session });
@@ -94,7 +94,7 @@ fn subagent_runtime_coordinator_requires_transcript_artifact_before_completion()
 
 #[test]
 fn subagent_runtime_coordinator_rejects_missing_reviewer_gate_when_review_is_required() {
-    let coordinator = SubagentRuntimeCoordinator::default();
+    let coordinator = SubagentRuntimeCoordinator;
     let mut session = subagent_session(SubagentSessionStatus::Planned);
     session.approval_forwarding = Some(SubagentApprovalForwarding {
         inactive_policy: SubagentInactivePolicy::RequireReviewer,
