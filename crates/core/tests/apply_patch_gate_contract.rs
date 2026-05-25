@@ -1,6 +1,7 @@
 use tessera_core::{
-    ApplyPatchGate, ApplyPatchGateBlocker, ApplyPatchGateRequest, ApplyPatchGateStatus,
-    MutationEnforcementPlan, MutationEnforcementPlanRequest, MutationEnforcementPlanner,
+    ApplyPatchDryRunInput, ApplyPatchDryRunOperation, ApplyPatchGate, ApplyPatchGateBlocker,
+    ApplyPatchGateRequest, ApplyPatchGateStatus, MutationEnforcementPlan,
+    MutationEnforcementPlanRequest, MutationEnforcementPlanner,
 };
 use tessera_protocol::{
     AgentHandoffId, ArtifactId, CodingWorkflowId, HandoffEvidenceKind, HandoffEvidenceRef,
@@ -140,8 +141,26 @@ fn valid_request() -> ApplyPatchGateRequest {
         checkpoint_lifecycle: Some(checkpoint_lifecycle()),
         reviewer_decision: Some(reviewer_decision()),
         policy_decision: Some(policy_decision()),
+        patch_body: Some(ApplyPatchDryRunInput {
+            body: docs_patch_body(),
+            max_bytes: 16 * 1024,
+        }),
         operator_label: "coding-agent".to_string(),
     }
+}
+
+fn docs_patch_body() -> String {
+    [
+        "diff --git a/docs/README.md b/docs/README.md",
+        "index 1111111..2222222 100644",
+        "--- a/docs/README.md",
+        "+++ b/docs/README.md",
+        "@@ -1,2 +1,2 @@",
+        "-old",
+        "+new",
+        "",
+    ]
+    .join("\n")
 }
 
 #[test]
@@ -210,4 +229,95 @@ fn apply_patch_gate_reports_executor_blocked_even_when_preflight_is_ready() {
         record.executor_block_reason,
         "apply_patch_executor_not_implemented"
     );
+}
+
+#[test]
+fn apply_patch_dry_run_extracts_affected_paths_without_file_io() {
+    let gate = ApplyPatchGate;
+
+    let record = gate.evaluate(valid_request());
+
+    let dry_run = record
+        .dry_run
+        .expect("dry-run summary should be produced from provided artifact body");
+    assert_eq!(dry_run.affected_paths, vec!["docs/README.md"]);
+    assert_eq!(dry_run.operations.len(), 1);
+    assert_eq!(dry_run.operations[0].path, "docs/README.md");
+    assert_eq!(
+        dry_run.operations[0].operation,
+        ApplyPatchDryRunOperation::Modify
+    );
+    assert!(record.blockers.is_empty());
+}
+
+#[test]
+fn apply_patch_dry_run_rejects_absolute_or_parent_paths() {
+    let gate = ApplyPatchGate;
+    let mut request = valid_request();
+    request.patch_body = Some(ApplyPatchDryRunInput {
+        body: [
+            "diff --git a/docs/README.md b/../secrets.env",
+            "--- a/docs/README.md",
+            "+++ b/../secrets.env",
+            "@@ -1 +1 @@",
+            "-old",
+            "+new",
+            "",
+        ]
+        .join("\n"),
+        max_bytes: 16 * 1024,
+    });
+
+    let record = gate.evaluate(request);
+
+    assert_eq!(record.status, ApplyPatchGateStatus::Blocked);
+    assert!(record
+        .blockers
+        .contains(&ApplyPatchGateBlocker::UnsafePatchPath));
+    assert!(record.executor_blocked);
+}
+
+#[test]
+fn apply_patch_dry_run_blocks_binary_rename_and_delete_until_modeled() {
+    let gate = ApplyPatchGate;
+    let mut request = valid_request();
+    request.patch_body = Some(ApplyPatchDryRunInput {
+        body: [
+            "diff --git a/docs/old.md b/docs/new.md",
+            "similarity index 90%",
+            "rename from docs/old.md",
+            "rename to docs/new.md",
+            "diff --git a/assets/logo.png b/assets/logo.png",
+            "Binary files a/assets/logo.png and b/assets/logo.png differ",
+            "diff --git a/docs/remove.md b/docs/remove.md",
+            "deleted file mode 100644",
+            "--- a/docs/remove.md",
+            "+++ /dev/null",
+            "",
+        ]
+        .join("\n"),
+        max_bytes: 16 * 1024,
+    });
+
+    let record = gate.evaluate(request);
+
+    assert_eq!(record.status, ApplyPatchGateStatus::Blocked);
+    assert!(record
+        .blockers
+        .contains(&ApplyPatchGateBlocker::UnsupportedPatchOperation));
+    let dry_run = record
+        .dry_run
+        .expect("unsupported operations should still produce dry-run metadata");
+    assert!(dry_run
+        .operations
+        .iter()
+        .any(|operation| operation.operation == ApplyPatchDryRunOperation::RenameUnsupported));
+    assert!(dry_run
+        .operations
+        .iter()
+        .any(|operation| operation.operation == ApplyPatchDryRunOperation::BinaryUnsupported));
+    assert!(dry_run
+        .operations
+        .iter()
+        .any(|operation| operation.operation == ApplyPatchDryRunOperation::DeleteUnsupported));
 }

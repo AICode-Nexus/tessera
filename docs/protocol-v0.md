@@ -591,6 +591,8 @@ pub enum RunEvent {
 
 `CodingWorkflowStarted` / `WorkspaceMutationScopeRecorded` / `MutationRequestProposalRecorded` / `PatchProposalRecorded` / `PatchApplicationRecorded` / `TestPlanRecorded` / `TestRunRecorded` / `ReviewBundleRecorded` / `RestorePlanRecorded` 是 v0.7 coding-agent workflow foundation。它们只记录 workflow id、task id、worktree-first mutation scope、policy-controlled mutation request proposals、patch proposal summary、diff artifact refs、checkpoint/reviewer/policy references、sandbox profile labels、test plan/test result artifact refs、review bundle metadata and restore plan metadata。Mutation request operation kind 使用 `patch_application`、`test_run`、`checkpoint_restore`、`version_control_*` 等中性标签，不暴露 GUI/runtime command 字符串。它们不得 inline patch body、file contents、stdout/stderr bodies、provider-private responses、hidden reasoning、API keys、cookies、authorization headers 或 filesystem handles。`MutationRequestProposalRecorded`、`PatchApplicationRecorded` 和 `RestorePlanRecorded` 在当前 foundation 中仍是 metadata-only：不执行 apply-patch，不写文件，不运行测试，不 restore/revert checkpoint，不 stage/commit/push Git。
 
+`ApplyPatchGate` 是 core-owned preflight helper，不是 protocol event。它可从已经加载到内存的 patch artifact body 文本中做 bounded dry-run parsing，输出 affected path、operation summary 和 blocker metadata；这些结果只允许通过后续 metadata-only projection 或 trace event 记录 summary，不得把 patch body、文件内容、外部 patch command、workspace file handle 或 executor handle 放进 protocol。
+
 仍只预留、不执行的事件：
 
 ```rust

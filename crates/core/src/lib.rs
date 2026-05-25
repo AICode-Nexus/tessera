@@ -4,8 +4,9 @@ mod mutation_enforcement;
 mod subagent_runtime;
 
 pub use apply_patch_gate::{
-    ApplyPatchGate, ApplyPatchGateBlocker, ApplyPatchGateRecord, ApplyPatchGateRequest,
-    ApplyPatchGateStatus,
+    ApplyPatchDryRunInput, ApplyPatchDryRunOperation, ApplyPatchDryRunOperationSummary,
+    ApplyPatchDryRunSummary, ApplyPatchGate, ApplyPatchGateBlocker, ApplyPatchGateRecord,
+    ApplyPatchGateRequest, ApplyPatchGateStatus,
 };
 pub use coding_workflow::{
     CodingWorkflowArtifactBodyRequest, CodingWorkflowCheckpointLifecycleRequest,
