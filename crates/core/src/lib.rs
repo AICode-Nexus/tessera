@@ -3,7 +3,8 @@ mod subagent_runtime;
 pub use subagent_runtime::{
     SubagentApprovalForwardingRequest, SubagentCancellationRequest, SubagentCompletionRequest,
     SubagentInactivePolicyRequest, SubagentRuntimeCoordinator, SubagentRuntimeError,
-    SubagentRuntimeStartRequest, SubagentTranscriptArtifactLifecycleRequest,
+    SubagentRuntimeStartRequest, SubagentTaskOwnerAttachRequest, SubagentTaskOwnerDetachRequest,
+    SubagentTranscriptArtifactLifecycleRequest,
 };
 
 use futures::TryStreamExt;

@@ -1,14 +1,16 @@
 use tessera_core::{
     SubagentApprovalForwardingRequest, SubagentCancellationRequest, SubagentCompletionRequest,
     SubagentInactivePolicyRequest, SubagentRuntimeCoordinator, SubagentRuntimeStartRequest,
+    SubagentTaskOwnerAttachRequest, SubagentTaskOwnerDetachRequest,
     SubagentTranscriptArtifactLifecycleRequest,
 };
 use tessera_protocol::{
-    AgentProfileId, ApprovalId, ArtifactId, CostEstimate, EventRange, ReviewerGateId, RunEvent,
-    SubagentApprovalForwarding, SubagentApprovalForwardingStatus, SubagentCancellationCascade,
-    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentRuntimeDecisionKind,
-    SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
-    SubagentTranscriptArtifactStatus, TaskId,
+    AgentProfileId, ApprovalId, ArtifactId, ClientInstanceId, CostEstimate, EventRange,
+    ReviewerGateId, RunEvent, RuntimeInstanceId, SubagentApprovalForwarding,
+    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentInactiveParentAction,
+    SubagentInactivePolicy, SubagentRuntimeDecisionKind, SubagentSessionCaps,
+    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
+    SubagentTranscriptArtifactStatus, TaskId, TaskOwnerKind, TaskOwnerStatus, TaskOwnershipId,
 };
 
 fn subagent_session(status: SubagentSessionStatus) -> SubagentSessionDescriptor {
@@ -540,4 +542,162 @@ fn subagent_cancellation_core_rejects_empty_reason() {
     assert!(error
         .to_string()
         .contains("reason is required for sub-agent cancellation"));
+}
+
+#[test]
+fn subagent_task_owner_bridge_attach_requires_child_task_id() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let mut session = subagent_session(SubagentSessionStatus::Planned);
+    session.child_task_id = None;
+
+    let error = coordinator.task_owner_lease(SubagentTaskOwnerAttachRequest {
+        session,
+        trace_id: "trace_subagent_child_owner".to_string(),
+        runtime_id: RuntimeInstanceId::from_static("runtime_subagent_child"),
+        client_id: None,
+        owner_kind: TaskOwnerKind::Observer,
+        last_seq: Some(7),
+        heartbeat_interval_ms: 10_000,
+        reason: "observe planned child task".to_string(),
+    });
+
+    let error = error.expect_err("attach should require a child task id");
+    assert!(error
+        .to_string()
+        .contains("child_task_id is required for sub-agent task owner"));
+}
+
+#[test]
+fn subagent_task_owner_bridge_active_execution_attach_targets_child_task() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let lease = coordinator.task_owner_lease(SubagentTaskOwnerAttachRequest {
+        session: subagent_session(SubagentSessionStatus::Active),
+        trace_id: "trace_subagent_child_owner".to_string(),
+        runtime_id: RuntimeInstanceId::from_static("runtime_subagent_child"),
+        client_id: Some(ClientInstanceId::from_static("client_subagent_shell")),
+        owner_kind: TaskOwnerKind::Execution,
+        last_seq: Some(12),
+        heartbeat_interval_ms: 15_000,
+        reason: "active child task owner metadata".to_string(),
+    });
+
+    let lease = lease.expect("active sub-agent should allow execution owner metadata");
+    assert_eq!(lease.task_id, TaskId::from_static("task_child_subagent"));
+    assert_eq!(lease.trace_id, "trace_subagent_child_owner");
+    assert_eq!(
+        lease.runtime_id,
+        RuntimeInstanceId::from_static("runtime_subagent_child")
+    );
+    assert_eq!(
+        lease.client_id,
+        Some(ClientInstanceId::from_static("client_subagent_shell"))
+    );
+    assert_eq!(lease.owner_kind, TaskOwnerKind::Execution);
+    assert_eq!(lease.status, TaskOwnerStatus::Attached);
+    assert_eq!(lease.heartbeat_interval_ms, 15_000);
+    assert_eq!(lease.last_seq, Some(12));
+    assert_eq!(
+        lease.reason,
+        Some("active child task owner metadata".to_string())
+    );
+}
+
+#[test]
+fn subagent_task_owner_bridge_observer_attach_event_is_metadata_only() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let event = coordinator.task_owner_attach_event(SubagentTaskOwnerAttachRequest {
+        session: subagent_session(SubagentSessionStatus::WaitingForApproval),
+        trace_id: "trace_subagent_child_owner".to_string(),
+        runtime_id: RuntimeInstanceId::from_static("runtime_subagent_observer"),
+        client_id: None,
+        owner_kind: TaskOwnerKind::Observer,
+        last_seq: None,
+        heartbeat_interval_ms: 20_000,
+        reason: "observe child while approval is pending".to_string(),
+    });
+
+    let event = event.expect("waiting sub-agent should allow observer owner metadata");
+    assert_eq!(event.kind(), "task_owner_attached");
+    assert_eq!(
+        event.task_id(),
+        Some(TaskId::from_static("task_child_subagent"))
+    );
+    let payload = event.payload();
+    assert_eq!(payload["lease"]["task_id"], "task_child_subagent");
+    assert_eq!(payload["lease"]["owner_kind"], "observer");
+    assert_eq!(payload["lease"]["status"], "attached");
+    assert_eq!(
+        payload["lease"]["reason"],
+        "observe child while approval is pending"
+    );
+    assert!(payload.get("provider_request").is_none());
+    assert!(payload.get("tool_call").is_none());
+    assert!(payload.get("scheduler_loop").is_none());
+    assert!(payload.get("storage_write").is_none());
+    assert!(payload.get("ui_action").is_none());
+}
+
+#[test]
+fn subagent_task_owner_bridge_rejects_execution_owner_for_waiting_session() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error = coordinator.task_owner_lease(SubagentTaskOwnerAttachRequest {
+        session: subagent_session(SubagentSessionStatus::WaitingForApproval),
+        trace_id: "trace_subagent_child_owner".to_string(),
+        runtime_id: RuntimeInstanceId::from_static("runtime_subagent_child"),
+        client_id: None,
+        owner_kind: TaskOwnerKind::Execution,
+        last_seq: Some(12),
+        heartbeat_interval_ms: 10_000,
+        reason: "waiting child should not claim execution".to_string(),
+    });
+
+    let error = error.expect_err("waiting session should not attach execution owner");
+    assert!(error
+        .to_string()
+        .contains("execution task owner requires active sub-agent session"));
+}
+
+#[test]
+fn subagent_task_owner_bridge_rejects_terminal_session_attach() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error = coordinator.task_owner_lease(SubagentTaskOwnerAttachRequest {
+        session: subagent_session(SubagentSessionStatus::Completed),
+        trace_id: "trace_subagent_child_owner".to_string(),
+        runtime_id: RuntimeInstanceId::from_static("runtime_subagent_child"),
+        client_id: None,
+        owner_kind: TaskOwnerKind::Observer,
+        last_seq: Some(12),
+        heartbeat_interval_ms: 10_000,
+        reason: "completed child should not attach a new owner".to_string(),
+    });
+
+    let error = error.expect_err("terminal session should not attach a new owner");
+    assert!(error
+        .to_string()
+        .contains("terminal sub-agent session cannot attach task owner"));
+}
+
+#[test]
+fn subagent_task_owner_bridge_detach_event_targets_child_task() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let event = coordinator.task_owner_detach_event(SubagentTaskOwnerDetachRequest {
+        session: subagent_session(SubagentSessionStatus::Completed),
+        lease_id: TaskOwnershipId::from_static("task_owner_subagent_child"),
+        reason: Some("child session reached terminal metadata".to_string()),
+    });
+
+    let event = event.expect("detach event should target child task metadata");
+    assert_eq!(event.kind(), "task_owner_detached");
+    assert_eq!(
+        event.task_id(),
+        Some(TaskId::from_static("task_child_subagent"))
+    );
+    let payload = event.payload();
+    assert_eq!(payload["lease_id"], "task_owner_subagent_child");
+    assert_eq!(payload["task_id"], "task_child_subagent");
+    assert_eq!(payload["reason"], "child session reached terminal metadata");
+    assert!(payload.get("provider_request").is_none());
+    assert!(payload.get("tool_call").is_none());
+    assert!(payload.get("storage_write").is_none());
+    assert!(payload.get("ui_action").is_none());
 }

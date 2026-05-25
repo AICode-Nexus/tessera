@@ -1,9 +1,11 @@
 use tessera_protocol::{
-    ApprovalId, ArtifactId, EventRange, ReviewerGateId, RunEvent, SubagentApprovalForwardingRecord,
-    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
-    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
-    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionDescriptor,
+    ApprovalId, ArtifactId, ClientInstanceId, EventRange, ReviewerGateId, RunEvent,
+    RuntimeInstanceId, SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
+    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
+    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
+    SubagentRuntimeDecisionKind, SubagentSessionDescriptor, SubagentSessionStatus,
     SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactStatus, TaskId,
+    TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, Timestamp,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -51,6 +53,25 @@ pub struct SubagentCancellationRequest {
     pub source_task_id: TaskId,
     pub cascade: SubagentCancellationCascade,
     pub reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubagentTaskOwnerAttachRequest {
+    pub session: SubagentSessionDescriptor,
+    pub trace_id: String,
+    pub runtime_id: RuntimeInstanceId,
+    pub client_id: Option<ClientInstanceId>,
+    pub owner_kind: TaskOwnerKind,
+    pub last_seq: Option<u64>,
+    pub heartbeat_interval_ms: u64,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubagentTaskOwnerDetachRequest {
+    pub session: SubagentSessionDescriptor,
+    pub lease_id: TaskOwnershipId,
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -234,6 +255,105 @@ impl SubagentRuntimeCoordinator {
         self.record_cancellation(request)
             .map(|cancellation| RunEvent::SubagentCancellationRecorded { cancellation })
     }
+
+    pub fn task_owner_lease(
+        &self,
+        request: SubagentTaskOwnerAttachRequest,
+    ) -> Result<TaskOwnerLease, SubagentRuntimeError> {
+        let child_task_id = validate_task_owner_attach(&request)?;
+
+        Ok(TaskOwnerLease {
+            lease_id: TaskOwnershipId::new(),
+            task_id: child_task_id,
+            trace_id: request.trace_id,
+            runtime_id: request.runtime_id,
+            client_id: request.client_id,
+            owner_kind: request.owner_kind,
+            status: TaskOwnerStatus::Attached,
+            acquired_at: Timestamp::now_utc(),
+            heartbeat_interval_ms: request.heartbeat_interval_ms,
+            expires_at: None,
+            last_heartbeat_at: None,
+            last_seq: request.last_seq,
+            reason: Some(request.reason),
+        })
+    }
+
+    pub fn task_owner_attach_event(
+        &self,
+        request: SubagentTaskOwnerAttachRequest,
+    ) -> Result<RunEvent, SubagentRuntimeError> {
+        self.task_owner_lease(request)
+            .map(|lease| RunEvent::TaskOwnerAttached {
+                lease: Box::new(lease),
+            })
+    }
+
+    pub fn task_owner_detach_event(
+        &self,
+        request: SubagentTaskOwnerDetachRequest,
+    ) -> Result<RunEvent, SubagentRuntimeError> {
+        let child_task_id = request.session.child_task_id.ok_or_else(|| {
+            SubagentRuntimeError::new("child_task_id is required for sub-agent task owner")
+        })?;
+
+        Ok(RunEvent::TaskOwnerDetached {
+            lease_id: request.lease_id,
+            task_id: child_task_id,
+            reason: request.reason,
+        })
+    }
+}
+
+fn validate_task_owner_attach(
+    request: &SubagentTaskOwnerAttachRequest,
+) -> Result<TaskId, SubagentRuntimeError> {
+    let child_task_id = request.session.child_task_id.clone().ok_or_else(|| {
+        SubagentRuntimeError::new("child_task_id is required for sub-agent task owner")
+    })?;
+
+    if request.trace_id.trim().is_empty() {
+        return Err(SubagentRuntimeError::new(
+            "trace_id is required for sub-agent task owner",
+        ));
+    }
+
+    if request.reason.trim().is_empty() {
+        return Err(SubagentRuntimeError::new(
+            "reason is required for sub-agent task owner",
+        ));
+    }
+
+    if request.heartbeat_interval_ms == 0 {
+        return Err(SubagentRuntimeError::new(
+            "heartbeat_interval_ms must be greater than 0",
+        ));
+    }
+
+    if is_terminal_subagent_status(request.session.status) {
+        return Err(SubagentRuntimeError::new(
+            "terminal sub-agent session cannot attach task owner",
+        ));
+    }
+
+    if request.owner_kind == TaskOwnerKind::Execution
+        && request.session.status != SubagentSessionStatus::Active
+    {
+        return Err(SubagentRuntimeError::new(
+            "execution task owner requires active sub-agent session",
+        ));
+    }
+
+    Ok(child_task_id)
+}
+
+fn is_terminal_subagent_status(status: SubagentSessionStatus) -> bool {
+    matches!(
+        status,
+        SubagentSessionStatus::Completed
+            | SubagentSessionStatus::Failed
+            | SubagentSessionStatus::Cancelled
+    )
 }
 
 fn validate_cancellation(
