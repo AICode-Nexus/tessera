@@ -12,10 +12,11 @@ use tessera_protocol::{
     SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
     SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
     SubagentRuntimeDecisionKind, SubagentSessionDescriptor, SubagentSessionId,
-    SubagentSessionStatus, SubagentTranscriptArtifactRecord, TaskId, TaskKind, TaskOwnerHeartbeat,
-    TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode,
-    TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolApproval, ToolCallId, ToolId,
-    ToolPermission, ToolPolicyDecision, ToolSideEffect, TraceRecord, TurnId,
+    SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
+    SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskKind,
+    TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
+    TaskReattachMode, TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolApproval,
+    ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect, TraceRecord, TurnId,
 };
 
 /// User intent shared by CLI/TUI/GUI surfaces before it reaches runtime code.
@@ -788,6 +789,57 @@ impl ClientSubagentTranscriptArtifact {
     }
 }
 
+/// UI-neutral sub-agent transcript artifact lifecycle status shared by client shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientSubagentTranscriptArtifactStatus {
+    Reserved,
+    Published,
+    Sealed,
+    Abandoned,
+}
+
+impl From<SubagentTranscriptArtifactStatus> for ClientSubagentTranscriptArtifactStatus {
+    fn from(status: SubagentTranscriptArtifactStatus) -> Self {
+        match status {
+            SubagentTranscriptArtifactStatus::Reserved => Self::Reserved,
+            SubagentTranscriptArtifactStatus::Published => Self::Published,
+            SubagentTranscriptArtifactStatus::Sealed => Self::Sealed,
+            SubagentTranscriptArtifactStatus::Abandoned => Self::Abandoned,
+        }
+    }
+}
+
+/// UI-neutral sub-agent transcript artifact lifecycle projection.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientSubagentTranscriptArtifactLifecycle {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub artifact_id: ArtifactId,
+    pub status: ClientSubagentTranscriptArtifactStatus,
+    pub event_range: Option<EventRange>,
+    pub summary_label: Option<String>,
+    pub reason: String,
+}
+
+impl ClientSubagentTranscriptArtifactLifecycle {
+    fn from_record(record: &SubagentTranscriptArtifactLifecycleRecord) -> Self {
+        Self {
+            session_id: record.session_id.clone(),
+            parent_task_id: record.parent_task_id.clone(),
+            child_task_id: record.child_task_id.clone(),
+            artifact_id: record.artifact_id.clone(),
+            status: record.status.into(),
+            event_range: record.event_range.clone(),
+            summary_label: record.summary_label.clone(),
+            reason: record.reason.clone(),
+        }
+    }
+}
+
 /// UI-neutral sub-agent approval forwarding status shared by client shells.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
@@ -1083,6 +1135,8 @@ pub struct ClientStatus {
     pub subagent_summary: String,
     #[serde(default)]
     pub subagent_runtime_summary: String,
+    #[serde(default)]
+    pub subagent_transcript_lifecycle_summary: String,
     pub usage_summary: String,
     pub cache_summary: String,
     pub cost_summary: String,
@@ -1128,6 +1182,9 @@ impl ClientStatus {
             subagent_summary: "subagents 0 / active 0 / waiting 0 / inactive 0".to_string(),
             subagent_runtime_summary:
                 "subagent runtime decisions 0 / transcripts 0 / forwarding queued 0 / inactive require_reviewer 0 / cancellations 0"
+                    .to_string(),
+            subagent_transcript_lifecycle_summary:
+                "transcript lifecycles reserved 0 / published 0 / sealed 0 / abandoned 0"
                     .to_string(),
             usage_summary: "usage in 0 / out 0 / total 0".to_string(),
             cache_summary: "cache 0/0".to_string(),
@@ -1269,6 +1326,31 @@ impl ClientStatus {
             decisions.len(),
             transcripts.len(),
             cancellations.len()
+        );
+    }
+
+    fn update_subagent_transcript_lifecycle_summary(
+        &mut self,
+        lifecycles: &[ClientSubagentTranscriptArtifactLifecycle],
+    ) {
+        let reserved = lifecycles
+            .iter()
+            .filter(|record| record.status == ClientSubagentTranscriptArtifactStatus::Reserved)
+            .count();
+        let published = lifecycles
+            .iter()
+            .filter(|record| record.status == ClientSubagentTranscriptArtifactStatus::Published)
+            .count();
+        let sealed = lifecycles
+            .iter()
+            .filter(|record| record.status == ClientSubagentTranscriptArtifactStatus::Sealed)
+            .count();
+        let abandoned = lifecycles
+            .iter()
+            .filter(|record| record.status == ClientSubagentTranscriptArtifactStatus::Abandoned)
+            .count();
+        self.subagent_transcript_lifecycle_summary = format!(
+            "transcript lifecycles reserved {reserved} / published {published} / sealed {sealed} / abandoned {abandoned}"
         );
     }
 
@@ -1445,6 +1527,8 @@ pub struct ClientSnapshot {
     #[serde(default)]
     pub subagent_transcripts: Vec<ClientSubagentTranscriptArtifact>,
     #[serde(default)]
+    pub subagent_transcript_lifecycles: Vec<ClientSubagentTranscriptArtifactLifecycle>,
+    #[serde(default)]
     pub subagent_approval_forwarding: Vec<ClientSubagentApprovalForwarding>,
     #[serde(default)]
     pub subagent_inactive_policies: Vec<ClientSubagentInactivePolicy>,
@@ -1479,6 +1563,7 @@ impl ClientSnapshot {
             subagent_sessions: Vec::new(),
             subagent_runtime_decisions: Vec::new(),
             subagent_transcripts: Vec::new(),
+            subagent_transcript_lifecycles: Vec::new(),
             subagent_approval_forwarding: Vec::new(),
             subagent_inactive_policies: Vec::new(),
             subagent_cancellations: Vec::new(),
@@ -1678,6 +1763,9 @@ impl ClientSnapshot {
             }
             RunEvent::SubagentTranscriptArtifactRecorded { transcript } => {
                 self.record_subagent_transcript(transcript);
+            }
+            RunEvent::SubagentTranscriptArtifactLifecycleRecorded { lifecycle } => {
+                self.record_subagent_transcript_lifecycle(lifecycle);
             }
             RunEvent::SubagentApprovalForwardingRecorded { forwarding } => {
                 self.record_subagent_approval_forwarding(forwarding);
@@ -2027,6 +2115,14 @@ impl ClientSnapshot {
                 };
                 self.record_subagent_transcript(&transcript);
             }
+            "subagent_transcript_artifact_lifecycle_recorded" => {
+                let Some(lifecycle) = trace_payload::<SubagentTranscriptArtifactLifecycleRecord>(
+                    record.payload.get("lifecycle"),
+                ) else {
+                    return;
+                };
+                self.record_subagent_transcript_lifecycle(&lifecycle);
+            }
             "subagent_approval_forwarding_recorded" => {
                 let Some(forwarding) = trace_payload::<SubagentApprovalForwardingRecord>(
                     record.payload.get("forwarding"),
@@ -2157,6 +2253,7 @@ impl ClientSnapshot {
         self.subagent_sessions.clear();
         self.subagent_runtime_decisions.clear();
         self.subagent_transcripts.clear();
+        self.subagent_transcript_lifecycles.clear();
         self.subagent_approval_forwarding.clear();
         self.subagent_inactive_policies.clear();
         self.subagent_cancellations.clear();
@@ -2171,6 +2268,8 @@ impl ClientSnapshot {
             .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
         self.status.update_subagent_summary(&self.subagent_sessions);
         self.refresh_subagent_runtime_summary();
+        self.status
+            .update_subagent_transcript_lifecycle_summary(&self.subagent_transcript_lifecycles);
         self.status.update_context_handles_summary(
             &self.context_handles,
             &ClientContextBudgetSummary::default(),
@@ -2435,6 +2534,31 @@ impl ClientSnapshot {
         artifact.record_reference("subagent_transcript_artifact_recorded");
         self.status.update_artifact_summary(&self.artifacts);
         self.refresh_subagent_runtime_summary();
+    }
+
+    fn record_subagent_transcript_lifecycle(
+        &mut self,
+        lifecycle: &SubagentTranscriptArtifactLifecycleRecord,
+    ) {
+        self.subagent_transcript_lifecycles.push(
+            ClientSubagentTranscriptArtifactLifecycle::from_record(lifecycle),
+        );
+
+        let artifact = self.artifact_mut_or_insert(&lifecycle.artifact_id);
+        artifact.kind = Some(ArtifactKind::AgentTranscript);
+        artifact.update_scope(
+            None,
+            None,
+            lifecycle
+                .child_task_id
+                .clone()
+                .or_else(|| Some(lifecycle.parent_task_id.clone())),
+            None,
+        );
+        artifact.record_reference("subagent_transcript_artifact_lifecycle_recorded");
+        self.status.update_artifact_summary(&self.artifacts);
+        self.status
+            .update_subagent_transcript_lifecycle_summary(&self.subagent_transcript_lifecycles);
     }
 
     fn record_subagent_approval_forwarding(

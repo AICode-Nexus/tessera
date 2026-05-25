@@ -18,6 +18,8 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type ClientSubagentSession"));
     assert!(bindings.contains("export type ClientSubagentRuntimeDecision"));
     assert!(bindings.contains("export type ClientSubagentTranscriptArtifact"));
+    assert!(bindings.contains("export type ClientSubagentTranscriptArtifactLifecycle"));
+    assert!(bindings.contains("export type ClientSubagentTranscriptArtifactStatus"));
     assert!(bindings.contains("export type ClientSubagentApprovalForwarding"));
     assert!(bindings.contains("export type ClientSubagentInactivePolicy"));
     assert!(bindings.contains("export type ClientSubagentCancellation"));
@@ -25,6 +27,8 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type SubagentSessionCaps"));
     assert!(bindings.contains("export type SubagentRuntimeDecision"));
     assert!(bindings.contains("export type SubagentTranscriptArtifactRecord"));
+    assert!(bindings.contains("export type SubagentTranscriptArtifactLifecycleRecord"));
+    assert!(bindings.contains("export type SubagentTranscriptArtifactStatus"));
     assert!(bindings.contains("export type SubagentApprovalForwardingRecord"));
     assert!(bindings.contains("export type SubagentInactivePolicyRecord"));
     assert!(bindings.contains("export type SubagentCancellationRecord"));
@@ -55,6 +59,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("subagent_session_waiting_for_approval"));
     assert!(bindings.contains("subagent_runtime_decision_recorded"));
     assert!(bindings.contains("subagent_transcript_artifact_recorded"));
+    assert!(bindings.contains("subagent_transcript_artifact_lifecycle_recorded"));
     assert!(bindings.contains("subagent_approval_forwarding_recorded"));
     assert!(bindings.contains("subagent_inactive_policy_recorded"));
     assert!(bindings.contains("subagent_cancellation_recorded"));
@@ -70,6 +75,8 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(!bindings.contains("start_child_agent"));
     assert!(!bindings.contains("spawn_subagent"));
     assert!(!bindings.contains("start_scheduler"));
+    assert!(!bindings.contains("store_transcript_body"));
+    assert!(!bindings.contains("summarize_child_transcript"));
     assert!(!bindings.contains("execute_tool"));
 }
 

@@ -4,7 +4,7 @@ use tessera_client::{
     ClientProjection, ClientReviewerGateStatus, ClientSnapshot, ClientStatus,
     ClientSubagentApprovalForwardingStatus, ClientSubagentCancellationCascade,
     ClientSubagentInactiveParentAction, ClientSubagentRuntimeDecisionKind,
-    ClientSubagentSessionStatus,
+    ClientSubagentSessionStatus, ClientSubagentTranscriptArtifactStatus,
 };
 use tessera_protocol::{
     AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, ApprovalId,
@@ -18,7 +18,8 @@ use tessera_protocol::{
     SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
     SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionCaps,
     SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
-    SubagentTranscriptArtifactRecord, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind,
+    SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactRecord,
+    SubagentTranscriptArtifactStatus, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind,
     TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, Timestamp,
     ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect,
 };
@@ -733,6 +734,23 @@ fn subagent_transcript_record() -> SubagentTranscriptArtifactRecord {
     }
 }
 
+fn subagent_transcript_lifecycle(
+    status: SubagentTranscriptArtifactStatus,
+    event_range: Option<EventRange>,
+    reason: &str,
+) -> SubagentTranscriptArtifactLifecycleRecord {
+    SubagentTranscriptArtifactLifecycleRecord {
+        session_id: SubagentSessionId::from_static("subagent_session_review"),
+        parent_task_id: TaskId::from_static("task_parent_subagent"),
+        child_task_id: Some(TaskId::from_static("task_child_subagent")),
+        artifact_id: ArtifactId::from_static("artifact_child_transcript_lifecycle"),
+        status,
+        event_range,
+        summary_label: Some("child transcript lifecycle".to_string()),
+        reason: reason.to_string(),
+    }
+}
+
 fn subagent_forwarding_record() -> SubagentApprovalForwardingRecord {
     SubagentApprovalForwardingRecord {
         session_id: SubagentSessionId::from_static("subagent_session_review"),
@@ -860,6 +878,151 @@ fn client_snapshot_projects_subagent_session_metadata_from_replayed_records() {
         snapshot.status.subagent_summary,
         "subagents 1 / active 0 / waiting 0 / inactive 0"
     );
+}
+
+#[test]
+fn client_snapshot_projects_subagent_transcript_artifact_lifecycle_from_live_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    for (seq, lifecycle) in [
+        (
+            1,
+            subagent_transcript_lifecycle(
+                SubagentTranscriptArtifactStatus::Reserved,
+                None,
+                "reserved before child runtime starts",
+            ),
+        ),
+        (
+            2,
+            subagent_transcript_lifecycle(
+                SubagentTranscriptArtifactStatus::Published,
+                Some(EventRange {
+                    start_seq: 11,
+                    end_seq: 19,
+                }),
+                "published transcript event range",
+            ),
+        ),
+        (
+            3,
+            subagent_transcript_lifecycle(
+                SubagentTranscriptArtifactStatus::Sealed,
+                Some(EventRange {
+                    start_seq: 11,
+                    end_seq: 22,
+                }),
+                "sealed after child completion",
+            ),
+        ),
+        (
+            4,
+            subagent_transcript_lifecycle(
+                SubagentTranscriptArtifactStatus::Abandoned,
+                None,
+                "abandoned without transcript body",
+            ),
+        ),
+    ] {
+        snapshot.apply_event(&EventFrame::new(
+            "trace_subagent_transcript_lifecycle_live",
+            seq,
+            RunEvent::SubagentTranscriptArtifactLifecycleRecorded { lifecycle },
+        ));
+    }
+
+    assert_eq!(snapshot.subagent_transcript_lifecycles.len(), 4);
+    assert_eq!(
+        snapshot.subagent_transcript_lifecycles[0].status,
+        ClientSubagentTranscriptArtifactStatus::Reserved
+    );
+    assert_eq!(
+        snapshot.subagent_transcript_lifecycles[1].event_range,
+        Some(EventRange {
+            start_seq: 11,
+            end_seq: 19,
+        })
+    );
+    assert_eq!(
+        snapshot.subagent_transcript_lifecycles[3].reason,
+        "abandoned without transcript body"
+    );
+
+    let lifecycle_artifact = snapshot
+        .artifacts
+        .iter()
+        .find(|artifact| {
+            artifact.artifact_id == ArtifactId::from_static("artifact_child_transcript_lifecycle")
+        })
+        .expect("lifecycle projects an agent transcript artifact handle");
+    assert_eq!(lifecycle_artifact.kind, Some(ArtifactKind::AgentTranscript));
+    assert!(lifecycle_artifact
+        .referenced_by_event_kinds
+        .contains(&"subagent_transcript_artifact_lifecycle_recorded".to_string()));
+    assert_eq!(
+        snapshot.status.subagent_transcript_lifecycle_summary,
+        "transcript lifecycles reserved 1 / published 1 / sealed 1 / abandoned 1"
+    );
+}
+
+#[test]
+fn client_snapshot_projects_subagent_transcript_artifact_lifecycle_from_replayed_records() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    for record in [
+        EventFrame::new(
+            "trace_subagent_transcript_lifecycle_replay",
+            1,
+            RunEvent::SubagentTranscriptArtifactLifecycleRecorded {
+                lifecycle: subagent_transcript_lifecycle(
+                    SubagentTranscriptArtifactStatus::Reserved,
+                    None,
+                    "reserved before replay",
+                ),
+            },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_subagent_transcript_lifecycle_replay",
+            2,
+            RunEvent::SubagentTranscriptArtifactLifecycleRecorded {
+                lifecycle: subagent_transcript_lifecycle(
+                    SubagentTranscriptArtifactStatus::Sealed,
+                    Some(EventRange {
+                        start_seq: 21,
+                        end_seq: 29,
+                    }),
+                    "sealed in replay",
+                ),
+            },
+        )
+        .to_trace_record(),
+    ] {
+        snapshot.apply_trace_record(&record);
+    }
+
+    assert_eq!(snapshot.subagent_transcript_lifecycles.len(), 2);
+    assert_eq!(
+        snapshot.subagent_transcript_lifecycles[1].status,
+        ClientSubagentTranscriptArtifactStatus::Sealed
+    );
+    assert_eq!(
+        snapshot.subagent_transcript_lifecycles[1].event_range,
+        Some(EventRange {
+            start_seq: 21,
+            end_seq: 29,
+        })
+    );
+    assert_eq!(
+        snapshot.status.subagent_transcript_lifecycle_summary,
+        "transcript lifecycles reserved 1 / published 0 / sealed 1 / abandoned 0"
+    );
+    assert!(snapshot.artifacts.iter().any(|artifact| {
+        artifact.kind == Some(ArtifactKind::AgentTranscript)
+            && artifact
+                .referenced_by_event_kinds
+                .contains(&"subagent_transcript_artifact_lifecycle_recorded".to_string())
+    }));
 }
 
 #[test]
