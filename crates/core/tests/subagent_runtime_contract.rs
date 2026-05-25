@@ -1,11 +1,12 @@
 use tessera_core::{
     SubagentCompletionRequest, SubagentRuntimeCoordinator, SubagentRuntimeStartRequest,
+    SubagentTranscriptArtifactLifecycleRequest,
 };
 use tessera_protocol::{
-    AgentProfileId, ApprovalId, ArtifactId, CostEstimate, ReviewerGateId,
+    AgentProfileId, ApprovalId, ArtifactId, CostEstimate, EventRange, ReviewerGateId, RunEvent,
     SubagentApprovalForwarding, SubagentInactivePolicy, SubagentRuntimeDecisionKind,
     SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
-    TaskId,
+    SubagentTranscriptArtifactStatus, TaskId,
 };
 
 fn subagent_session(status: SubagentSessionStatus) -> SubagentSessionDescriptor {
@@ -111,4 +112,142 @@ fn subagent_runtime_coordinator_rejects_missing_reviewer_gate_when_review_is_req
 
     assert_eq!(decision.kind, SubagentRuntimeDecisionKind::RequireReviewer);
     assert!(decision.reason.contains("reviewer_gate_id"));
+}
+
+#[test]
+fn subagent_transcript_artifact_lifecycle_reserves_without_event_range() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let record =
+        coordinator.record_transcript_lifecycle(SubagentTranscriptArtifactLifecycleRequest {
+            session: subagent_session(SubagentSessionStatus::Active),
+            artifact_id: ArtifactId::from_static("artifact_child_transcript"),
+            status: SubagentTranscriptArtifactStatus::Reserved,
+            event_range: None,
+            summary_label: Some("child transcript handle".to_string()),
+            reason: "reserved before child runtime starts".to_string(),
+        });
+
+    let record = record.expect("reserved lifecycle should not require an event range");
+    assert_eq!(record.status, SubagentTranscriptArtifactStatus::Reserved);
+    assert_eq!(record.event_range, None);
+    assert_eq!(
+        record.session_id,
+        SubagentSessionId::from_static("subagent_session_review")
+    );
+    assert_eq!(
+        record.parent_task_id,
+        TaskId::from_static("task_parent_subagent")
+    );
+    assert_eq!(
+        record.artifact_id,
+        ArtifactId::from_static("artifact_child_transcript")
+    );
+}
+
+#[test]
+fn subagent_transcript_artifact_lifecycle_rejects_published_without_event_range() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error =
+        coordinator.record_transcript_lifecycle(SubagentTranscriptArtifactLifecycleRequest {
+            session: subagent_session(SubagentSessionStatus::Active),
+            artifact_id: ArtifactId::from_static("artifact_child_transcript"),
+            status: SubagentTranscriptArtifactStatus::Published,
+            event_range: None,
+            summary_label: Some("child transcript ready".to_string()),
+            reason: "published transcript event range".to_string(),
+        });
+
+    let error = error.expect_err("published lifecycle should require an event range");
+    assert!(error
+        .to_string()
+        .contains("event_range is required for published transcript lifecycle"));
+}
+
+#[test]
+fn subagent_transcript_artifact_lifecycle_rejects_empty_published_event_range() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error =
+        coordinator.record_transcript_lifecycle(SubagentTranscriptArtifactLifecycleRequest {
+            session: subagent_session(SubagentSessionStatus::Active),
+            artifact_id: ArtifactId::from_static("artifact_child_transcript"),
+            status: SubagentTranscriptArtifactStatus::Published,
+            event_range: Some(EventRange {
+                start_seq: 9,
+                end_seq: 8,
+            }),
+            summary_label: Some("child transcript ready".to_string()),
+            reason: "published transcript event range".to_string(),
+        });
+
+    let error = error.expect_err("published lifecycle should reject an empty event range");
+    assert!(error
+        .to_string()
+        .contains("event_range end_seq must be greater than or equal to start_seq"));
+}
+
+#[test]
+fn subagent_transcript_artifact_lifecycle_sealed_event_is_metadata_only() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let event =
+        coordinator.transcript_lifecycle_event(SubagentTranscriptArtifactLifecycleRequest {
+            session: subagent_session(SubagentSessionStatus::Completed),
+            artifact_id: ArtifactId::from_static("artifact_child_transcript"),
+            status: SubagentTranscriptArtifactStatus::Sealed,
+            event_range: Some(EventRange {
+                start_seq: 11,
+                end_seq: 19,
+            }),
+            summary_label: Some("final child transcript metadata".to_string()),
+            reason: "sealed after child completion".to_string(),
+        });
+
+    let event = event.expect("sealed lifecycle should emit a metadata event");
+    assert_eq!(
+        event.kind(),
+        "subagent_transcript_artifact_lifecycle_recorded"
+    );
+    assert_eq!(
+        event.task_id(),
+        Some(TaskId::from_static("task_parent_subagent"))
+    );
+    let payload = event.payload();
+    assert_eq!(payload["lifecycle"]["status"], "sealed");
+    assert_eq!(payload["lifecycle"]["event_range"]["start_seq"], 11);
+    assert!(payload.get("provider_request").is_none());
+    assert!(payload.get("tool_call").is_none());
+    assert!(payload.get("storage_write").is_none());
+    assert!(payload.get("ui_action").is_none());
+
+    match event {
+        RunEvent::SubagentTranscriptArtifactLifecycleRecorded { lifecycle } => {
+            assert_eq!(lifecycle.reason, "sealed after child completion");
+        }
+        other => panic!("unexpected event: {other:?}"),
+    }
+}
+
+#[test]
+fn subagent_transcript_artifact_lifecycle_abandoned_preserves_reason_without_body() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let event =
+        coordinator.transcript_lifecycle_event(SubagentTranscriptArtifactLifecycleRequest {
+            session: subagent_session(SubagentSessionStatus::Failed),
+            artifact_id: ArtifactId::from_static("artifact_child_transcript"),
+            status: SubagentTranscriptArtifactStatus::Abandoned,
+            event_range: None,
+            summary_label: None,
+            reason: "abandoned before child runtime persisted transcript body".to_string(),
+        });
+
+    let event = event.expect("abandoned lifecycle should allow reason-only metadata");
+    let payload = event.payload();
+    assert_eq!(
+        payload["lifecycle"]["reason"],
+        "abandoned before child runtime persisted transcript body"
+    );
+    assert!(payload["lifecycle"]["event_range"].is_null());
+    assert!(payload["lifecycle"].get("transcript").is_none());
+    assert!(payload["lifecycle"].get("body").is_none());
+    assert!(payload["lifecycle"].get("content").is_none());
+    assert!(payload["lifecycle"].get("workspace_diff").is_none());
 }

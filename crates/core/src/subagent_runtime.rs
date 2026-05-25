@@ -1,6 +1,7 @@
 use tessera_protocol::{
-    RunEvent, SubagentInactivePolicy, SubagentRuntimeDecision, SubagentRuntimeDecisionKind,
-    SubagentSessionDescriptor,
+    ArtifactId, EventRange, RunEvent, SubagentInactivePolicy, SubagentRuntimeDecision,
+    SubagentRuntimeDecisionKind, SubagentSessionDescriptor,
+    SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactStatus,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,6 +15,37 @@ pub struct SubagentRuntimeStartRequest {
 pub struct SubagentCompletionRequest {
     pub session: SubagentSessionDescriptor,
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubagentTranscriptArtifactLifecycleRequest {
+    pub session: SubagentSessionDescriptor,
+    pub artifact_id: ArtifactId,
+    pub status: SubagentTranscriptArtifactStatus,
+    pub event_range: Option<EventRange>,
+    pub summary_label: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubagentRuntimeError {
+    message: String,
+}
+
+impl SubagentRuntimeError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for SubagentRuntimeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for SubagentRuntimeError {}
 
 #[derive(Clone, Debug, Default)]
 pub struct SubagentRuntimeCoordinator;
@@ -78,6 +110,75 @@ impl SubagentRuntimeCoordinator {
             SubagentRuntimeDecisionKind::StartAllowed,
             "sub-agent completion has transcript artifact metadata".to_string(),
         )
+    }
+
+    pub fn record_transcript_lifecycle(
+        &self,
+        request: SubagentTranscriptArtifactLifecycleRequest,
+    ) -> Result<SubagentTranscriptArtifactLifecycleRecord, SubagentRuntimeError> {
+        validate_transcript_lifecycle_event_range(request.status, request.event_range.as_ref())?;
+
+        Ok(SubagentTranscriptArtifactLifecycleRecord {
+            session_id: request.session.session_id,
+            parent_task_id: request.session.parent_task_id,
+            child_task_id: request.session.child_task_id,
+            artifact_id: request.artifact_id,
+            status: request.status,
+            event_range: request.event_range,
+            summary_label: request.summary_label,
+            reason: request.reason,
+        })
+    }
+
+    pub fn transcript_lifecycle_event(
+        &self,
+        request: SubagentTranscriptArtifactLifecycleRequest,
+    ) -> Result<RunEvent, SubagentRuntimeError> {
+        self.record_transcript_lifecycle(request)
+            .map(|lifecycle| RunEvent::SubagentTranscriptArtifactLifecycleRecorded { lifecycle })
+    }
+}
+
+fn validate_transcript_lifecycle_event_range(
+    status: SubagentTranscriptArtifactStatus,
+    event_range: Option<&EventRange>,
+) -> Result<(), SubagentRuntimeError> {
+    match status {
+        SubagentTranscriptArtifactStatus::Published | SubagentTranscriptArtifactStatus::Sealed => {
+            let event_range = event_range.ok_or_else(|| {
+                SubagentRuntimeError::new(format!(
+                    "event_range is required for {} transcript lifecycle",
+                    transcript_lifecycle_status_label(status)
+                ))
+            })?;
+            validate_non_empty_event_range(event_range)
+        }
+        SubagentTranscriptArtifactStatus::Reserved
+        | SubagentTranscriptArtifactStatus::Abandoned => {
+            if let Some(event_range) = event_range {
+                validate_non_empty_event_range(event_range)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_non_empty_event_range(event_range: &EventRange) -> Result<(), SubagentRuntimeError> {
+    if event_range.end_seq < event_range.start_seq {
+        return Err(SubagentRuntimeError::new(
+            "event_range end_seq must be greater than or equal to start_seq",
+        ));
+    }
+
+    Ok(())
+}
+
+fn transcript_lifecycle_status_label(status: SubagentTranscriptArtifactStatus) -> &'static str {
+    match status {
+        SubagentTranscriptArtifactStatus::Reserved => "reserved",
+        SubagentTranscriptArtifactStatus::Published => "published",
+        SubagentTranscriptArtifactStatus::Sealed => "sealed",
+        SubagentTranscriptArtifactStatus::Abandoned => "abandoned",
     }
 }
 

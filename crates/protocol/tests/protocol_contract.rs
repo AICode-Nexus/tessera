@@ -26,8 +26,8 @@ use tessera_protocol::{
     TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, Timestamp,
     ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId,
     ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
-    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint,
-    WorkspaceGuardrail, WorkspaceScope,
+    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
+    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
 };
 
 #[test]

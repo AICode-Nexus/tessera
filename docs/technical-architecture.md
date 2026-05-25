@@ -188,7 +188,7 @@ Tessera 的长期目标不是只做一个聊天终端，而是形成 CLI、TUI�
 - `TaskOwnership`：future background tasks must have execution owner, observer, heartbeat, lost-owner and reattach metadata in trace before GUI/app-server/automation can control them. Current v0.5 foundation provides the protocol events, core recorder/projection, client projection, CLI read-only owner listing, and automatic owner attach/detach around no-tool chat/agent runs, but not daemon ownership transfer or provider socket freezing.
 - `Artifact`：diff、patch、test report、terminal output、browser evidence、subagent transcript、large provider metadata 都不应直接塞进上下文。
 - `Approval` / `ReviewerGate`：用户审批、reviewer gate、policy decision、GUI diff review 都必须 trace-backed；v0.6 foundation records handoff summaries, bounded evidence refs and reviewer decisions before any persistent sub-agent runtime.
-- `SubagentSession`：current v0.6 foundation records and projects parent/child task linkage, caps, scope labels, transcript artifact handles, approval forwarding metadata and inactive-child policy before any scheduler, fan-out or child execution runtime exists. Future persistent runtime must add a core-owned coordinator, explicit scheduler decision records, task ownership, transcript artifact lifecycle, approval-forwarding policy records, inactive-child policy records and cancellation/reattach metadata before child provider calls.
+- `SubagentSession`：current v0.6 foundation records and projects parent/child task linkage, caps, scope labels, transcript artifact handles, approval forwarding metadata and inactive-child policy before any scheduler, fan-out or child execution runtime exists. It also defines a core-owned, non-executing transcript artifact lifecycle helper for reserved/published/sealed/abandoned handle metadata. Future persistent runtime must add executable scheduler coordination, task ownership, approval-forwarding policy records, inactive-child policy records and cancellation/reattach metadata before child provider calls.
 - `InstructionSource` / `ContextReference`：`AGENTS.md`、未来 `CLAUDE.md`、skills、hook output、MCP metadata 都只能作为有来源、有上限、可审计的 context 输入。
 - `RuntimeApi`：GUI、IDE、automation 和 remote client 只通过 typed messages / bounded queues / generated schemas 访问 core。Current v0.5 alignment provides `RuntimeApi*` DTOs, localhost-safe default bind/auth/queue metadata, generated TypeScript schema evidence, read-only event stream request mapping, and a bounded SSE frame buffer, but not a listening app-server.
 
@@ -359,6 +359,7 @@ DeepSeek-TUI 的 sub-agent 设计还暴露出一个关键点：父 agent 不应�
 - 并发数、递归深度、token 成本必须显式限制。
 - handoff 必须结构化并写入 trace。
 - persistent sub-agent runtime 必须由 core 的 coordinator 拥有；CLI/TUI/GUI/client/provider/storage 都不能直接调度 child session。
+- transcript artifact lifecycle 只能记录 handle metadata、event ranges、labels 和 reasons；transcript body、summary generation、provider calls 和 parent-context ingestion 必须留给后续门禁。
 - planned -> active -> waiting/inactive/completed 的状态变化必须可从 trace 重放；task owner attach/heartbeat/detach/lost 同样适用于 child session。
 - cancellation cascade 必须显式记录，reattach 只能观察 task ownership 和 trace envelope，不能依赖 provider socket freezing。
 

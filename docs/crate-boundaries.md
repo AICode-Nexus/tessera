@@ -94,7 +94,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - SkillManifest / AgentProfile / ToolDescriptor 等只读 metadata schema。
 - v0.6 structured handoff / reviewer gate DTOs (`AgentHandoffSummary`, `HandoffEvidenceRef`, `ReviewerGateRequest`, `ReviewerGateDecision`).
 - v0.6 sub-agent session metadata DTOs (`SubagentSessionDescriptor`, caps and approval forwarding metadata).
-- Future v0.6 sub-agent runtime ownership event DTOs, but only as provider-neutral metadata.
+- v0.6 sub-agent runtime ownership and transcript artifact lifecycle DTOs, but only as provider-neutral metadata.
 
 允许依赖：
 
@@ -127,7 +127,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - Skill / agent / tool metadata 的只读 registry foundation，以及 explicit read-only Skill Runtime v1 的 discovery/activation/context rendering。
 - No-tool single-agent loop 的 run/step lifecycle 编排。
 - Structured handoff / reviewer gate events 的 core-owned recording/routing; sub-agent session metadata recording/routing; no persistent sub-agent scheduler before session gates are replayable.
-- `SubagentRuntimeCoordinator` ownership: scheduler decisions, cap validation, transcript artifact lifecycle metadata, approval-forwarding policy records, inactive-child policy records and cancellation/reattach metadata before any child execution. Current implementation is non-executing and only returns provider-neutral decision metadata/events.
+- `SubagentRuntimeCoordinator` ownership: scheduler decisions, cap validation, transcript artifact lifecycle metadata, approval-forwarding policy records, inactive-child policy records and cancellation/reattach metadata before any child execution. Current implementation is non-executing and only returns provider-neutral decision/lifecycle metadata events; it can reserve, publish, seal or abandon transcript artifact handles without storing transcript bodies.
 
 允许依赖：
 
