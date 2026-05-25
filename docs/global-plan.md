@@ -128,6 +128,7 @@
 - [x] Non-executing core transcript lifecycle helper that validates event ranges and emits lifecycle metadata without provider calls, tool execution, transcript body storage, storage internals, or UI scheduling.
 - [x] Read-only `tessera-client` and GUI binding projection for transcript artifact lifecycle records, artifact handles, and reserved/published/sealed/abandoned status summaries.
 - [x] Non-executing core approval-forwarding and inactive-policy helper that validates and emits metadata without automatic forwarding, child execution, provider calls, tool execution, storage internals, or UI scheduling.
+- [x] Non-executing core cancellation cascade helper that validates linked source tasks and emits metadata without child runtime cancellation, provider socket freezing, provider calls, tool execution, storage internals, or UI scheduling.
 
 ## 6. Current Gaps
 
@@ -152,7 +153,8 @@
 - [x] Read-only client and GUI projection for sub-agent runtime ownership metadata.
 - [x] Provider-neutral transcript artifact lifecycle metadata and read-only projection are replayable.
 - [x] Core approval-forwarding and inactive-policy metadata helper without automatic forwarding or inactive-child execution.
-- [ ] Persistent sub-agent runtime scheduling after coordinator skeleton, ownership/lifecycle/policy events, task ownership, approval forwarding and cancellation gates are executable.
+- [x] Core cancellation cascade metadata helper without child runtime cancellation or provider socket freezing.
+- [ ] Persistent sub-agent runtime scheduling after coordinator skeleton, ownership/lifecycle/policy/cancellation events, task ownership, approval forwarding and cancellation gates are executable.
 - [ ] Transcript body storage, retention, summarization and parent-context ingestion for real child-agent runs.
 - [ ] Automatic approval forwarding and inactive-child execution over reviewer-gated session metadata.
 - [ ] Hook runtime.
@@ -189,9 +191,10 @@ The next implementation slices should stay conservative and preserve the current
 19. [x] Add read-only client and GUI projection for runtime ownership metadata.
 20. [x] Add provider-neutral transcript artifact lifecycle metadata, non-executing core validation helper, and read-only client/GUI projection.
 21. [x] Add non-executing core approval-forwarding and inactive-policy metadata helper.
-22. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-23. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
-24. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
+22. [x] Add non-executing core cancellation cascade metadata helper.
+23. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+24. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
+25. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
 25. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
 
 ## 8. Mandatory Gates
