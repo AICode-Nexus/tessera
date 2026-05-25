@@ -1001,6 +1001,24 @@ pub struct SubagentTranscriptArtifactRecord {
     pub summary_label: Option<String>,
 }
 
+pub enum SubagentTranscriptArtifactStatus {
+    Reserved,
+    Published,
+    Sealed,
+    Abandoned,
+}
+
+pub struct SubagentTranscriptArtifactLifecycleRecord {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub artifact_id: ArtifactId,
+    pub status: SubagentTranscriptArtifactStatus,
+    pub event_range: Option<EventRange>,
+    pub summary_label: Option<String>,
+    pub reason: String,
+}
+
 pub enum SubagentApprovalForwardingStatus {
     QueuedForReviewer,
     ForwardedToParent,
@@ -1051,13 +1069,16 @@ Implemented ownership event names:
 pub enum SubagentRuntimeOwnershipRunEvent {
     SubagentRuntimeDecisionRecorded { decision: SubagentRuntimeDecision },
     SubagentTranscriptArtifactRecorded { transcript: SubagentTranscriptArtifactRecord },
+    SubagentTranscriptArtifactLifecycleRecorded { lifecycle: SubagentTranscriptArtifactLifecycleRecord },
     SubagentApprovalForwardingRecorded { forwarding: SubagentApprovalForwardingRecord },
     SubagentInactivePolicyRecorded { inactive: SubagentInactivePolicyRecord },
     SubagentCancellationRecorded { cancellation: SubagentCancellationRecord },
 }
 ```
 
-These events do not start child runs, call providers, dispatch tools, create a scheduler loop, forward approvals automatically, mutate workspaces, restore checkpoints, or imply app-server control.
+`SubagentTranscriptArtifactLifecycleRecorded` records artifact-handle lifecycle state only: reserved, published, sealed, or abandoned. It may reference bounded event ranges and summary labels, but must not inline transcript bodies, provider-private responses, hidden reasoning, tool output, file contents, shell output, secrets, authorization headers, cookies, workspace diffs or filesystem handles.
+
+These events do not start child runs, call providers, dispatch tools, create a scheduler loop, forward approvals automatically, mutate workspaces, restore checkpoints, store transcript bodies, or imply app-server control.
 
 ## 9. Tool Descriptor / Policy / Dispatch / Repair Schema
 

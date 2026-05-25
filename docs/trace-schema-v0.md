@@ -131,6 +131,7 @@ subagent_session_inactive
 subagent_session_completed
 subagent_runtime_decision_recorded
 subagent_transcript_artifact_recorded
+subagent_transcript_artifact_lifecycle_recorded
 subagent_approval_forwarding_recorded
 subagent_inactive_policy_recorded
 subagent_cancellation_recorded
@@ -177,9 +178,9 @@ These events do not imply persistent child-agent runtime. They only make handoff
 
 Each payload must contain `session`, including session id, parent task id, optional child task id, agent profile id, objective, status, scope labels, tool permission labels, memory scope labels, optional transcript artifact id, caps and optional approval forwarding metadata. These payloads must not contain executable command, shell command, provider-private handles, API keys, cookies, authorization headers, tool output, file contents, workspace diffs or scheduler handles.
 
-`subagent_runtime_decision_recorded` payload must contain `decision`, including session id, parent task id, optional child task id, decision kind, reason and caps snapshot. `subagent_transcript_artifact_recorded` payload must contain `transcript`, including session id, parent task id, optional child task id, artifact id, event range and optional summary label. `subagent_approval_forwarding_recorded` payload must contain `forwarding`, including session id, parent task id, approval id, optional reviewer gate id, status and reason. `subagent_inactive_policy_recorded` payload must contain `inactive`, including session id, parent task id, inactive policy, parent action and reason. `subagent_cancellation_recorded` payload must contain `cancellation`, including session id, parent task id, source task id, reason and cascade mode.
+`subagent_runtime_decision_recorded` payload must contain `decision`, including session id, parent task id, optional child task id, decision kind, reason and caps snapshot. `subagent_transcript_artifact_recorded` payload must contain `transcript`, including session id, parent task id, optional child task id, artifact id, event range and optional summary label. `subagent_transcript_artifact_lifecycle_recorded` payload must contain `lifecycle`, including session id, parent task id, optional child task id, artifact id, lifecycle status, optional event range, optional summary label and reason. `subagent_approval_forwarding_recorded` payload must contain `forwarding`, including session id, parent task id, approval id, optional reviewer gate id, status and reason. `subagent_inactive_policy_recorded` payload must contain `inactive`, including session id, parent task id, inactive policy, parent action and reason. `subagent_cancellation_recorded` payload must contain `cancellation`, including session id, parent task id, source task id, reason and cascade mode.
 
-These ownership events must not contain provider request handles, executable command, shell command, tool output, file contents, workspace diffs, app-server session handles or scheduler-loop internals. They make future core-owned scheduling decisions inspectable; they do not by themselves start a child runtime.
+These ownership events must not contain provider request handles, executable command, shell command, tool output, file contents, transcript bodies, workspace diffs, app-server session handles or scheduler-loop internals. They make future core-owned scheduling decisions and transcript artifact handles inspectable; they do not by themselves start a child runtime or store child transcript content.
 
 仍只保留命名，不触发功能：
 

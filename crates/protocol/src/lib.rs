@@ -1051,6 +1051,29 @@ pub struct SubagentTranscriptArtifactRecord {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+pub enum SubagentTranscriptArtifactStatus {
+    Reserved,
+    Published,
+    Sealed,
+    Abandoned,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct SubagentTranscriptArtifactLifecycleRecord {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub artifact_id: ArtifactId,
+    pub status: SubagentTranscriptArtifactStatus,
+    pub event_range: Option<EventRange>,
+    pub summary_label: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
 pub enum SubagentApprovalForwardingStatus {
     QueuedForReviewer,
     ForwardedToParent,
@@ -1613,6 +1636,9 @@ pub enum RunEvent {
     SubagentTranscriptArtifactRecorded {
         transcript: SubagentTranscriptArtifactRecord,
     },
+    SubagentTranscriptArtifactLifecycleRecorded {
+        lifecycle: SubagentTranscriptArtifactLifecycleRecord,
+    },
     SubagentApprovalForwardingRecorded {
         forwarding: SubagentApprovalForwardingRecord,
     },
@@ -1731,6 +1757,9 @@ impl RunEvent {
             Self::SubagentTranscriptArtifactRecorded { .. } => {
                 "subagent_transcript_artifact_recorded"
             }
+            Self::SubagentTranscriptArtifactLifecycleRecorded { .. } => {
+                "subagent_transcript_artifact_lifecycle_recorded"
+            }
             Self::SubagentApprovalForwardingRecorded { .. } => {
                 "subagent_approval_forwarding_recorded"
             }
@@ -1803,6 +1832,9 @@ impl RunEvent {
             }
             Self::SubagentTranscriptArtifactRecorded { transcript } => {
                 Some(transcript.parent_task_id.clone())
+            }
+            Self::SubagentTranscriptArtifactLifecycleRecorded { lifecycle } => {
+                Some(lifecycle.parent_task_id.clone())
             }
             Self::SubagentApprovalForwardingRecorded { forwarding } => {
                 Some(forwarding.parent_task_id.clone())
@@ -1966,6 +1998,9 @@ impl RunEvent {
             }
             Self::SubagentTranscriptArtifactRecorded { transcript } => {
                 json!({ "transcript": transcript })
+            }
+            Self::SubagentTranscriptArtifactLifecycleRecorded { lifecycle } => {
+                json!({ "lifecycle": lifecycle })
             }
             Self::SubagentApprovalForwardingRecorded { forwarding } => {
                 json!({ "forwarding": forwarding })

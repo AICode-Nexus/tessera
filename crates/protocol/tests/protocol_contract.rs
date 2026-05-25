@@ -21,12 +21,13 @@ use tessera_protocol::{
     SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
     SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionCaps,
     SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
-    SubagentTranscriptArtifactRecord, TaskId, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus,
+    SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactRecord,
+    SubagentTranscriptArtifactStatus, TaskId, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus,
     TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, Timestamp,
     ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId,
     ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
-    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
-    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint,
+    WorkspaceGuardrail, WorkspaceScope,
 };
 
 #[test]
@@ -894,6 +895,66 @@ fn subagent_runtime_ownership_events_are_traceable_metadata_without_scheduler_ex
     assert!(record.payload.get("tool_call").is_none());
     assert!(record.payload.get("command").is_none());
     assert!(record.payload.get("scheduler_loop").is_none());
+}
+
+#[test]
+fn subagent_transcript_artifact_lifecycle_event_is_traceable_metadata_without_body_content() {
+    let parent_task_id = TaskId::from_static("task_parent_subagent");
+    let lifecycle = SubagentTranscriptArtifactLifecycleRecord {
+        session_id: SubagentSessionId::from_static("subagent_session_review"),
+        parent_task_id: parent_task_id.clone(),
+        child_task_id: Some(TaskId::from_static("task_child_subagent")),
+        artifact_id: ArtifactId::from_static("artifact_child_transcript"),
+        status: SubagentTranscriptArtifactStatus::Published,
+        event_range: Some(EventRange {
+            start_seq: 11,
+            end_seq: 19,
+        }),
+        summary_label: Some("child transcript summary".to_string()),
+        reason: "child transcript artifact handle published".to_string(),
+    };
+
+    let event = RunEvent::SubagentTranscriptArtifactLifecycleRecorded {
+        lifecycle: lifecycle.clone(),
+    };
+
+    assert_eq!(
+        event.kind(),
+        "subagent_transcript_artifact_lifecycle_recorded"
+    );
+    assert_eq!(event.task_id(), Some(parent_task_id));
+
+    let payload = event.payload();
+    assert_eq!(payload["lifecycle"]["status"], "published");
+    assert_eq!(payload["lifecycle"]["event_range"]["start_seq"], 11);
+    assert_eq!(
+        payload["lifecycle"]["reason"],
+        "child transcript artifact handle published"
+    );
+    assert!(payload.get("transcript").is_none());
+    assert!(payload.get("transcript_body").is_none());
+    assert!(payload.get("provider_request").is_none());
+    assert!(payload.get("tool_call").is_none());
+    assert!(payload.get("command").is_none());
+    assert!(payload.get("authorization").is_none());
+    assert!(payload.get("cookie").is_none());
+    assert!(payload.get("workspace_diff").is_none());
+
+    let record = EventFrame::new(
+        "trace_subagent_transcript_lifecycle",
+        1,
+        RunEvent::SubagentTranscriptArtifactLifecycleRecorded { lifecycle },
+    )
+    .to_trace_record();
+
+    assert_eq!(
+        record.event_kind,
+        "subagent_transcript_artifact_lifecycle_recorded"
+    );
+    assert_eq!(record.payload["lifecycle"]["status"], "published");
+    assert!(record.payload["lifecycle"].get("body").is_none());
+    assert!(record.payload["lifecycle"].get("tool_output").is_none());
+    assert!(record.payload["lifecycle"].get("api_key").is_none());
 }
 
 #[test]
