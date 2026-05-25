@@ -265,7 +265,7 @@ apps/
 
 - `protocol`：公共类型、ID、runtime schema、RunEvent、EventFrame、NormalizedError、context reference schema、diagnostics schema、memory proposal schema、skill manifest schema、sandbox profile schema、checkpoint schema、coding workflow metadata schema。
 - `client`：UI-neutral intent、status/message/approval/memory proposal projection、ClientSnapshot；从 EventFrame / TraceRecord 生成 TUI 和未来 GUI 共享的 view model。
-- `core`：运行生命周期、ConversationEngine、事件路由、provider/storage 协调、context workbench、draft model routing、no-progress loop signal、diagnostics reporter、只读 skill registry、explicit read-only SkillRuntimePlanner、metadata-only MCP adapter、sandbox profile planner、checkpoint metadata planner、runtime HTTP/SSE shape helper、checkpoint metadata projection 和 metadata-only coding workflow coordinator。
+- `core`：运行生命周期、ConversationEngine、事件路由、provider/storage 协调、context workbench、draft model routing、no-progress loop signal、diagnostics reporter、只读 skill registry、explicit read-only SkillRuntimePlanner、metadata-only MCP adapter、sandbox profile planner、mutation enforcement planner、checkpoint metadata planner、runtime HTTP/SSE shape helper、checkpoint metadata projection 和 metadata-only coding workflow coordinator。
 - `providers`：Provider trait、OpenAI-compatible、Ollama、Mock provider。
 - `storage`：JSONL trace writer、SQLite index、repository。
 - `config`：配置读取、profile、data dir、secret env var 引用。
@@ -347,6 +347,7 @@ v0.1 先保证 agent 能平滑接入；v0.5 的当前实现已经提供 no-tool 
 - `ToolRepairReport` metadata：tool-call repair 只能记录 provider-neutral 摘要，不能把 provider 原始 reasoning 或 raw text 写进 trace。
 - `SandboxDecision` metadata：workspace path guardrail 必须先写入 provider-neutral trace，再进入后续真实 sandbox/tool runtime。
 - `OsSandboxProfile` metadata：core 可以规划 read-only / workspace-write / network-required / denied profile，但不启动 OS sandbox、不执行工具、不打开网络。
+- `MutationEnforcementPlan` metadata：file-changing coding workflows 默认 worktree-first；explicit-local 必须携带独立 policy decision id；sandbox profile 必须先被选择，executor request 在 checkpoint/reviewer/policy gates 关闭前保持 blocked。
 - `AgentProfile` schema foundation：模型、角色、工具权限、记忆范围、context scope 和 step limit 显式配置；core 提供只读 registry 和 no-tool `AgentLoop`，可接收显式 opt-in 且由 core planner 发现的 project instruction context 和 explicit read-only skill context，但不执行 tool、不运行 skill script、不默认读取全局/用户 instructions、不维持后台任务。
 - `MemoryProposal` metadata：proposal 可以进入 UI review，但长期 memory runtime 和真实写入必须等待 scope schema、policy 和 trace 边界，避免默认全局污染。
 - `Skill` manifest 兼容 `SKILL.md` frontmatter，后续再扩展 `skill.toml`；v0.5 `SkillRuntimePlanner` 支持 project-local discovery、显式 activation、只读 reference、redaction 和 trace-safe `skill_activated` metadata，但不执行脚本、工具、MCP、hooks 或 global/default skill loading。

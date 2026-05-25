@@ -522,6 +522,7 @@ Project instruction discovery 是 coding-agent CLI 的关键体验，但它不�
 - `core` 可以提供 draft `WorkspaceGuardrailChecker`，只做词法路径归一和 workspace containment 判定，不读写文件、不执行工具、不提供 OS sandbox。
 - `protocol` 定义 `OsSandboxProfile` metadata 和 `os_sandbox_profile_selected` trace event，用于记录 future runtime 应选择的隔离 profile。
 - `core` 可以提供 `OsSandboxPlanner`，只根据 tool descriptor 选择 read-only / workspace-write / network-required / denied profile；不得启动 OS sandbox、执行 shell、打开网络或创建 checkpoint。
+- `core` 可以提供 `MutationEnforcementPlanner`，只返回 worktree-first / explicit-local scope metadata、sandbox profile metadata、policy decision reference 和 executor-blocked reason；不得创建 worktree、请求 executor、启动 OS sandbox、执行 shell、apply patch、restore checkpoint 或触碰文件。
 - `protocol` 定义 `ToolDispatch`、`ToolResult` 和 dispatch/result trace events。
 - `core` 可以提供 `OrderedToolResultBuffer`，允许底层并发完成，但只按声明顺序释放 `tool_dispatch_completed` 和 `tool_result` events。
 - `protocol` 定义 `ToolRepairReport` 和 `tool_repair_reported` event，只记录 flatten/scavenge/truncation/storm 等 provider-neutral 摘要。
@@ -579,6 +580,7 @@ Memory proposal UI 可以先进入 client projection，但长期 memory runtime 
 - restore/revert 必须写 trace。
 - v0.2 只定义 `WorkspaceCheckpoint` metadata、`snapshot_created` event 和只读 projection，不创建、不恢复、不回滚文件。
 - v0.3 foundation 可以在 `core` 提供 `WorkspaceCheckpointPlanner`，只为需要 checkpoint 的 sandbox profile 生成 metadata 和 storage URI；不得创建 side-git、读写文件、restore 或 revert。
+- v0.7 foundation 的 mutation enforcement 只能证明 sandbox/worktree/checkpoint/policy 前置条件已形成 metadata contract；真正 executor 必须在后续 gate 中显式加入。
 
 ### runtime_api
 

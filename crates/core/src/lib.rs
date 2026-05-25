@@ -1,4 +1,5 @@
 mod coding_workflow;
+mod mutation_enforcement;
 mod subagent_runtime;
 
 pub use coding_workflow::{
@@ -7,6 +8,10 @@ pub use coding_workflow::{
     CodingWorkflowPatchProposalRequest, CodingWorkflowReviewBundleRequest,
     CodingWorkflowStartRequest, CodingWorkflowTestPlanRequest, CodingWorkflowTestRunRequest,
     CodingWorkflowWorkspaceScopeRequest,
+};
+pub use mutation_enforcement::{
+    MutationEnforcementError, MutationEnforcementPlan, MutationEnforcementPlanRequest,
+    MutationEnforcementPlanner,
 };
 pub use subagent_runtime::{
     SubagentApprovalForwardingRequest, SubagentCancellationRequest, SubagentCompletionRequest,
