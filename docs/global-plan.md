@@ -136,7 +136,7 @@
 
 ### Needs Verification, Not New Architecture
 
-- [~] Ollama real streaming path: code and opt-in smoke test exist; live local verification is still missing.
+- [x] Ollama real streaming path: opt-in smoke test passed locally on 2026-05-25 with `TESSERA_OLLAMA_MODEL=qwen3-vl:4b`; the run took 101.10s, so it remains opt-in rather than part of the default gate.
 - [~] GUI live event bridge: core/CLI/TUI share `EventFrame`; GUI shell still uses mock/replay projection and typed bridge foundation.
 
 ### Deferred Beyond v0.5
@@ -174,7 +174,7 @@
 
 The next implementation slices should stay conservative and preserve the current foundation-first pattern.
 
-1. [ ] If local time permits, run Ollama live smoke; otherwise keep it documented as unverified.
+1. [x] If local time permits, run Ollama live smoke; otherwise keep it documented as unverified.
 2. [x] Design v0.5 single-agent loop as a separate spec before code: provider-neutral observations, max-step limits, stop/no-progress handling, trace replay, run summary and machine-readable result.
 3. [x] Design project instruction discovery with `AGENTS.md` first and future `CLAUDE.md` compatibility: precedence, byte limits, source report, redaction and trace refs.
 4. [x] Implement single-agent loop without tools first.
