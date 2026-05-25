@@ -1,12 +1,14 @@
 use tessera_core::{
+    CodingWorkflowArtifactBodyRequest, CodingWorkflowCheckpointLifecycleRequest,
     CodingWorkflowCoordinator, CodingWorkflowPatchProposalRequest, CodingWorkflowStartRequest,
     CodingWorkflowTestRunRequest, CodingWorkflowWorkspaceScopeRequest,
 };
 use tessera_protocol::{
-    ArtifactId, CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, HandoffEvidenceKind,
+    ArtifactBodyRecord, ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind,
+    CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, HandoffEvidenceKind,
     HandoffEvidenceRef, MutationMode, PatchProposal, PatchProposalId, RestorePlanId,
     RestorePlanRecord, ReviewerGateId, RunEvent, SnapshotId, TaskId, TestRunId, TestRunRecord,
-    TestRunStatus,
+    TestRunStatus, WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus,
 };
 
 fn workflow_id() -> CodingWorkflowId {
@@ -148,6 +150,73 @@ fn coding_workflow_test_run_requires_output_artifact_refs() {
     assert!(error
         .to_string()
         .contains("test run output must use artifact references"));
+}
+
+#[test]
+fn coding_workflow_artifact_body_and_checkpoint_lifecycle_contracts_are_metadata_only() {
+    let coordinator = CodingWorkflowCoordinator;
+    let artifact_event = coordinator
+        .artifact_body_event(CodingWorkflowArtifactBodyRequest {
+            record: ArtifactBodyRecord {
+                artifact_id: ArtifactId::from_static("artifact_core_diff_body"),
+                kind: ArtifactKind::Patch,
+                task_id: Some(task_id()),
+                media_type: "text/x-diff".to_string(),
+                byte_len: 64,
+                storage_uri: "tessera://artifacts/artifact_core_diff_body/body".to_string(),
+                redaction_status: ArtifactBodyRedactionStatus::Redacted,
+                summary: Some("diff body stored via storage API".to_string()),
+                metadata: None,
+            },
+        })
+        .expect("artifact body metadata should become a trace event");
+
+    assert_eq!(artifact_event.kind(), "artifact_body_recorded");
+    let payload = artifact_event.payload();
+    assert_eq!(payload["record"]["redaction_status"], "redacted");
+    assert!(payload.get("body").is_none());
+    assert!(payload.get("raw_body").is_none());
+
+    let lifecycle_event = coordinator
+        .checkpoint_lifecycle_event(CodingWorkflowCheckpointLifecycleRequest {
+            lifecycle: WorkspaceCheckpointLifecycleRecord {
+                checkpoint_id: SnapshotId::from_static("snapshot_core_lifecycle"),
+                task_id: task_id(),
+                status: WorkspaceCheckpointLifecycleStatus::RestoreBlocked,
+                reason: "restore remains blocked until executor gate".to_string(),
+                restore_plan_id: Some(RestorePlanId::from_static("restore_plan_core_lifecycle")),
+                execution_blocked: true,
+                evidence: Vec::new(),
+                metadata: None,
+            },
+        })
+        .expect("checkpoint lifecycle should be trace-backed metadata");
+
+    assert_eq!(lifecycle_event.kind(), "snapshot_lifecycle_recorded");
+    let payload = lifecycle_event.payload();
+    assert_eq!(payload["lifecycle"]["execution_blocked"], true);
+    assert!(payload.get("restore_command").is_none());
+
+    let error = coordinator
+        .checkpoint_lifecycle_event(CodingWorkflowCheckpointLifecycleRequest {
+            lifecycle: WorkspaceCheckpointLifecycleRecord {
+                checkpoint_id: SnapshotId::from_static("snapshot_core_lifecycle_unblocked"),
+                task_id: task_id(),
+                status: WorkspaceCheckpointLifecycleStatus::RestoreBlocked,
+                reason: "restore should not execute in foundation".to_string(),
+                restore_plan_id: Some(RestorePlanId::from_static(
+                    "restore_plan_core_lifecycle_unblocked",
+                )),
+                execution_blocked: false,
+                evidence: Vec::new(),
+                metadata: None,
+            },
+        })
+        .expect_err("checkpoint restore lifecycle must remain blocked");
+
+    assert!(error
+        .to_string()
+        .contains("checkpoint lifecycle execution must remain blocked"));
 }
 
 #[test]

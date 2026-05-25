@@ -2,6 +2,7 @@ mod coding_workflow;
 mod subagent_runtime;
 
 pub use coding_workflow::{
+    CodingWorkflowArtifactBodyRequest, CodingWorkflowCheckpointLifecycleRequest,
     CodingWorkflowCoordinator, CodingWorkflowError, CodingWorkflowPatchApplicationRequest,
     CodingWorkflowPatchProposalRequest, CodingWorkflowReviewBundleRequest,
     CodingWorkflowStartRequest, CodingWorkflowTestPlanRequest, CodingWorkflowTestRunRequest,

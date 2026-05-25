@@ -83,7 +83,7 @@ The next v0.6 persistent sub-agent session foundation will add trace events for 
 
 v0.6 sub-agent runtime ownership events record scheduler decisions, transcript artifact publication, approval forwarding state, inactive-child policy decisions and cancellation cascade metadata. These events still do not execute child providers or tools; they are the replayable contract that a future core-owned coordinator must satisfy before runtime execution.
 
-v0.7 coding-agent workflow foundation adds trace events for workflow scope, patch proposals, diff artifact refs, checkpoint/reviewer requirements, test evidence refs, review bundles and restore plans. These events are metadata-only until future policy/sandbox/checkpoint/reviewer-gated executors apply patches, run tests, restore checkpoints or mutate Git.
+v0.7 coding-agent workflow foundation adds trace events for workflow scope, mutation request proposals, patch proposals, diff artifact refs, explicit artifact body handles, checkpoint lifecycle records, checkpoint/reviewer requirements, test evidence refs, review bundles and restore plans. These events are metadata-only until future policy/sandbox/checkpoint/reviewer-gated executors apply patches, run tests, restore checkpoints or mutate Git.
 
 ## 4. Event Kind
 
@@ -152,7 +152,9 @@ memory_write_proposed
 memory_write_applied
 memory_write_rejected
 artifact_created
+artifact_body_recorded
 snapshot_created
+snapshot_lifecycle_recorded
 tool_call_requested
 tool_policy_decision_recorded
 sandbox_decision_recorded
@@ -187,7 +189,7 @@ Runtime API / app-server alignment DTOs are not trace events by themselves. They
 
 These events do not imply persistent child-agent runtime. They only make handoff and review state replayable for CLI/TUI/GUI/runtime API clients.
 
-`coding_workflow_started` payload must contain `workflow_id`, `task_id` and `objective`. `workspace_mutation_scope_recorded` payload must contain `scope`, including workflow id, task id, root label, allowed/denied relative paths, mutation mode, worktree requirement and optional reason. `mutation_request_proposal_recorded` payload must contain `proposal`, including request id, workflow id, task id, neutral operation kind label, status, summary, requested paths, optional checkpoint id, optional reviewer gate id, optional policy decision id, optional sandbox profile label, worktree requirement and bounded evidence refs. Operation kind labels describe proposed outcomes such as `patch_application`, `test_run`, `checkpoint_restore` or `version_control_commit`; they must not be GUI/runtime command names. `patch_proposal_recorded` payload must contain `proposal`, including patch id, workflow id, task id, summary, touched paths, diff artifact refs, optional checkpoint id and optional reviewer gate id. `patch_application_recorded` payload must contain `record`, including patch id, workflow id, task id, optional checkpoint id, outcome, conflict/applied path summaries and artifact refs. `test_plan_recorded` payload must contain `plan`; `test_run_recorded` payload must contain `record` with artifact refs for stdout/stderr rather than inline command output. `review_bundle_recorded` payload must contain `bundle`; `restore_plan_recorded` payload must contain `plan` with `execution_blocked` for metadata-only restore plans.
+`coding_workflow_started` payload must contain `workflow_id`, `task_id` and `objective`. `workspace_mutation_scope_recorded` payload must contain `scope`, including workflow id, task id, root label, allowed/denied relative paths, mutation mode, worktree requirement and optional reason. `mutation_request_proposal_recorded` payload must contain `proposal`, including request id, workflow id, task id, neutral operation kind label, status, summary, requested paths, optional checkpoint id, optional reviewer gate id, optional policy decision id, optional sandbox profile label, worktree requirement and bounded evidence refs. Operation kind labels describe proposed outcomes such as `patch_application`, `test_run`, `checkpoint_restore` or `version_control_commit`; they must not be GUI/runtime command names. `artifact_body_recorded` payload must contain `record`, including artifact id, kind, optional task id, media type, byte length, storage URI, redaction status and summary; it must not contain artifact body bytes. `patch_proposal_recorded` payload must contain `proposal`, including patch id, workflow id, task id, summary, touched paths, diff artifact refs, optional checkpoint id and optional reviewer gate id. `patch_application_recorded` payload must contain `record`, including patch id, workflow id, task id, optional checkpoint id, outcome, conflict/applied path summaries and artifact refs. `test_plan_recorded` payload must contain `plan`; `test_run_recorded` payload must contain `record` with artifact refs for stdout/stderr rather than inline command output. `review_bundle_recorded` payload must contain `bundle`; `restore_plan_recorded` payload must contain `plan` with `execution_blocked` for metadata-only restore plans.
 
 These coding workflow events must not contain patch bodies, file contents, stdout/stderr bodies, shell command execution handles, provider-private handles, API keys, cookies, authorization headers, hidden reasoning, checkpoint restore commands or Git mutation commands. They are replayable evidence and gate metadata only; they do not apply patches, write files, run commands, restore checkpoints, stage commits, push branches or open PRs.
 
@@ -294,6 +296,8 @@ jsonl_offset
 - `checkpoint.kind`：`side_git`、`file_archive` 或 `external`。
 - `checkpoint.storage_uri`。
 - 可选 `checkpoint.workspace_root`、`checkpoint.parent_snapshot_id`、`checkpoint.summary`。
+
+`snapshot_lifecycle_recorded` payload 必须包含 `lifecycle`，其中 `checkpoint_id`、`task_id`、`status`、`reason` 和 `execution_blocked` 为必填，`restore_plan_id`、bounded evidence refs 和 metadata 为可选。当前 `RestoreBlocked` lifecycle 必须保持 `execution_blocked: true`，不得表示真实 restore/revert。
 
 该事件不包含 restore command、revert command、shell command 或文件内容。后续真实 create/restore/revert 必须通过 policy/sandbox，并写入独立 trace event。
 

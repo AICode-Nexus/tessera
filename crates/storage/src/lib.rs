@@ -2,7 +2,10 @@ use rusqlite::{params, Connection};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use tessera_protocol::{ArtifactId, EventFrame, ItemId, TaskId, ThreadId, TraceRecord, TurnId};
+use tessera_protocol::{
+    ArtifactBodyRecord, ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind, EventFrame, ItemId,
+    TaskId, ThreadId, TraceRecord, TurnId,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -12,6 +15,8 @@ pub enum StorageError {
     Sqlite(#[from] rusqlite::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("invalid artifact id: {0}")]
+    InvalidArtifactId(String),
 }
 
 pub type Result<T> = std::result::Result<T, StorageError>;
@@ -28,6 +33,23 @@ pub struct IndexedRunObjects {
     pub items: Vec<ItemId>,
     pub tasks: Vec<TaskId>,
     pub artifacts: Vec<ArtifactId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArtifactBodyWrite {
+    pub artifact_id: ArtifactId,
+    pub kind: ArtifactKind,
+    pub task_id: Option<TaskId>,
+    pub media_type: String,
+    pub redaction_status: ArtifactBodyRedactionStatus,
+    pub summary: Option<String>,
+    pub body: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoredArtifactBody {
+    pub record: ArtifactBodyRecord,
+    pub body: Vec<u8>,
 }
 
 impl TraceStore {
@@ -112,6 +134,39 @@ impl TraceStore {
         }
         records.sort_by_key(|record: &TraceRecord| record.seq);
         Ok(records)
+    }
+
+    pub fn write_artifact_body(&self, write: ArtifactBodyWrite) -> Result<ArtifactBodyRecord> {
+        let artifact_dir = self.artifact_body_dir(&write.artifact_id)?;
+        let artifact_id_text = write.artifact_id.as_str().to_string();
+        fs::create_dir_all(&artifact_dir)?;
+
+        let record = ArtifactBodyRecord {
+            artifact_id: write.artifact_id,
+            kind: write.kind,
+            task_id: write.task_id,
+            media_type: write.media_type,
+            byte_len: write.body.len() as u64,
+            storage_uri: format!("tessera://artifacts/{artifact_id_text}/body"),
+            redaction_status: write.redaction_status,
+            summary: write.summary,
+            metadata: None,
+        };
+
+        fs::write(artifact_dir.join("body.bin"), write.body)?;
+        fs::write(
+            artifact_dir.join("metadata.json"),
+            serde_json::to_vec_pretty(&record)?,
+        )?;
+
+        Ok(record)
+    }
+
+    pub fn read_artifact_body(&self, artifact_id: &ArtifactId) -> Result<StoredArtifactBody> {
+        let artifact_dir = self.artifact_body_dir(artifact_id)?;
+        let record = serde_json::from_slice(&fs::read(artifact_dir.join("metadata.json"))?)?;
+        let body = fs::read(artifact_dir.join("body.bin"))?;
+        Ok(StoredArtifactBody { record, body })
     }
 
     pub fn list_trace_ids(&self) -> Result<Vec<String>> {
@@ -239,6 +294,19 @@ impl TraceStore {
         self.data_dir
             .join("traces")
             .join(format!("{trace_id}.jsonl"))
+    }
+
+    fn artifact_body_dir(&self, artifact_id: &ArtifactId) -> Result<PathBuf> {
+        let value = artifact_id.as_str();
+        if value.trim().is_empty()
+            || value.contains('/')
+            || value.contains('\\')
+            || value.contains("..")
+        {
+            return Err(StorageError::InvalidArtifactId(value.to_string()));
+        }
+
+        Ok(self.data_dir.join("artifacts").join(value))
     }
 }
 

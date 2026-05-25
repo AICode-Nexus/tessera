@@ -1,8 +1,9 @@
 use std::path::{Component, Path};
 
 use tessera_protocol::{
-    CodingWorkflowId, MutationMode, PatchApplicationRecord, PatchProposal, RestorePlanRecord,
-    ReviewBundle, RunEvent, TaskId, TestPlanRecord, TestRunRecord, WorkspaceMutationScope,
+    ArtifactBodyRecord, CodingWorkflowId, MutationMode, PatchApplicationRecord, PatchProposal,
+    RestorePlanRecord, ReviewBundle, RunEvent, TaskId, TestPlanRecord, TestRunRecord,
+    WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus, WorkspaceMutationScope,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -43,6 +44,16 @@ pub struct CodingWorkflowTestPlanRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CodingWorkflowTestRunRequest {
     pub record: TestRunRecord,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CodingWorkflowArtifactBodyRequest {
+    pub record: ArtifactBodyRecord,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CodingWorkflowCheckpointLifecycleRequest {
+    pub lifecycle: WorkspaceCheckpointLifecycleRecord,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -168,6 +179,26 @@ impl CodingWorkflowCoordinator {
         })
     }
 
+    pub fn artifact_body_event(
+        &self,
+        request: CodingWorkflowArtifactBodyRequest,
+    ) -> Result<RunEvent, CodingWorkflowError> {
+        validate_artifact_body_record(&request.record)?;
+        Ok(RunEvent::ArtifactBodyRecorded {
+            record: request.record,
+        })
+    }
+
+    pub fn checkpoint_lifecycle_event(
+        &self,
+        request: CodingWorkflowCheckpointLifecycleRequest,
+    ) -> Result<RunEvent, CodingWorkflowError> {
+        validate_checkpoint_lifecycle(&request.lifecycle)?;
+        Ok(RunEvent::SnapshotLifecycleRecorded {
+            lifecycle: request.lifecycle,
+        })
+    }
+
     pub fn review_bundle_event(
         &self,
         request: CodingWorkflowReviewBundleRequest,
@@ -220,6 +251,53 @@ fn validate_patch_proposal(
     {
         return Err(CodingWorkflowError::new(
             "mutation-ready patch proposal requires checkpoint and reviewer gate",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_artifact_body_record(record: &ArtifactBodyRecord) -> Result<(), CodingWorkflowError> {
+    if record.media_type.trim().is_empty() {
+        return Err(CodingWorkflowError::new("artifact media_type is required"));
+    }
+    if record.byte_len == 0 {
+        return Err(CodingWorkflowError::new(
+            "artifact body byte_len is required",
+        ));
+    }
+    if !record.storage_uri.starts_with("tessera://artifacts/") {
+        return Err(CodingWorkflowError::new(
+            "artifact body storage_uri must use tessera artifact storage",
+        ));
+    }
+    if record.storage_uri.chars().any(char::is_whitespace) {
+        return Err(CodingWorkflowError::new(
+            "artifact body storage_uri must not contain whitespace",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_checkpoint_lifecycle(
+    lifecycle: &WorkspaceCheckpointLifecycleRecord,
+) -> Result<(), CodingWorkflowError> {
+    if lifecycle.reason.trim().is_empty() {
+        return Err(CodingWorkflowError::new(
+            "checkpoint lifecycle reason is required",
+        ));
+    }
+    if !lifecycle.execution_blocked {
+        return Err(CodingWorkflowError::new(
+            "checkpoint lifecycle execution must remain blocked",
+        ));
+    }
+    if matches!(
+        lifecycle.status,
+        WorkspaceCheckpointLifecycleStatus::RestoreBlocked
+    ) && lifecycle.restore_plan_id.is_none()
+    {
+        return Err(CodingWorkflowError::new(
+            "restore-blocked checkpoint lifecycle requires restore_plan_id",
         ));
     }
     Ok(())

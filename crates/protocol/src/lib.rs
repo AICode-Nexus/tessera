@@ -524,6 +524,28 @@ impl ArtifactKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactBodyRedactionStatus {
+    Clean,
+    Redacted,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ArtifactBodyRecord {
+    pub artifact_id: ArtifactId,
+    pub kind: ArtifactKind,
+    pub task_id: Option<TaskId>,
+    pub media_type: String,
+    pub byte_len: u64,
+    pub storage_uri: String,
+    pub redaction_status: ArtifactBodyRedactionStatus,
+    pub summary: Option<String>,
+    pub metadata: Option<ExtensionMap>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Artifact {
     pub id: ArtifactId,
@@ -1590,6 +1612,30 @@ pub struct WorkspaceCheckpoint {
     pub metadata: Option<ExtensionMap>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceCheckpointLifecycleStatus {
+    Planned,
+    Created,
+    RestoreBlocked,
+    Abandoned,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct WorkspaceCheckpointLifecycleRecord {
+    pub checkpoint_id: SnapshotId,
+    pub task_id: TaskId,
+    pub status: WorkspaceCheckpointLifecycleStatus,
+    pub reason: String,
+    pub restore_plan_id: Option<RestorePlanId>,
+    pub execution_blocked: bool,
+    #[serde(default)]
+    pub evidence: Vec<HandoffEvidenceRef>,
+    pub metadata: Option<ExtensionMap>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct CostEstimate {
@@ -1896,8 +1942,14 @@ pub enum RunEvent {
         artifact_id: ArtifactId,
         kind: ArtifactKind,
     },
+    ArtifactBodyRecorded {
+        record: ArtifactBodyRecord,
+    },
     SnapshotCreated {
         checkpoint: WorkspaceCheckpoint,
+    },
+    SnapshotLifecycleRecorded {
+        lifecycle: WorkspaceCheckpointLifecycleRecord,
     },
     ToolCallRequested {
         request: ToolCallRequest,
@@ -2008,7 +2060,9 @@ impl RunEvent {
             Self::MemoryWriteApplied { .. } => "memory_write_applied",
             Self::MemoryWriteRejected { .. } => "memory_write_rejected",
             Self::ArtifactCreated { .. } => "artifact_created",
+            Self::ArtifactBodyRecorded { .. } => "artifact_body_recorded",
             Self::SnapshotCreated { .. } => "snapshot_created",
+            Self::SnapshotLifecycleRecorded { .. } => "snapshot_lifecycle_recorded",
             Self::ToolCallRequested { .. } => "tool_call_requested",
             Self::ToolPolicyDecisionRecorded { .. } => "tool_policy_decision_recorded",
             Self::SandboxDecisionRecorded { .. } => "sandbox_decision_recorded",
@@ -2052,6 +2106,8 @@ impl RunEvent {
             | Self::AgentStepStarted { task_id, .. }
             | Self::CodingWorkflowStarted { task_id, .. }
             | Self::NoProgressLoopDetected { task_id, .. } => Some(task_id.clone()),
+            Self::ArtifactBodyRecorded { record } => record.task_id.clone(),
+            Self::SnapshotLifecycleRecorded { lifecycle } => Some(lifecycle.task_id.clone()),
             Self::TaskPauseCheckpointCreated { checkpoint } => Some(checkpoint.task_id.clone()),
             Self::TaskOwnerAttached { lease } => Some(lease.task_id.clone()),
             Self::TaskOwnerHeartbeat { heartbeat } => Some(heartbeat.task_id.clone()),
@@ -2286,8 +2342,14 @@ impl RunEvent {
             Self::ArtifactCreated { artifact_id, kind } => {
                 json!({ "artifact_id": artifact_id, "kind": kind })
             }
+            Self::ArtifactBodyRecorded { record } => {
+                json!({ "record": record })
+            }
             Self::SnapshotCreated { checkpoint } => {
                 json!({ "checkpoint": checkpoint })
+            }
+            Self::SnapshotLifecycleRecorded { lifecycle } => {
+                json!({ "lifecycle": lifecycle })
             }
             Self::ToolCallRequested { request } => json!({ "request": request }),
             Self::ToolPolicyDecisionRecorded { decision } => json!({ "decision": decision }),

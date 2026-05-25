@@ -120,6 +120,7 @@ Rust 侧通过 `rusqlite` 访问 SQLite。`rusqlite` 是访问层，SQLite 是�
 - 任何 durable runtime event 先写 JSONL。
 - SQLite 不应成为另一套事件事实。
 - 大输出使用 artifact 引用，不直接写入 transcript。
+- diff/test 等 artifact body 必须通过显式 artifact storage API 写入 `artifacts/`，trace 只记录 `ArtifactBodyRecord` handle、byte length、media type 和 redaction status。
 
 ### 2.8 CLI：Clap
 
@@ -186,7 +187,7 @@ Tessera 的长期目标不是只做一个聊天终端，而是形成 CLI、TUI�
 - `Thread` / `Turn` / `Item`：对话、推理、工具、审批、诊断和学习都挂在统一时间线。
 - `Task`：chat run、agent run、subagent、tool run、automation job、learning job 都必须有可取消、可暂停、可恢复或可解释失败的生命周期。
 - `TaskOwnership`：future background tasks must have execution owner, observer, heartbeat, lost-owner and reattach metadata in trace before GUI/app-server/automation can control them. Current v0.5 foundation provides the protocol events, core recorder/projection, client projection, CLI read-only owner listing, and automatic owner attach/detach around no-tool chat/agent runs, but not daemon ownership transfer or provider socket freezing.
-- `Artifact`：diff、patch、test report、terminal output、browser evidence、subagent transcript、large provider metadata 都不应直接塞进上下文。
+- `Artifact`：diff、patch、test report、terminal output、browser evidence、subagent transcript、large provider metadata 都不应直接塞进上下文；v0.7 foundation adds explicit artifact body storage metadata and redaction status before any patch/test executor may consume those bodies.
 - `Approval` / `ReviewerGate`：用户审批、reviewer gate、policy decision、GUI diff review 都必须 trace-backed；v0.6 foundation records handoff summaries, bounded evidence refs and reviewer decisions before any persistent sub-agent runtime.
 - `SubagentSession`：current v0.6 foundation records and projects parent/child task linkage, caps, scope labels, transcript artifact handles, approval forwarding metadata, inactive-child policy and cancellation cascade metadata before any scheduler, fan-out or child execution runtime exists. It also defines core-owned, non-executing helpers for transcript artifact lifecycle metadata, approval-forwarding metadata, inactive-policy metadata, cancellation cascade metadata and child task owner attach/detach/heartbeat/lost/reattach metadata. Future persistent runtime must add executable scheduler coordination, durable task ownership persistence, heartbeat/lost-owner handling, automatic approval forwarding, inactive-child execution and executable cancellation/reattach handling before child provider calls.
 - `InstructionSource` / `ContextReference`：`AGENTS.md`、未来 `CLAUDE.md`、skills、hook output、MCP metadata 都只能作为有来源、有上限、可审计的 context 输入。
@@ -317,6 +318,7 @@ Tessera 要适合 AI 长期参与开发，不只是“代码能跑”。
 - 所有模型交互必须有 trace。
 - 所有 schema 都必须版本化。
 - 大输出必须 artifact 化。
+- checkpoint lifecycle 必须 trace-backed；当前 restore lifecycle 只能记录 `RestoreBlocked` metadata，不能 restore/revert 文件。
 - 变更必须遵守 `AGENTS.md` 和 `docs/crate-boundaries.md`。
 
 AI 修改代码时应优先处理小边界任务：

@@ -1,18 +1,18 @@
 use tessera_protocol::{
     AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, AgentProfile,
     AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ApprovalId, ApprovalStatus,
-    ArtifactId, ArtifactKind, ClientInstanceId, CodingWorkflowEvidenceRedactionStatus,
-    CodingWorkflowId, ContextBudget, ContextId, ContextPlacement, ContextReference, ContextSource,
-    ContextSourceKind, CostEstimate, Diagnostic, DiagnosticRange, DiagnosticReport,
-    DiagnosticReportId, DiagnosticSeverity, EventFrame, EventRange, HandoffEvidenceKind,
-    HandoffEvidenceRef, InstructionLoadStatus, InstructionRedactionStatus, InstructionSource,
-    InstructionSourceKind, ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus,
-    ModelProfileId, MutationMode, MutationRequestId, MutationRequestOperationKind,
-    MutationRequestProposal, MutationRequestStatus, NoProgressAction, NoProgressLoop,
-    NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
-    OsSandboxProfileId, OsSandboxShell, PatchApplicationOutcome, PatchApplicationRecord,
-    PatchProposal, PatchProposalId, PolicyDecisionId, PolicyOutcome, ProviderCapability,
-    ProviderId, RestorePlanId, RestorePlanRecord, ReviewBundle, ReviewBundleId,
+    ArtifactBodyRecord, ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind, ClientInstanceId,
+    CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextBudget, ContextId,
+    ContextPlacement, ContextReference, ContextSource, ContextSourceKind, CostEstimate, Diagnostic,
+    DiagnosticRange, DiagnosticReport, DiagnosticReportId, DiagnosticSeverity, EventFrame,
+    EventRange, HandoffEvidenceKind, HandoffEvidenceRef, InstructionLoadStatus,
+    InstructionRedactionStatus, InstructionSource, InstructionSourceKind, ItemId, MemoryProposal,
+    MemoryProposalId, MemoryProposalStatus, ModelProfileId, MutationMode, MutationRequestId,
+    MutationRequestOperationKind, MutationRequestProposal, MutationRequestStatus, NoProgressAction,
+    NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork,
+    OsSandboxProfile, OsSandboxProfileId, OsSandboxShell, PatchApplicationOutcome,
+    PatchApplicationRecord, PatchProposal, PatchProposalId, PolicyDecisionId, PolicyOutcome,
+    ProviderCapability, ProviderId, RestorePlanId, RestorePlanRecord, ReviewBundle, ReviewBundleId,
     ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RouteDecision,
     RouteDecisionId, RouteStrategy, RunEvent, RuntimeApiCommand, RuntimeApiCommandAck,
     RuntimeApiCommandEnvelope, RuntimeApiCommandStatus, RuntimeApiEventStreamRequest,
@@ -32,7 +32,8 @@ use tessera_protocol::{
     ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId,
     ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
     ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
-    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceMutationScope, WorkspaceScope,
+    WorkspaceCheckpoint, WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus,
+    WorkspaceGuardrail, WorkspaceMutationScope, WorkspaceScope,
 };
 
 #[test]
@@ -1654,6 +1655,80 @@ fn mutation_request_proposals_are_traceable_without_execution() {
         frame.to_trace_record().event_kind,
         "mutation_request_proposal_recorded"
     );
+}
+
+#[test]
+fn artifact_body_and_checkpoint_lifecycle_events_are_traceable_without_bodies_or_restore() {
+    let task_id = TaskId::from_static("task_artifact_checkpoint_contract");
+    let artifact_id = ArtifactId::from_static("artifact_diff_body_contract");
+    let checkpoint_id = SnapshotId::from_static("snapshot_lifecycle_contract");
+    let restore_plan_id = RestorePlanId::from_static("restore_plan_lifecycle_contract");
+
+    let artifact_record = ArtifactBodyRecord {
+        artifact_id: artifact_id.clone(),
+        kind: ArtifactKind::Patch,
+        task_id: Some(task_id.clone()),
+        media_type: "text/x-diff".to_string(),
+        byte_len: 42,
+        storage_uri: "tessera://artifacts/artifact_diff_body_contract/body".to_string(),
+        redaction_status: ArtifactBodyRedactionStatus::Redacted,
+        summary: Some("redacted diff body stored outside trace".to_string()),
+        metadata: None,
+    };
+    let artifact_event = RunEvent::ArtifactBodyRecorded {
+        record: artifact_record,
+    };
+
+    assert_eq!(artifact_event.kind(), "artifact_body_recorded");
+    assert_eq!(artifact_event.task_id(), Some(task_id.clone()));
+    let artifact_payload = artifact_event.payload();
+    assert_eq!(
+        artifact_payload["record"]["artifact_id"],
+        artifact_id.as_str()
+    );
+    assert_eq!(artifact_payload["record"]["redaction_status"], "redacted");
+    assert_eq!(artifact_payload["record"]["byte_len"], 42);
+    assert!(artifact_payload.get("body").is_none());
+    assert!(artifact_payload.get("content").is_none());
+
+    let lifecycle = WorkspaceCheckpointLifecycleRecord {
+        checkpoint_id: checkpoint_id.clone(),
+        task_id: task_id.clone(),
+        status: WorkspaceCheckpointLifecycleStatus::RestoreBlocked,
+        reason: "restore remains policy blocked in v0.7 foundation".to_string(),
+        restore_plan_id: Some(restore_plan_id.clone()),
+        execution_blocked: true,
+        evidence: vec![HandoffEvidenceRef {
+            kind: HandoffEvidenceKind::TraceRange,
+            artifact_id: None,
+            trace_id: Some("trace_checkpoint_lifecycle".to_string()),
+            event_range: Some(EventRange {
+                start_seq: 10,
+                end_seq: 12,
+            }),
+            label: Some("checkpoint lifecycle".to_string()),
+            summary: Some("restore request was recorded but not executed".to_string()),
+        }],
+        metadata: None,
+    };
+    let lifecycle_event = RunEvent::SnapshotLifecycleRecorded { lifecycle };
+
+    assert_eq!(lifecycle_event.kind(), "snapshot_lifecycle_recorded");
+    assert_eq!(lifecycle_event.task_id(), Some(task_id));
+    let lifecycle_payload = lifecycle_event.payload();
+    assert_eq!(
+        lifecycle_payload["lifecycle"]["checkpoint_id"],
+        checkpoint_id.as_str()
+    );
+    assert_eq!(
+        lifecycle_payload["lifecycle"]["restore_plan_id"],
+        restore_plan_id.as_str()
+    );
+    assert_eq!(lifecycle_payload["lifecycle"]["status"], "restore_blocked");
+    assert_eq!(lifecycle_payload["lifecycle"]["execution_blocked"], true);
+    assert!(lifecycle_payload.get("restore_command").is_none());
+    assert!(lifecycle_payload.get("revert_command").is_none());
+    assert!(lifecycle_payload.get("file_contents").is_none());
 }
 
 #[test]

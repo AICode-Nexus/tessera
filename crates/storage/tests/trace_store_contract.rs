@@ -1,7 +1,8 @@
 use tessera_protocol::{
-    ArtifactId, ArtifactKind, EventFrame, ItemId, RunEvent, TaskId, TaskKind, ThreadId, TurnId,
+    ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind, EventFrame, ItemId, RunEvent, TaskId,
+    TaskKind, ThreadId, TurnId,
 };
-use tessera_storage::TraceStore;
+use tessera_storage::{ArtifactBodyWrite, TraceStore};
 
 #[test]
 fn trace_store_appends_jsonl_and_indexes_events() {
@@ -153,4 +154,45 @@ fn trace_store_lists_trace_ids_from_jsonl_files() {
         store.list_trace_ids().unwrap(),
         vec!["trace_alpha".to_string(), "trace_beta".to_string()]
     );
+}
+
+#[test]
+fn trace_store_writes_and_reads_artifact_body_with_redaction_metadata() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = TraceStore::open(temp.path()).unwrap();
+    let artifact_id = ArtifactId::from_static("artifact_explicit_body");
+    let task_id = TaskId::from_static("task_explicit_artifact_body");
+    let body = b"diff --git a/src/lib.rs b/src/lib.rs\n[REDACTED]\n".to_vec();
+
+    let record = store
+        .write_artifact_body(ArtifactBodyWrite {
+            artifact_id: artifact_id.clone(),
+            kind: ArtifactKind::Patch,
+            task_id: Some(task_id.clone()),
+            media_type: "text/x-diff".to_string(),
+            redaction_status: ArtifactBodyRedactionStatus::Redacted,
+            summary: Some("redacted diff output".to_string()),
+            body: body.clone(),
+        })
+        .unwrap();
+
+    assert_eq!(record.artifact_id, artifact_id);
+    assert_eq!(record.kind, ArtifactKind::Patch);
+    assert_eq!(record.task_id, Some(task_id));
+    assert_eq!(record.media_type, "text/x-diff");
+    assert_eq!(record.byte_len, body.len() as u64);
+    assert_eq!(
+        record.storage_uri,
+        "tessera://artifacts/artifact_explicit_body/body"
+    );
+    assert_eq!(
+        record.redaction_status,
+        ArtifactBodyRedactionStatus::Redacted
+    );
+    assert_eq!(record.summary.as_deref(), Some("redacted diff output"));
+    assert!(record.metadata.is_none());
+
+    let loaded = store.read_artifact_body(&record.artifact_id).unwrap();
+    assert_eq!(loaded.record, record);
+    assert_eq!(loaded.body, body);
 }

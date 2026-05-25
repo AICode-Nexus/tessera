@@ -33,6 +33,8 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type SubagentApprovalForwardingRecord"));
     assert!(bindings.contains("export type SubagentInactivePolicyRecord"));
     assert!(bindings.contains("export type SubagentCancellationRecord"));
+    assert!(bindings.contains("export type ArtifactBodyRecord"));
+    assert!(bindings.contains("export type ArtifactBodyRedactionStatus"));
     assert!(bindings.contains("export type AgentHandoffSummary"));
     assert!(bindings.contains("export type ReviewerGateRequest"));
     assert!(bindings.contains("export type ReviewerGateDecision"));
@@ -48,6 +50,8 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type TestRunRecord"));
     assert!(bindings.contains("export type ReviewBundle"));
     assert!(bindings.contains("export type RestorePlanRecord"));
+    assert!(bindings.contains("export type WorkspaceCheckpointLifecycleRecord"));
+    assert!(bindings.contains("export type WorkspaceCheckpointLifecycleStatus"));
     assert!(bindings.contains("export type SnapshotId"));
     assert!(bindings.contains("export type ClientSnapshot"));
     assert!(bindings.contains("export type ContextId"));
@@ -79,6 +83,8 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("test_run_recorded"));
     assert!(bindings.contains("review_bundle_recorded"));
     assert!(bindings.contains("restore_plan_recorded"));
+    assert!(bindings.contains("artifact_body_recorded"));
+    assert!(bindings.contains("snapshot_lifecycle_recorded"));
     assert!(bindings.contains("subagent_session_planned"));
     assert!(bindings.contains("subagent_session_waiting_for_approval"));
     assert!(bindings.contains("subagent_runtime_decision_recorded"));
