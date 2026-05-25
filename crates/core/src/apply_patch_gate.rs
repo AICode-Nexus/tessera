@@ -36,9 +36,10 @@ pub enum ApplyPatchGateBlocker {
     UnsupportedPatchOperation,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ApplyPatchDryRunOperation {
     Create,
+    #[default]
     Modify,
     DeleteUnsupported,
     RenameUnsupported,
@@ -293,12 +294,6 @@ struct PatchDryRunParser {
     current_operation: ApplyPatchDryRunOperation,
     affected_paths: Vec<String>,
     operations: Vec<ApplyPatchDryRunOperationSummary>,
-}
-
-impl Default for ApplyPatchDryRunOperation {
-    fn default() -> Self {
-        Self::Modify
-    }
 }
 
 impl PatchDryRunParser {
