@@ -1,7 +1,8 @@
 use std::{
     collections::VecDeque,
     io::{self, Cursor, Read, Write},
-    time::Duration,
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 use tessera_cli::{
@@ -23,22 +24,51 @@ use tessera_protocol::{
 use tessera_storage::TraceStore;
 
 struct DelayedLineReader {
-    lines: VecDeque<(Duration, String)>,
+    lines: VecDeque<DelayedLine>,
     buffer: Vec<u8>,
     offset: usize,
 }
 
+enum DelayedLine {
+    After {
+        delay: Duration,
+        line: String,
+    },
+    AfterTraceEvent {
+        data_dir: PathBuf,
+        event_kind: &'static str,
+        line: String,
+    },
+}
+
+impl DelayedLine {
+    fn after(delay: Duration, line: impl Into<String>) -> Self {
+        Self::After {
+            delay,
+            line: line.into(),
+        }
+    }
+
+    fn after_trace_event(
+        data_dir: PathBuf,
+        event_kind: &'static str,
+        line: impl Into<String>,
+    ) -> Self {
+        Self::AfterTraceEvent {
+            data_dir,
+            event_kind,
+            line: line.into(),
+        }
+    }
+}
+
 impl DelayedLineReader {
-    fn new<I, S>(lines: I) -> Self
+    fn with_steps<I>(lines: I) -> Self
     where
-        I: IntoIterator<Item = (Duration, S)>,
-        S: Into<String>,
+        I: IntoIterator<Item = DelayedLine>,
     {
         Self {
-            lines: lines
-                .into_iter()
-                .map(|(delay, line)| (delay, line.into()))
-                .collect(),
+            lines: lines.into_iter().collect(),
             buffer: Vec::new(),
             offset: 0,
         }
@@ -50,14 +80,52 @@ impl DelayedLineReader {
         }
         self.buffer.clear();
         self.offset = 0;
-        let Some((delay, line)) = self.lines.pop_front() else {
+        let Some(line) = self.lines.pop_front() else {
             return;
         };
-        if !delay.is_zero() {
-            std::thread::sleep(delay);
-        }
+        let line = match line {
+            DelayedLine::After { delay, line } => {
+                if !delay.is_zero() {
+                    std::thread::sleep(delay);
+                }
+                line
+            }
+            DelayedLine::AfterTraceEvent {
+                data_dir,
+                event_kind,
+                line,
+            } => {
+                wait_for_trace_event(&data_dir, event_kind);
+                line
+            }
+        };
         self.buffer.extend_from_slice(line.as_bytes());
     }
+}
+
+fn wait_for_trace_event(data_dir: &Path, event_kind: &str) {
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(2) {
+        if trace_contains_event(data_dir, event_kind) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn trace_contains_event(data_dir: &Path, event_kind: &str) -> bool {
+    let Ok(sessions) = list_sessions(data_dir) else {
+        return false;
+    };
+
+    sessions.iter().any(|session| {
+        let Ok(page) = list_events(data_dir, &session.trace_id, None, None) else {
+            return false;
+        };
+        page.records
+            .iter()
+            .any(|record| record.event_kind == event_kind)
+    })
 }
 
 impl Read for DelayedLineReader {
@@ -1341,10 +1409,14 @@ async fn repl_cancel_interrupts_active_run_and_records_cancelled_trace() {
         config,
         "offline".to_string(),
         None,
-        DelayedLineReader::new([
-            (Duration::ZERO, "cancel this slow run\n"),
-            (Duration::from_millis(20), "/cancel\n"),
-            (Duration::ZERO, "/quit\n"),
+        DelayedLineReader::with_steps([
+            DelayedLine::after(Duration::ZERO, "cancel this slow run\n"),
+            DelayedLine::after_trace_event(
+                temp.path().to_path_buf(),
+                "provider_request_started",
+                "/cancel\n",
+            ),
+            DelayedLine::after(Duration::ZERO, "/quit\n"),
         ]),
         &mut output,
     )
@@ -1389,10 +1461,14 @@ async fn repl_pause_interrupts_active_run_and_records_paused_trace() {
         config,
         "offline".to_string(),
         None,
-        DelayedLineReader::new([
-            (Duration::ZERO, "pause this slow run\n"),
-            (Duration::from_millis(20), "/pause\n"),
-            (Duration::ZERO, "/quit\n"),
+        DelayedLineReader::with_steps([
+            DelayedLine::after(Duration::ZERO, "pause this slow run\n"),
+            DelayedLine::after_trace_event(
+                temp.path().to_path_buf(),
+                "provider_request_started",
+                "/pause\n",
+            ),
+            DelayedLine::after(Duration::ZERO, "/quit\n"),
         ]),
         &mut output,
     )
