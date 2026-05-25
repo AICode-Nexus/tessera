@@ -198,10 +198,12 @@ The next implementation slices should stay conservative and preserve the current
 22. [x] Add non-executing core cancellation cascade metadata helper.
 23. [x] Add non-executing core sub-agent task owner bridge metadata helper.
 24. [x] Add non-executing core sub-agent owner heartbeat/lost/reattach metadata helper.
-25. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-26. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
-27. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
-28. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
+25. [x] Design v0.7 coding-agent workflow foundation: patch proposal, diff/test evidence, checkpoint requirement, review bundle, restore plan and worktree-first mutation boundaries without execution.
+26. [ ] Implement metadata-only v0.7 coding-agent workflow protocol, core coordinator, client projection and GUI bindings before any apply-patch execution.
+27. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+28. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
+29. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
+30. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
 
 ## 8. Mandatory Gates
 
