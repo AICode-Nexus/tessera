@@ -1,11 +1,13 @@
 use tessera_core::{
-    SubagentCompletionRequest, SubagentRuntimeCoordinator, SubagentRuntimeStartRequest,
+    SubagentApprovalForwardingRequest, SubagentCompletionRequest, SubagentInactivePolicyRequest,
+    SubagentRuntimeCoordinator, SubagentRuntimeStartRequest,
     SubagentTranscriptArtifactLifecycleRequest,
 };
 use tessera_protocol::{
     AgentProfileId, ApprovalId, ArtifactId, CostEstimate, EventRange, ReviewerGateId, RunEvent,
-    SubagentApprovalForwarding, SubagentInactivePolicy, SubagentRuntimeDecisionKind,
-    SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
+    SubagentApprovalForwarding, SubagentApprovalForwardingStatus, SubagentInactiveParentAction,
+    SubagentInactivePolicy, SubagentRuntimeDecisionKind, SubagentSessionCaps,
+    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
     SubagentTranscriptArtifactStatus, TaskId,
 };
 
@@ -250,4 +252,151 @@ fn subagent_transcript_artifact_lifecycle_abandoned_preserves_reason_without_bod
     assert!(payload["lifecycle"].get("body").is_none());
     assert!(payload["lifecycle"].get("content").is_none());
     assert!(payload["lifecycle"].get("workspace_diff").is_none());
+}
+
+#[test]
+fn subagent_approval_policy_queued_forwarding_requires_reviewer_gate() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error = coordinator.record_approval_forwarding(SubagentApprovalForwardingRequest {
+        session: subagent_session(SubagentSessionStatus::WaitingForApproval),
+        approval_id: ApprovalId::from_static("approval_subagent_review"),
+        reviewer_gate_id: None,
+        status: SubagentApprovalForwardingStatus::QueuedForReviewer,
+        reason: "queued for reviewer".to_string(),
+    });
+
+    let error = error.expect_err("queued approval forwarding should require a reviewer gate");
+    assert!(error
+        .to_string()
+        .contains("reviewer_gate_id is required for queued approval forwarding"));
+}
+
+#[test]
+fn subagent_approval_policy_forwarded_to_parent_preserves_approval_metadata() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let record = coordinator.record_approval_forwarding(SubagentApprovalForwardingRequest {
+        session: subagent_session(SubagentSessionStatus::WaitingForApproval),
+        approval_id: ApprovalId::from_static("approval_subagent_review"),
+        reviewer_gate_id: Some(ReviewerGateId::from_static("gate_subagent_review")),
+        status: SubagentApprovalForwardingStatus::ForwardedToParent,
+        reason: "forwarded to parent approval queue".to_string(),
+    });
+
+    let record = record.expect("forwarded approval metadata should be recordable");
+    assert_eq!(
+        record.session_id,
+        SubagentSessionId::from_static("subagent_session_review")
+    );
+    assert_eq!(
+        record.parent_task_id,
+        TaskId::from_static("task_parent_subagent")
+    );
+    assert_eq!(
+        record.approval_id,
+        ApprovalId::from_static("approval_subagent_review")
+    );
+    assert_eq!(
+        record.reviewer_gate_id,
+        Some(ReviewerGateId::from_static("gate_subagent_review"))
+    );
+    assert_eq!(
+        record.status,
+        SubagentApprovalForwardingStatus::ForwardedToParent
+    );
+}
+
+#[test]
+fn subagent_approval_policy_rejects_forwarding_already_forwarded_from_parent() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let mut session = subagent_session(SubagentSessionStatus::WaitingForApproval);
+    session.approval_forwarding = Some(SubagentApprovalForwarding {
+        inactive_policy: SubagentInactivePolicy::RequireReviewer,
+        reviewer_gate_id: Some(ReviewerGateId::from_static("gate_subagent_review")),
+        approval_id: Some(ApprovalId::from_static("approval_subagent_review")),
+        forwarded_from_parent: true,
+    });
+
+    let error = coordinator.record_approval_forwarding(SubagentApprovalForwardingRequest {
+        session,
+        approval_id: ApprovalId::from_static("approval_subagent_review"),
+        reviewer_gate_id: Some(ReviewerGateId::from_static("gate_subagent_review")),
+        status: SubagentApprovalForwardingStatus::ForwardedToParent,
+        reason: "forwarded to parent approval queue".to_string(),
+    });
+
+    let error = error.expect_err("forwarding should not loop back to the parent");
+    assert!(error
+        .to_string()
+        .contains("approval was already forwarded from parent"));
+}
+
+#[test]
+fn subagent_approval_policy_denied_event_is_metadata_only() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let event = coordinator.approval_forwarding_event(SubagentApprovalForwardingRequest {
+        session: subagent_session(SubagentSessionStatus::Inactive),
+        approval_id: ApprovalId::from_static("approval_subagent_review"),
+        reviewer_gate_id: None,
+        status: SubagentApprovalForwardingStatus::DeniedByPolicy,
+        reason: "policy denied forwarding".to_string(),
+    });
+
+    let event = event.expect("denied approval forwarding should emit metadata");
+    assert_eq!(event.kind(), "subagent_approval_forwarding_recorded");
+    assert_eq!(
+        event.task_id(),
+        Some(TaskId::from_static("task_parent_subagent"))
+    );
+    let payload = event.payload();
+    assert_eq!(payload["forwarding"]["status"], "denied_by_policy");
+    assert_eq!(payload["forwarding"]["reason"], "policy denied forwarding");
+    assert!(payload.get("provider_request").is_none());
+    assert!(payload.get("tool_call").is_none());
+    assert!(payload.get("scheduler_loop").is_none());
+    assert!(payload.get("storage_write").is_none());
+    assert!(payload.get("ui_action").is_none());
+}
+
+#[test]
+fn subagent_approval_policy_inactive_require_reviewer_event_is_metadata_only() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let event = coordinator.inactive_policy_event(SubagentInactivePolicyRequest {
+        session: subagent_session(SubagentSessionStatus::Inactive),
+        policy: SubagentInactivePolicy::RequireReviewer,
+        parent_action: SubagentInactiveParentAction::RequireReviewer,
+        reason: "reviewer must decide inactive child".to_string(),
+    });
+
+    let event = event.expect("inactive policy should emit metadata");
+    assert_eq!(event.kind(), "subagent_inactive_policy_recorded");
+    assert_eq!(
+        event.task_id(),
+        Some(TaskId::from_static("task_parent_subagent"))
+    );
+    let payload = event.payload();
+    assert_eq!(payload["inactive"]["policy"], "require_reviewer");
+    assert_eq!(payload["inactive"]["parent_action"], "require_reviewer");
+    assert_eq!(
+        payload["inactive"]["reason"],
+        "reviewer must decide inactive child"
+    );
+    assert!(payload.get("provider_request").is_none());
+    assert!(payload.get("tool_call").is_none());
+    assert!(payload.get("scheduler_loop").is_none());
+}
+
+#[test]
+fn subagent_approval_policy_rejects_mismatched_inactive_policy_action() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error = coordinator.record_inactive_policy(SubagentInactivePolicyRequest {
+        session: subagent_session(SubagentSessionStatus::Inactive),
+        policy: SubagentInactivePolicy::QueueDecision,
+        parent_action: SubagentInactiveParentAction::PauseParent,
+        reason: "mismatched inactive handling".to_string(),
+    });
+
+    let error = error.expect_err("inactive policy should reject mismatched parent action");
+    assert!(error
+        .to_string()
+        .contains("queue_decision inactive policy requires queue_decision parent action"));
 }

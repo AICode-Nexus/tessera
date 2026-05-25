@@ -49,6 +49,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added v0.6 provider-neutral sub-agent transcript artifact lifecycle metadata for reserved, published, sealed, and abandoned artifact handles without storing transcript bodies or starting child execution.
 - Added a non-executing core `SubagentRuntimeCoordinator` skeleton that validates caps/reviewer/transcript metadata and returns provider-neutral runtime decisions without calling providers, tools, storage internals, or UI.
 - Added a non-executing core helper for validating and emitting sub-agent transcript artifact lifecycle records without storing transcript bodies or invoking providers, tools, storage, or UI.
+- Added a non-executing core helper for validating and emitting sub-agent approval-forwarding and inactive-policy records without automatic forwarding, child scheduling, provider calls, tools, storage, or UI.
 - Added read-only `tessera-client` and GUI binding projection for v0.6 sub-agent transcript artifact lifecycle records, including artifact handles and reserved/published/sealed/abandoned status summaries.
 - Added read-only `tessera-client` and GUI binding projection for v0.6 sub-agent runtime ownership metadata from live events and replayed trace records.
 - Added release identity metadata so `tessera --version` reports both the crate version and build git SHA.

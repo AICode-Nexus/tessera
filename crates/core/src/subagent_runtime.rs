@@ -1,7 +1,9 @@
 use tessera_protocol::{
-    ArtifactId, EventRange, RunEvent, SubagentInactivePolicy, SubagentRuntimeDecision,
-    SubagentRuntimeDecisionKind, SubagentSessionDescriptor,
-    SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactStatus,
+    ApprovalId, ArtifactId, EventRange, ReviewerGateId, RunEvent, SubagentApprovalForwardingRecord,
+    SubagentApprovalForwardingStatus, SubagentInactiveParentAction, SubagentInactivePolicy,
+    SubagentInactivePolicyRecord, SubagentRuntimeDecision, SubagentRuntimeDecisionKind,
+    SubagentSessionDescriptor, SubagentTranscriptArtifactLifecycleRecord,
+    SubagentTranscriptArtifactStatus,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -23,6 +25,23 @@ pub struct SubagentTranscriptArtifactLifecycleRequest {
     pub status: SubagentTranscriptArtifactStatus,
     pub event_range: Option<EventRange>,
     pub summary_label: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubagentApprovalForwardingRequest {
+    pub session: SubagentSessionDescriptor,
+    pub approval_id: ApprovalId,
+    pub reviewer_gate_id: Option<ReviewerGateId>,
+    pub status: SubagentApprovalForwardingStatus,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubagentInactivePolicyRequest {
+    pub session: SubagentSessionDescriptor,
+    pub policy: SubagentInactivePolicy,
+    pub parent_action: SubagentInactiveParentAction,
     pub reason: String,
 }
 
@@ -136,6 +155,114 @@ impl SubagentRuntimeCoordinator {
     ) -> Result<RunEvent, SubagentRuntimeError> {
         self.record_transcript_lifecycle(request)
             .map(|lifecycle| RunEvent::SubagentTranscriptArtifactLifecycleRecorded { lifecycle })
+    }
+
+    pub fn record_approval_forwarding(
+        &self,
+        request: SubagentApprovalForwardingRequest,
+    ) -> Result<SubagentApprovalForwardingRecord, SubagentRuntimeError> {
+        validate_approval_forwarding(&request)?;
+
+        Ok(SubagentApprovalForwardingRecord {
+            session_id: request.session.session_id,
+            parent_task_id: request.session.parent_task_id,
+            approval_id: request.approval_id,
+            reviewer_gate_id: request.reviewer_gate_id,
+            status: request.status,
+            reason: request.reason,
+        })
+    }
+
+    pub fn approval_forwarding_event(
+        &self,
+        request: SubagentApprovalForwardingRequest,
+    ) -> Result<RunEvent, SubagentRuntimeError> {
+        self.record_approval_forwarding(request)
+            .map(|forwarding| RunEvent::SubagentApprovalForwardingRecorded { forwarding })
+    }
+
+    pub fn record_inactive_policy(
+        &self,
+        request: SubagentInactivePolicyRequest,
+    ) -> Result<SubagentInactivePolicyRecord, SubagentRuntimeError> {
+        validate_inactive_policy_action(request.policy, request.parent_action)?;
+
+        Ok(SubagentInactivePolicyRecord {
+            session_id: request.session.session_id,
+            parent_task_id: request.session.parent_task_id,
+            policy: request.policy,
+            parent_action: request.parent_action,
+            reason: request.reason,
+        })
+    }
+
+    pub fn inactive_policy_event(
+        &self,
+        request: SubagentInactivePolicyRequest,
+    ) -> Result<RunEvent, SubagentRuntimeError> {
+        self.record_inactive_policy(request)
+            .map(|inactive| RunEvent::SubagentInactivePolicyRecorded { inactive })
+    }
+}
+
+fn validate_approval_forwarding(
+    request: &SubagentApprovalForwardingRequest,
+) -> Result<(), SubagentRuntimeError> {
+    if request.approval_id.as_str().trim().is_empty() {
+        return Err(SubagentRuntimeError::new(
+            "approval_id is required for approval forwarding",
+        ));
+    }
+
+    match request.status {
+        SubagentApprovalForwardingStatus::QueuedForReviewer => {
+            if request.reviewer_gate_id.is_none() {
+                return Err(SubagentRuntimeError::new(
+                    "reviewer_gate_id is required for queued approval forwarding",
+                ));
+            }
+        }
+        SubagentApprovalForwardingStatus::ForwardedToParent => {
+            let already_forwarded_from_parent = request
+                .session
+                .approval_forwarding
+                .as_ref()
+                .map(|forwarding| forwarding.forwarded_from_parent)
+                .unwrap_or(false);
+            if already_forwarded_from_parent {
+                return Err(SubagentRuntimeError::new(
+                    "approval was already forwarded from parent",
+                ));
+            }
+        }
+        SubagentApprovalForwardingStatus::DeniedByPolicy => {}
+    }
+
+    Ok(())
+}
+
+fn validate_inactive_policy_action(
+    policy: SubagentInactivePolicy,
+    parent_action: SubagentInactiveParentAction,
+) -> Result<(), SubagentRuntimeError> {
+    match (policy, parent_action) {
+        (
+            SubagentInactivePolicy::RequireReviewer,
+            SubagentInactiveParentAction::RequireReviewer | SubagentInactiveParentAction::PauseParent,
+        )
+        | (SubagentInactivePolicy::QueueDecision, SubagentInactiveParentAction::QueueDecision)
+        | (SubagentInactivePolicy::PauseParent, SubagentInactiveParentAction::PauseParent) => {
+            Ok(())
+        }
+        (SubagentInactivePolicy::QueueDecision, _) => Err(SubagentRuntimeError::new(
+            "queue_decision inactive policy requires queue_decision parent action",
+        )),
+        (SubagentInactivePolicy::PauseParent, _) => Err(SubagentRuntimeError::new(
+            "pause_parent inactive policy requires pause_parent parent action",
+        )),
+        (SubagentInactivePolicy::RequireReviewer, _) => Err(SubagentRuntimeError::new(
+            "require_reviewer inactive policy requires require_reviewer or pause_parent parent action",
+        )),
     }
 }
 
