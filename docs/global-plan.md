@@ -43,7 +43,7 @@
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | [~] Foundation complete | RuntimeHttpApi shape, metadata-only MCP adapter, diagnostics event, memory proposal UI; no server/runtime/store. |
 | v0.5 | Single-agent and resumable task foundations | [~] Foundation stable | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server DTO alignment; runtime-complete gaps are staged into future gates. |
 | v0.6 | Persistent sub-agents and structured review | [x] Foundation complete | Structured handoff/reviewer gate, sub-agent session/runtime ownership, and transcript artifact lifecycle metadata events/projections exist; persistent child-agent execution is not implemented yet. |
-| v0.7 | Project coding-agent workflow | [~] Runtime gate foundations complete | Provider-neutral workflow/scope/patch/test/review/restore metadata events, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planner, read-only client/GUI projection, and apply-patch preflight/dry-run design exist; no apply-patch, test runner, checkpoint restore, worktree mutation execution, Git mutation, or GUI/TUI diff workflow yet. |
+| v0.7 | Project coding-agent workflow | [~] Runtime gate foundations complete | Provider-neutral workflow/scope/patch/test/review/restore metadata events, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planner, read-only client/GUI projection, and apply-patch preflight/dry-run readiness projection exist; no apply-patch executor, test runner, checkpoint restore, worktree mutation execution, Git mutation, or GUI/TUI diff workflow yet. |
 | v0.8 | Swarm scheduler | [!] Blocked | Requires v0.6 structured handoff and reviewer gate. |
 | v0.9 | Learning proposal system | [ ] Planned | No learning runtime; proposals only by design. |
 
@@ -142,6 +142,7 @@
 - [x] Artifact body/redaction storage contracts and checkpoint lifecycle records without workspace restore or executor behavior.
 - [x] Non-executing mutation enforcement planner for worktree-first/default-local policy gates, sandbox selection metadata and unsafe-path rejection.
 - [x] Final v0.7 runtime gate verification confirms no apply-patch, shell/test, checkpoint restore, worktree creation, Git mutation, or tool-dispatch executor was added.
+- [x] Apply-patch preflight and dry-run readiness gate with metadata-only protocol/client/GUI projection and no file writes.
 
 ## 6. Current Gaps
 
@@ -178,7 +179,7 @@
 - [x] v0.7 runtime gate assessment documenting why apply-patch, test execution, checkpoint restore, worktree mutation, Git mutation, hooks, automations, app-server mutation listener, swarm and learning apply remain blocked.
 - [x] v0.7 runtime gate closure foundations for mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle contracts, and worktree/sandbox enforcement planning before any executor.
 - [x] v0.7 apply-patch executor gate design defining preflight and dry-run readiness as the next safe slice while keeping workspace writes blocked.
-- [ ] Apply-patch preflight and dry-run readiness gate without file writes.
+- [x] Apply-patch preflight and dry-run readiness gate without file writes.
 - [ ] Executable coding-agent diff/test/checkpoint/rollback workflow.
 - [ ] Apply-patch tool.
 - [ ] Worktree-first mutation execution mode.
@@ -219,7 +220,7 @@ The next implementation slices should stay conservative and preserve the current
 27. [x] Audit v0.7 runtime gate readiness and document missing execution prerequisites before any apply-patch runtime.
 28. [x] Execute the v0.7 runtime gate closure plan for proposal contracts, artifact/redaction contracts, checkpoint lifecycle contracts, and worktree/sandbox enforcement planning while keeping mutation execution blocked.
 29. [x] Design the v0.7 apply-patch executor gate as a non-mutating preflight and dry-run slice before any file writes.
-30. [ ] Implement apply-patch preflight and dry-run readiness contracts without file writes, worktree creation, shell/test execution, checkpoint restore or Git mutation.
+30. [x] Implement apply-patch preflight and dry-run readiness contracts without file writes, worktree creation, shell/test execution, checkpoint restore or Git mutation.
 31. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
 32. [!] Do not start executable apply-patch/file mutation workflow until preflight/dry-run readiness, policy, sandbox, checkpoint, worktree isolation, single-agent loop, background ownership and reviewer gate are all stable.
 33. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
