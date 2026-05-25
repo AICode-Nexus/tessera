@@ -262,9 +262,9 @@ apps/
 
 职责摘要：
 
-- `protocol`：公共类型、ID、runtime schema、RunEvent、EventFrame、NormalizedError、context reference schema、diagnostics schema、memory proposal schema、skill manifest schema、sandbox profile schema、checkpoint schema。
+- `protocol`：公共类型、ID、runtime schema、RunEvent、EventFrame、NormalizedError、context reference schema、diagnostics schema、memory proposal schema、skill manifest schema、sandbox profile schema、checkpoint schema、coding workflow metadata schema。
 - `client`：UI-neutral intent、status/message/approval/memory proposal projection、ClientSnapshot；从 EventFrame / TraceRecord 生成 TUI 和未来 GUI 共享的 view model。
-- `core`：运行生命周期、ConversationEngine、事件路由、provider/storage 协调、context workbench、draft model routing、no-progress loop signal、diagnostics reporter、只读 skill registry、explicit read-only SkillRuntimePlanner、metadata-only MCP adapter、sandbox profile planner、checkpoint metadata planner、runtime HTTP/SSE shape helper 和 checkpoint metadata projection。
+- `core`：运行生命周期、ConversationEngine、事件路由、provider/storage 协调、context workbench、draft model routing、no-progress loop signal、diagnostics reporter、只读 skill registry、explicit read-only SkillRuntimePlanner、metadata-only MCP adapter、sandbox profile planner、checkpoint metadata planner、runtime HTTP/SSE shape helper、checkpoint metadata projection 和 metadata-only coding workflow coordinator。
 - `providers`：Provider trait、OpenAI-compatible、Ollama、Mock provider。
 - `storage`：JSONL trace writer、SQLite index、repository。
 - `config`：配置读取、profile、data dir、secret env var 引用。

@@ -95,6 +95,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - v0.6 structured handoff / reviewer gate DTOs (`AgentHandoffSummary`, `HandoffEvidenceRef`, `ReviewerGateRequest`, `ReviewerGateDecision`).
 - v0.6 sub-agent session metadata DTOs (`SubagentSessionDescriptor`, caps and approval forwarding metadata).
 - v0.6 sub-agent runtime ownership and transcript artifact lifecycle DTOs, but only as provider-neutral metadata.
+- v0.7 coding workflow DTOs for workflow ids, worktree-first mutation scope, patch proposal metadata, test evidence metadata, review bundles and restore plans, but only as provider-neutral metadata.
 
 允许依赖：
 
@@ -128,6 +129,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - No-tool single-agent loop 的 run/step lifecycle 编排。
 - Structured handoff / reviewer gate events 的 core-owned recording/routing; sub-agent session metadata recording/routing; no persistent sub-agent scheduler before session gates are replayable.
 - `SubagentRuntimeCoordinator` ownership: scheduler decisions, cap validation, transcript artifact lifecycle metadata, approval-forwarding policy records, inactive-child policy records, cancellation/reattach metadata and child task owner metadata before any child execution. Current implementation is non-executing and only returns provider-neutral decision/lifecycle/approval/inactive-policy/cancellation/task-owner metadata events; it can reserve, publish, seal or abandon transcript artifact handles, validate approval-forwarding / inactive-policy records, validate cancellation cascade records, and map sub-agent child task ids to task owner attach/detach/heartbeat/lost/reattach events without storing transcript bodies, forwarding approvals automatically, cancelling child runtime, freezing provider sockets, starting heartbeat loops, detecting lost owners, resuming providers or driving UI.
+- `CodingWorkflowCoordinator` ownership: metadata-only v0.7 coding workflow validation and event construction for workflow start, workspace mutation scope, patch proposals, patch application records, test plan/run records, review bundles and restore plans before any file mutation. Current implementation is non-executing and only returns provider-neutral metadata events; it rejects unsafe relative paths, missing diff artifacts, missing checkpoint/reviewer gates for mutation-ready proposals, inline test output, and executable restore plans without applying patches, running tests, writing files, creating worktrees, restoring checkpoints, mutating Git, calling providers, writing storage directly or driving UI.
 
 允许依赖：
 
@@ -147,6 +149,7 @@ CLI、TUI 和未来 GUI 都只能通过 core 使用 provider 和 storage。`cli 
 - MCP runtime。
 - executable/default/global skill runtime。
 - tool-using 或 background agent runtime。
+- apply-patch execution, test/lint command execution, checkpoint restore/revert, Git stage/commit/push/PR mutation, or UI-owned coding workflow state.
 - persistent sub-agent fan-out, swarm scheduling, reviewer bypass, file mutation or workspace restore through handoff/reviewer metadata.
 - automatic approval forwarding, inactive-child execution, background fan-out or provider calls through sub-agent session metadata.
 - child-session scheduling outside `core`, provider-owned sub-agent loops, UI/client-owned schedulers, or storage-owned runtime state machines.

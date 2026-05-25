@@ -1,5 +1,12 @@
+mod coding_workflow;
 mod subagent_runtime;
 
+pub use coding_workflow::{
+    CodingWorkflowCoordinator, CodingWorkflowError, CodingWorkflowPatchApplicationRequest,
+    CodingWorkflowPatchProposalRequest, CodingWorkflowReviewBundleRequest,
+    CodingWorkflowStartRequest, CodingWorkflowTestPlanRequest, CodingWorkflowTestRunRequest,
+    CodingWorkflowWorkspaceScopeRequest,
+};
 pub use subagent_runtime::{
     SubagentApprovalForwardingRequest, SubagentCancellationRequest, SubagentCompletionRequest,
     SubagentInactivePolicyRequest, SubagentRuntimeCoordinator, SubagentRuntimeError,
