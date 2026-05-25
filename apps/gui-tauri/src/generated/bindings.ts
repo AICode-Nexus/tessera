@@ -27,6 +27,8 @@ export type ClientApprovalStatus = "pending" | "approved" | "denied";
 
 export type ClientArtifact = { artifact_id: ArtifactId, kind: ArtifactKind | null, thread_id: ThreadId | null, turn_id: TurnId | null, task_id: TaskId | null, item_id: ItemId | null, created_at: Timestamp | null, referenced_by_event_kinds: Array<string>, };
 
+export type ClientCodingWorkflow = { workflow_id: CodingWorkflowId, task_id: TaskId, objective: string | null, active: boolean, workspace_scope: WorkspaceMutationScope | null, patch_proposals: Array<PatchProposal>, patch_applications: Array<PatchApplicationRecord>, test_plans: Array<TestPlanRecord>, test_runs: Array<TestRunRecord>, review_bundles: Array<ReviewBundle>, restore_plans: Array<RestorePlanRecord>, };
+
 export type ClientInstanceId = string;
 
 export type CodingWorkflowEvidenceRedactionStatus = "clean" | "redacted";
@@ -57,9 +59,9 @@ export type ClientReviewerGate = { gate_id: ReviewerGateId, handoff_id: AgentHan
 
 export type ClientReviewerGateStatus = "pending" | "accepted" | "rejected" | "revision_requested";
 
-export type ClientSnapshot = { status: ClientStatus, projection: ClientProjection, tasks: Array<ClientTask>, artifacts: Array<ClientArtifact>, approvals: Array<ClientApproval>, memory_proposals: Array<ClientMemoryProposal>, handoffs: Array<ClientAgentHandoff>, reviewer_gates: Array<ClientReviewerGate>, subagent_sessions: Array<ClientSubagentSession>, subagent_runtime_decisions: Array<ClientSubagentRuntimeDecision>, subagent_transcripts: Array<ClientSubagentTranscriptArtifact>, subagent_transcript_lifecycles: Array<ClientSubagentTranscriptArtifactLifecycle>, subagent_approval_forwarding: Array<ClientSubagentApprovalForwarding>, subagent_inactive_policies: Array<ClientSubagentInactivePolicy>, subagent_cancellations: Array<ClientSubagentCancellation>, context_handles: Array<ClientContextHandle>, draft_input: string, };
+export type ClientSnapshot = { status: ClientStatus, projection: ClientProjection, tasks: Array<ClientTask>, artifacts: Array<ClientArtifact>, approvals: Array<ClientApproval>, memory_proposals: Array<ClientMemoryProposal>, handoffs: Array<ClientAgentHandoff>, reviewer_gates: Array<ClientReviewerGate>, coding_workflows: Array<ClientCodingWorkflow>, subagent_sessions: Array<ClientSubagentSession>, subagent_runtime_decisions: Array<ClientSubagentRuntimeDecision>, subagent_transcripts: Array<ClientSubagentTranscriptArtifact>, subagent_transcript_lifecycles: Array<ClientSubagentTranscriptArtifactLifecycle>, subagent_approval_forwarding: Array<ClientSubagentApprovalForwarding>, subagent_inactive_policies: Array<ClientSubagentInactivePolicy>, subagent_cancellations: Array<ClientSubagentCancellation>, context_handles: Array<ClientContextHandle>, draft_input: string, };
 
-export type ClientStatus = { active_profile: string, available_profiles: Array<string>, reasoning_visible: boolean, task_summary: string, artifact_summary: string, approval_summary: string, memory_summary: string, handoff_summary: string, subagent_summary: string, subagent_runtime_summary: string, subagent_transcript_lifecycle_summary: string, usage_summary: string, cache_summary: string, cost_summary: string, context_summary: string, context_handles_summary: string, telemetry: ClientTelemetrySummary, };
+export type ClientStatus = { active_profile: string, available_profiles: Array<string>, reasoning_visible: boolean, task_summary: string, artifact_summary: string, approval_summary: string, memory_summary: string, handoff_summary: string, coding_workflow_summary: string, subagent_summary: string, subagent_runtime_summary: string, subagent_transcript_lifecycle_summary: string, usage_summary: string, cache_summary: string, cost_summary: string, context_summary: string, context_handles_summary: string, telemetry: ClientTelemetrySummary, };
 
 export type ClientSubagentApprovalForwarding = { session_id: SubagentSessionId, parent_task_id: TaskId, approval_id: ApprovalId, reviewer_gate_id: ReviewerGateId | null, status: ClientSubagentApprovalForwardingStatus, reason: string, };
 
@@ -168,6 +170,8 @@ export type RuntimeApiQueuePolicy = { event_buffer_capacity: number, client_buff
 export type RuntimeApiServerConfig = { version: string, bind: RuntimeApiBindConfig, auth: RuntimeApiAuthPolicy, queue: RuntimeApiQueuePolicy, };
 
 export type RuntimeInstanceId = string;
+
+export type SnapshotId = string;
 
 export type SubagentApprovalForwarding = { inactive_policy: SubagentInactivePolicy, reviewer_gate_id: ReviewerGateId | null, approval_id: ApprovalId | null, forwarded_from_parent: boolean, };
 

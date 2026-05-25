@@ -12,6 +12,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type ClientContextHandle"));
     assert!(bindings.contains("export type ClientContextPlacement"));
     assert!(bindings.contains("export type ClientContextSourceKind"));
+    assert!(bindings.contains("export type ClientCodingWorkflow"));
     assert!(bindings.contains("export type ClientMemoryProposal"));
     assert!(bindings.contains("export type ClientAgentHandoff"));
     assert!(bindings.contains("export type ClientReviewerGate"));
@@ -44,6 +45,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type TestRunRecord"));
     assert!(bindings.contains("export type ReviewBundle"));
     assert!(bindings.contains("export type RestorePlanRecord"));
+    assert!(bindings.contains("export type SnapshotId"));
     assert!(bindings.contains("export type ClientSnapshot"));
     assert!(bindings.contains("export type ContextId"));
     assert!(bindings.contains("export type GuiCommandOutcome"));
@@ -53,6 +55,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type RuntimeApiEventStreamRequest"));
     assert!(bindings.contains("export type RuntimeApiCommandAck"));
     assert!(bindings.contains("context_handles"));
+    assert!(bindings.contains("coding_workflows"));
     assert!(bindings.contains("loopback_dev_token"));
     assert!(bindings.contains("localhost_tcp"));
     assert!(bindings.contains("submit_prompt"));

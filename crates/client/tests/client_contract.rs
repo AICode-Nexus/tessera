@@ -8,20 +8,24 @@ use tessera_client::{
 };
 use tessera_protocol::{
     AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, ApprovalId,
-    ApprovalStatus, ArtifactId, ArtifactKind, ClientInstanceId, ContextId, ContextPlacement,
+    ApprovalStatus, ArtifactId, ArtifactKind, ClientInstanceId,
+    CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextId, ContextPlacement,
     ContextReference, ContextSource, ContextSourceKind, CostEstimate, ErrorSource, EventFrame,
     EventRange, HandoffEvidenceKind, HandoffEvidenceRef, ItemId, MemoryProposal, MemoryProposalId,
-    MemoryProposalStatus, NormalizedError, PolicyDecisionId, PolicyOutcome, ProviderCapability,
-    ProviderId, ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest,
-    RunEvent, RuntimeInstanceId, SubagentApprovalForwarding, SubagentApprovalForwardingRecord,
+    MemoryProposalStatus, MutationMode, NormalizedError, PatchApplicationOutcome,
+    PatchApplicationRecord, PatchProposal, PatchProposalId, PolicyDecisionId, PolicyOutcome,
+    ProviderCapability, ProviderId, RestorePlanId, RestorePlanRecord, ReviewBundle, ReviewBundleId,
+    ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RunEvent,
+    RuntimeInstanceId, SnapshotId, SubagentApprovalForwarding, SubagentApprovalForwardingRecord,
     SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
     SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
     SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionCaps,
     SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
     SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactRecord,
     SubagentTranscriptArtifactStatus, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind,
-    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, Timestamp,
-    ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect,
+    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, TestPlanId,
+    TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus, Timestamp, ToolApproval, ToolCallId,
+    ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect, WorkspaceMutationScope,
 };
 
 #[test]
@@ -493,6 +497,302 @@ fn client_snapshot_projects_memory_proposals_for_ui_review() {
     assert_eq!(
         replayed.memory_proposals[0].reason.as_deref(),
         Some("user rejected")
+    );
+}
+
+fn coding_workflow_id() -> CodingWorkflowId {
+    CodingWorkflowId::from_static("coding_workflow_client")
+}
+
+fn coding_task_id() -> TaskId {
+    TaskId::from_static("task_coding_workflow_client")
+}
+
+fn coding_diff_evidence() -> HandoffEvidenceRef {
+    HandoffEvidenceRef {
+        kind: HandoffEvidenceKind::DiffArtifact,
+        artifact_id: Some(ArtifactId::from_static("artifact_patch_diff")),
+        trace_id: None,
+        event_range: None,
+        label: Some("patch diff".to_string()),
+        summary: Some("metadata-only diff artifact".to_string()),
+    }
+}
+
+fn coding_test_evidence() -> HandoffEvidenceRef {
+    HandoffEvidenceRef {
+        kind: HandoffEvidenceKind::TestOutputArtifact,
+        artifact_id: Some(ArtifactId::from_static("artifact_test_stdout")),
+        trace_id: None,
+        event_range: None,
+        label: Some("cargo test".to_string()),
+        summary: Some("failed focused client projection test".to_string()),
+    }
+}
+
+fn coding_scope() -> WorkspaceMutationScope {
+    WorkspaceMutationScope {
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        root_label: "repo".to_string(),
+        allowed_paths: vec![
+            "crates/client/src/lib.rs".to_string(),
+            "crates/client/tests/client_contract.rs".to_string(),
+        ],
+        denied_paths: vec![".env".to_string()],
+        mutation_mode: MutationMode::WorktreeFirst,
+        worktree_required: true,
+        reason: Some("client projection metadata only".to_string()),
+    }
+}
+
+fn coding_patch_proposal() -> PatchProposal {
+    PatchProposal {
+        patch_id: PatchProposalId::from_static("patch_client_projection"),
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        summary: "Project coding workflow metadata into client snapshot.".to_string(),
+        touched_paths: vec![
+            "crates/client/src/lib.rs".to_string(),
+            "crates/client/tests/client_contract.rs".to_string(),
+        ],
+        diff_artifacts: vec![coding_diff_evidence()],
+        risk_labels: vec!["client_projection".to_string()],
+        required_checkpoint_id: Some(SnapshotId::from_static("snapshot_before_client_patch")),
+        reviewer_gate_id: Some(ReviewerGateId::from_static("gate_coding_review")),
+    }
+}
+
+fn coding_patch_application() -> PatchApplicationRecord {
+    PatchApplicationRecord {
+        patch_id: PatchProposalId::from_static("patch_client_projection"),
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        checkpoint_id: Some(SnapshotId::from_static("snapshot_before_client_patch")),
+        outcome: PatchApplicationOutcome::Planned,
+        conflict_paths: Vec::new(),
+        applied_paths: vec!["crates/client/src/lib.rs".to_string()],
+        artifact_refs: vec![ArtifactId::from_static("artifact_patch_diff")],
+    }
+}
+
+fn coding_test_plan() -> TestPlanRecord {
+    TestPlanRecord {
+        test_plan_id: TestPlanId::from_static("test_plan_client_projection"),
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        command_labels: vec!["cargo test -p tessera-client coding_workflow".to_string()],
+        affected_paths: vec!["crates/client/src/lib.rs".to_string()],
+        required_artifact_kinds: vec![ArtifactKind::TestReport],
+    }
+}
+
+fn coding_test_run(status: TestRunStatus) -> TestRunRecord {
+    TestRunRecord {
+        test_run_id: TestRunId::from_static("test_run_client_projection"),
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        test_plan_id: Some(TestPlanId::from_static("test_plan_client_projection")),
+        command_label: "cargo test -p tessera-client coding_workflow".to_string(),
+        status,
+        exit_code: Some(101),
+        duration_ms: Some(1200),
+        stdout_artifact_id: Some(ArtifactId::from_static("artifact_test_stdout")),
+        stderr_artifact_id: Some(ArtifactId::from_static("artifact_test_stderr")),
+        diagnostics: vec![coding_test_evidence()],
+        redaction_status: CodingWorkflowEvidenceRedactionStatus::Redacted,
+    }
+}
+
+fn coding_review_bundle() -> ReviewBundle {
+    ReviewBundle {
+        review_bundle_id: ReviewBundleId::from_static("review_bundle_client_projection"),
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        reviewer_gate_id: ReviewerGateId::from_static("gate_coding_review"),
+        patch_ids: vec![PatchProposalId::from_static("patch_client_projection")],
+        test_run_ids: vec![TestRunId::from_static("test_run_client_projection")],
+        evidence: vec![coding_diff_evidence(), coding_test_evidence()],
+        summary: "Client projection patch is ready for reviewer inspection.".to_string(),
+    }
+}
+
+fn coding_restore_plan() -> RestorePlanRecord {
+    RestorePlanRecord {
+        restore_plan_id: RestorePlanId::from_static("restore_plan_client_projection"),
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        checkpoint_id: SnapshotId::from_static("snapshot_before_client_patch"),
+        target_paths: vec!["crates/client/src/lib.rs".to_string()],
+        reason: "restore is represented as metadata only".to_string(),
+        execution_blocked: true,
+    }
+}
+
+fn coding_reviewer_gate_request() -> ReviewerGateRequest {
+    ReviewerGateRequest {
+        gate_id: ReviewerGateId::from_static("gate_coding_review"),
+        handoff_id: AgentHandoffId::from_static("handoff_coding_review"),
+        parent_task_id: coding_task_id(),
+        requested_decisions: vec![
+            ReviewerDecisionKind::Accept,
+            ReviewerDecisionKind::Reject,
+            ReviewerDecisionKind::RequestRevision,
+        ],
+        evidence: vec![coding_diff_evidence(), coding_test_evidence()],
+    }
+}
+
+fn coding_workflow_events(test_status: TestRunStatus) -> Vec<RunEvent> {
+    vec![
+        RunEvent::CodingWorkflowStarted {
+            workflow_id: coding_workflow_id(),
+            task_id: coding_task_id(),
+            objective: "project metadata-only coding workflow state".to_string(),
+        },
+        RunEvent::WorkspaceMutationScopeRecorded {
+            scope: coding_scope(),
+        },
+        RunEvent::PatchProposalRecorded {
+            proposal: coding_patch_proposal(),
+        },
+        RunEvent::PatchApplicationRecorded {
+            record: coding_patch_application(),
+        },
+        RunEvent::TestPlanRecorded {
+            plan: coding_test_plan(),
+        },
+        RunEvent::TestRunRecorded {
+            record: coding_test_run(test_status),
+        },
+        RunEvent::ReviewerGateRequested {
+            request: coding_reviewer_gate_request(),
+        },
+        RunEvent::ReviewBundleRecorded {
+            bundle: coding_review_bundle(),
+        },
+        RunEvent::RestorePlanRecorded {
+            plan: coding_restore_plan(),
+        },
+    ]
+}
+
+#[test]
+fn client_snapshot_projects_coding_workflow_metadata_from_live_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    for (index, event) in coding_workflow_events(TestRunStatus::Failed)
+        .into_iter()
+        .enumerate()
+    {
+        snapshot.apply_event(&EventFrame::new(
+            "trace_coding_workflow_live",
+            index as u64 + 1,
+            event,
+        ));
+    }
+
+    assert_eq!(snapshot.coding_workflows.len(), 1);
+    let workflow = &snapshot.coding_workflows[0];
+    assert_eq!(workflow.workflow_id, coding_workflow_id());
+    assert_eq!(workflow.task_id, coding_task_id());
+    assert!(workflow.active);
+    assert_eq!(
+        workflow.objective.as_deref(),
+        Some("project metadata-only coding workflow state")
+    );
+
+    let scope = workflow.workspace_scope.as_ref().expect("scope projected");
+    assert_eq!(scope.mutation_mode, MutationMode::WorktreeFirst);
+    assert!(scope.worktree_required);
+    assert_eq!(
+        scope.allowed_paths,
+        vec![
+            "crates/client/src/lib.rs".to_string(),
+            "crates/client/tests/client_contract.rs".to_string()
+        ]
+    );
+
+    assert_eq!(workflow.patch_proposals.len(), 1);
+    assert_eq!(
+        workflow.patch_proposals[0].summary,
+        "Project coding workflow metadata into client snapshot."
+    );
+    assert_eq!(
+        workflow.patch_proposals[0].touched_paths,
+        vec![
+            "crates/client/src/lib.rs".to_string(),
+            "crates/client/tests/client_contract.rs".to_string()
+        ]
+    );
+    assert_eq!(workflow.patch_applications.len(), 1);
+    assert_eq!(
+        workflow.patch_applications[0].outcome,
+        PatchApplicationOutcome::Planned
+    );
+
+    assert_eq!(workflow.test_plans.len(), 1);
+    assert_eq!(workflow.test_runs.len(), 1);
+    assert_eq!(workflow.test_runs[0].status, TestRunStatus::Failed);
+    assert_eq!(
+        workflow.test_runs[0].stdout_artifact_id,
+        Some(ArtifactId::from_static("artifact_test_stdout"))
+    );
+    assert_eq!(
+        workflow.test_runs[0].redaction_status,
+        CodingWorkflowEvidenceRedactionStatus::Redacted
+    );
+
+    assert_eq!(workflow.review_bundles.len(), 1);
+    assert_eq!(snapshot.reviewer_gates.len(), 1);
+    assert_eq!(
+        workflow.review_bundles[0].reviewer_gate_id,
+        snapshot.reviewer_gates[0].gate_id
+    );
+
+    assert_eq!(workflow.restore_plans.len(), 1);
+    assert!(workflow.restore_plans[0].execution_blocked);
+    assert_eq!(
+        snapshot.status.coding_workflow_summary,
+        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / blocked restores 1"
+    );
+}
+
+#[test]
+fn client_snapshot_projects_coding_workflow_metadata_from_replayed_records() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    for (index, event) in coding_workflow_events(TestRunStatus::Passed)
+        .into_iter()
+        .enumerate()
+    {
+        let record = EventFrame::new("trace_coding_workflow_replay", index as u64 + 1, event)
+            .to_trace_record();
+        snapshot.apply_trace_record(&record);
+    }
+
+    assert_eq!(snapshot.coding_workflows.len(), 1);
+    let workflow = &snapshot.coding_workflows[0];
+    assert_eq!(
+        workflow.workspace_scope.as_ref().unwrap().denied_paths,
+        vec![".env"]
+    );
+    assert_eq!(
+        workflow.patch_proposals[0].diff_artifacts[0],
+        coding_diff_evidence()
+    );
+    assert_eq!(workflow.test_runs[0].status, TestRunStatus::Passed);
+    assert_eq!(
+        workflow.review_bundles[0].patch_ids,
+        vec![PatchProposalId::from_static("patch_client_projection")]
+    );
+    assert_eq!(
+        workflow.restore_plans[0].checkpoint_id,
+        SnapshotId::from_static("snapshot_before_client_patch")
+    );
+    assert_eq!(
+        snapshot.status.coding_workflow_summary,
+        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / blocked restores 1"
     );
 }
 

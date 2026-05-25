@@ -4,19 +4,20 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tessera_protocol::{
     AgentHandoffId, AgentHandoffStatus, AgentHandoffSummary, ApprovalId, ApprovalStatus,
-    ArtifactId, ArtifactKind, ClientInstanceId, ContextId, ContextPlacement, ContextReference,
-    ContextSourceKind, EventFrame, EventRange, HandoffEvidenceRef, ItemId, MemoryProposal,
-    MemoryProposalId, MemoryProposalStatus, ReviewerDecisionKind, ReviewerGateDecision,
-    ReviewerGateId, ReviewerGateRequest, RunEvent, RuntimeInstanceId,
-    SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
-    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
-    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
-    SubagentRuntimeDecisionKind, SubagentSessionDescriptor, SubagentSessionId,
-    SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
+    ArtifactId, ArtifactKind, ClientInstanceId, CodingWorkflowId, ContextId, ContextPlacement,
+    ContextReference, ContextSourceKind, EventFrame, EventRange, HandoffEvidenceRef, ItemId,
+    MemoryProposal, MemoryProposalId, MemoryProposalStatus, PatchApplicationRecord, PatchProposal,
+    RestorePlanRecord, ReviewBundle, ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId,
+    ReviewerGateRequest, RunEvent, RuntimeInstanceId, SubagentApprovalForwardingRecord,
+    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
+    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
+    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionDescriptor,
+    SubagentSessionId, SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
     SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskKind,
     TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
-    TaskReattachMode, TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolApproval,
-    ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect, TraceRecord, TurnId,
+    TaskReattachMode, TaskReattachRecord, TaskStatus, TestPlanRecord, TestRunRecord, ThreadId,
+    Timestamp, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
+    ToolSideEffect, TraceRecord, TurnId, WorkspaceMutationScope,
 };
 
 /// User intent shared by CLI/TUI/GUI surfaces before it reaches runtime code.
@@ -971,6 +972,130 @@ impl ClientSubagentCancellation {
     }
 }
 
+/// UI-neutral, read-only projection for coding-agent workflow metadata.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientCodingWorkflow {
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub objective: Option<String>,
+    pub active: bool,
+    pub workspace_scope: Option<WorkspaceMutationScope>,
+    pub patch_proposals: Vec<PatchProposal>,
+    pub patch_applications: Vec<PatchApplicationRecord>,
+    pub test_plans: Vec<TestPlanRecord>,
+    pub test_runs: Vec<TestRunRecord>,
+    pub review_bundles: Vec<ReviewBundle>,
+    pub restore_plans: Vec<RestorePlanRecord>,
+}
+
+impl ClientCodingWorkflow {
+    fn new(workflow_id: CodingWorkflowId, task_id: TaskId) -> Self {
+        Self {
+            workflow_id,
+            task_id,
+            objective: None,
+            active: true,
+            workspace_scope: None,
+            patch_proposals: Vec::new(),
+            patch_applications: Vec::new(),
+            test_plans: Vec::new(),
+            test_runs: Vec::new(),
+            review_bundles: Vec::new(),
+            restore_plans: Vec::new(),
+        }
+    }
+
+    fn record_start(&mut self, task_id: TaskId, objective: String) {
+        self.task_id = task_id;
+        self.objective = Some(objective);
+        self.active = true;
+    }
+
+    fn record_scope(&mut self, scope: &WorkspaceMutationScope) {
+        self.task_id = scope.task_id.clone();
+        self.workspace_scope = Some(scope.clone());
+    }
+
+    fn record_patch_proposal(&mut self, proposal: &PatchProposal) {
+        self.task_id = proposal.task_id.clone();
+        if let Some(existing) = self
+            .patch_proposals
+            .iter_mut()
+            .find(|existing| existing.patch_id == proposal.patch_id)
+        {
+            *existing = proposal.clone();
+        } else {
+            self.patch_proposals.push(proposal.clone());
+        }
+    }
+
+    fn record_patch_application(&mut self, record: &PatchApplicationRecord) {
+        self.task_id = record.task_id.clone();
+        if let Some(existing) = self
+            .patch_applications
+            .iter_mut()
+            .find(|existing| existing.patch_id == record.patch_id)
+        {
+            *existing = record.clone();
+        } else {
+            self.patch_applications.push(record.clone());
+        }
+    }
+
+    fn record_test_plan(&mut self, plan: &TestPlanRecord) {
+        self.task_id = plan.task_id.clone();
+        if let Some(existing) = self
+            .test_plans
+            .iter_mut()
+            .find(|existing| existing.test_plan_id == plan.test_plan_id)
+        {
+            *existing = plan.clone();
+        } else {
+            self.test_plans.push(plan.clone());
+        }
+    }
+
+    fn record_test_run(&mut self, record: &TestRunRecord) {
+        self.task_id = record.task_id.clone();
+        if let Some(existing) = self
+            .test_runs
+            .iter_mut()
+            .find(|existing| existing.test_run_id == record.test_run_id)
+        {
+            *existing = record.clone();
+        } else {
+            self.test_runs.push(record.clone());
+        }
+    }
+
+    fn record_review_bundle(&mut self, bundle: &ReviewBundle) {
+        self.task_id = bundle.task_id.clone();
+        if let Some(existing) = self
+            .review_bundles
+            .iter_mut()
+            .find(|existing| existing.review_bundle_id == bundle.review_bundle_id)
+        {
+            *existing = bundle.clone();
+        } else {
+            self.review_bundles.push(bundle.clone());
+        }
+    }
+
+    fn record_restore_plan(&mut self, plan: &RestorePlanRecord) {
+        self.task_id = plan.task_id.clone();
+        if let Some(existing) = self
+            .restore_plans
+            .iter_mut()
+            .find(|existing| existing.restore_plan_id == plan.restore_plan_id)
+        {
+            *existing = plan.clone();
+        } else {
+            self.restore_plans.push(plan.clone());
+        }
+    }
+}
+
 /// Provider-neutral telemetry projection shared by terminal and future GUI shells.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
@@ -1132,6 +1257,8 @@ pub struct ClientStatus {
     #[serde(default)]
     pub handoff_summary: String,
     #[serde(default)]
+    pub coding_workflow_summary: String,
+    #[serde(default)]
     pub subagent_summary: String,
     #[serde(default)]
     pub subagent_runtime_summary: String,
@@ -1179,6 +1306,9 @@ impl ClientStatus {
             approval_summary: "approvals 0 pending".to_string(),
             memory_summary: "memory 0 pending".to_string(),
             handoff_summary: "handoffs 0 / reviews 0 pending".to_string(),
+            coding_workflow_summary:
+                "coding workflows 0 / patches 0 / tests 0 / reviews 0 / blocked restores 0"
+                    .to_string(),
             subagent_summary: "subagents 0 / active 0 / waiting 0 / inactive 0".to_string(),
             subagent_runtime_summary:
                 "subagent runtime decisions 0 / transcripts 0 / forwarding queued 0 / inactive require_reviewer 0 / cancellations 0"
@@ -1282,6 +1412,30 @@ impl ClientStatus {
             .filter(|gate| gate.status == ClientReviewerGateStatus::Pending)
             .count();
         self.handoff_summary = format!("handoffs {} / reviews {pending} pending", handoffs.len());
+    }
+
+    fn update_coding_workflow_summary(&mut self, workflows: &[ClientCodingWorkflow]) {
+        let patches = workflows
+            .iter()
+            .map(|workflow| workflow.patch_proposals.len())
+            .sum::<usize>();
+        let tests = workflows
+            .iter()
+            .map(|workflow| workflow.test_runs.len())
+            .sum::<usize>();
+        let reviews = workflows
+            .iter()
+            .map(|workflow| workflow.review_bundles.len())
+            .sum::<usize>();
+        let blocked_restores = workflows
+            .iter()
+            .flat_map(|workflow| workflow.restore_plans.iter())
+            .filter(|plan| plan.execution_blocked)
+            .count();
+        self.coding_workflow_summary = format!(
+            "coding workflows {} / patches {patches} / tests {tests} / reviews {reviews} / blocked restores {blocked_restores}",
+            workflows.len()
+        );
     }
 
     fn update_subagent_summary(&mut self, sessions: &[ClientSubagentSession]) {
@@ -1521,6 +1675,8 @@ pub struct ClientSnapshot {
     #[serde(default)]
     pub reviewer_gates: Vec<ClientReviewerGate>,
     #[serde(default)]
+    pub coding_workflows: Vec<ClientCodingWorkflow>,
+    #[serde(default)]
     pub subagent_sessions: Vec<ClientSubagentSession>,
     #[serde(default)]
     pub subagent_runtime_decisions: Vec<ClientSubagentRuntimeDecision>,
@@ -1560,6 +1716,7 @@ impl ClientSnapshot {
             memory_proposals: Vec::new(),
             handoffs: Vec::new(),
             reviewer_gates: Vec::new(),
+            coding_workflows: Vec::new(),
             subagent_sessions: Vec::new(),
             subagent_runtime_decisions: Vec::new(),
             subagent_transcripts: Vec::new(),
@@ -1750,6 +1907,34 @@ impl ClientSnapshot {
             }
             RunEvent::ReviewerGateResolved { decision } => {
                 self.record_reviewer_gate_decision(decision);
+            }
+            RunEvent::CodingWorkflowStarted {
+                workflow_id,
+                task_id,
+                objective,
+            } => {
+                self.record_coding_workflow_started(workflow_id, task_id, objective);
+            }
+            RunEvent::WorkspaceMutationScopeRecorded { scope } => {
+                self.record_coding_workflow_scope(scope);
+            }
+            RunEvent::PatchProposalRecorded { proposal } => {
+                self.record_coding_workflow_patch_proposal(proposal);
+            }
+            RunEvent::PatchApplicationRecorded { record } => {
+                self.record_coding_workflow_patch_application(record);
+            }
+            RunEvent::TestPlanRecorded { plan } => {
+                self.record_coding_workflow_test_plan(plan);
+            }
+            RunEvent::TestRunRecorded { record } => {
+                self.record_coding_workflow_test_run(record);
+            }
+            RunEvent::ReviewBundleRecorded { bundle } => {
+                self.record_coding_workflow_review_bundle(bundle);
+            }
+            RunEvent::RestorePlanRecorded { plan } => {
+                self.record_coding_workflow_restore_plan(plan);
             }
             RunEvent::SubagentSessionPlanned { session }
             | RunEvent::SubagentSessionStarted { session }
@@ -2087,6 +2272,69 @@ impl ClientSnapshot {
                 };
                 self.record_reviewer_gate_decision(&decision);
             }
+            "coding_workflow_started" => {
+                let (Some(workflow_id), Some(task_id), Some(objective)) = (
+                    trace_record_coding_workflow_id(record),
+                    trace_record_task_id(record),
+                    record
+                        .payload
+                        .get("objective")
+                        .and_then(|value| value.as_str()),
+                ) else {
+                    return;
+                };
+                self.record_coding_workflow_started(&workflow_id, &task_id, objective);
+            }
+            "workspace_mutation_scope_recorded" => {
+                let Some(scope) =
+                    trace_payload::<WorkspaceMutationScope>(record.payload.get("scope"))
+                else {
+                    return;
+                };
+                self.record_coding_workflow_scope(&scope);
+            }
+            "patch_proposal_recorded" => {
+                let Some(proposal) = trace_payload::<PatchProposal>(record.payload.get("proposal"))
+                else {
+                    return;
+                };
+                self.record_coding_workflow_patch_proposal(&proposal);
+            }
+            "patch_application_recorded" => {
+                let Some(record) =
+                    trace_payload::<PatchApplicationRecord>(record.payload.get("record"))
+                else {
+                    return;
+                };
+                self.record_coding_workflow_patch_application(&record);
+            }
+            "test_plan_recorded" => {
+                let Some(plan) = trace_payload::<TestPlanRecord>(record.payload.get("plan")) else {
+                    return;
+                };
+                self.record_coding_workflow_test_plan(&plan);
+            }
+            "test_run_recorded" => {
+                let Some(record) = trace_payload::<TestRunRecord>(record.payload.get("record"))
+                else {
+                    return;
+                };
+                self.record_coding_workflow_test_run(&record);
+            }
+            "review_bundle_recorded" => {
+                let Some(bundle) = trace_payload::<ReviewBundle>(record.payload.get("bundle"))
+                else {
+                    return;
+                };
+                self.record_coding_workflow_review_bundle(&bundle);
+            }
+            "restore_plan_recorded" => {
+                let Some(plan) = trace_payload::<RestorePlanRecord>(record.payload.get("plan"))
+                else {
+                    return;
+                };
+                self.record_coding_workflow_restore_plan(&plan);
+            }
             "subagent_session_planned"
             | "subagent_session_started"
             | "subagent_session_waiting_for_approval"
@@ -2250,6 +2498,7 @@ impl ClientSnapshot {
         self.memory_proposals.clear();
         self.handoffs.clear();
         self.reviewer_gates.clear();
+        self.coding_workflows.clear();
         self.subagent_sessions.clear();
         self.subagent_runtime_decisions.clear();
         self.subagent_transcripts.clear();
@@ -2266,6 +2515,8 @@ impl ClientSnapshot {
         self.status.update_memory_summary(&self.memory_proposals);
         self.status
             .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
+        self.status
+            .update_coding_workflow_summary(&self.coding_workflows);
         self.status.update_subagent_summary(&self.subagent_sessions);
         self.refresh_subagent_runtime_summary();
         self.status
@@ -2334,6 +2585,28 @@ impl ClientSnapshot {
         self.artifacts
             .last_mut()
             .expect("artifact was just inserted into non-empty registry")
+    }
+
+    fn coding_workflow_mut_or_insert(
+        &mut self,
+        workflow_id: &CodingWorkflowId,
+        task_id: &TaskId,
+    ) -> &mut ClientCodingWorkflow {
+        if let Some(index) = self
+            .coding_workflows
+            .iter()
+            .position(|workflow| &workflow.workflow_id == workflow_id)
+        {
+            return &mut self.coding_workflows[index];
+        }
+
+        self.coding_workflows.push(ClientCodingWorkflow::new(
+            workflow_id.clone(),
+            task_id.clone(),
+        ));
+        self.coding_workflows
+            .last_mut()
+            .expect("workflow was just inserted into non-empty registry")
     }
 
     fn record_pending_approval(&mut self, decision: &ToolPolicyDecision, approval_id: ApprovalId) {
@@ -2489,6 +2762,103 @@ impl ClientSnapshot {
             .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
     }
 
+    fn record_coding_workflow_started(
+        &mut self,
+        workflow_id: &CodingWorkflowId,
+        task_id: &TaskId,
+        objective: &str,
+    ) {
+        {
+            let workflow = self.coding_workflow_mut_or_insert(workflow_id, task_id);
+            workflow.record_start(task_id.clone(), objective.to_string());
+        }
+        self.refresh_coding_workflow_summary();
+    }
+
+    fn record_coding_workflow_scope(&mut self, scope: &WorkspaceMutationScope) {
+        {
+            let workflow = self.coding_workflow_mut_or_insert(&scope.workflow_id, &scope.task_id);
+            workflow.record_scope(scope);
+        }
+        self.refresh_coding_workflow_summary();
+    }
+
+    fn record_coding_workflow_patch_proposal(&mut self, proposal: &PatchProposal) {
+        {
+            let workflow =
+                self.coding_workflow_mut_or_insert(&proposal.workflow_id, &proposal.task_id);
+            workflow.record_patch_proposal(proposal);
+        }
+        self.record_evidence_artifacts(
+            &proposal.diff_artifacts,
+            ArtifactKind::Patch,
+            "patch_proposal_recorded",
+        );
+        self.status.update_artifact_summary(&self.artifacts);
+        self.refresh_coding_workflow_summary();
+    }
+
+    fn record_coding_workflow_patch_application(&mut self, record: &PatchApplicationRecord) {
+        {
+            let workflow = self.coding_workflow_mut_or_insert(&record.workflow_id, &record.task_id);
+            workflow.record_patch_application(record);
+        }
+        for artifact_id in &record.artifact_refs {
+            let artifact = self.artifact_mut_or_insert(artifact_id);
+            artifact.kind = Some(ArtifactKind::Patch);
+            artifact.record_reference("patch_application_recorded");
+        }
+        self.status.update_artifact_summary(&self.artifacts);
+        self.refresh_coding_workflow_summary();
+    }
+
+    fn record_coding_workflow_test_plan(&mut self, plan: &TestPlanRecord) {
+        {
+            let workflow = self.coding_workflow_mut_or_insert(&plan.workflow_id, &plan.task_id);
+            workflow.record_test_plan(plan);
+        }
+        self.refresh_coding_workflow_summary();
+    }
+
+    fn record_coding_workflow_test_run(&mut self, record: &TestRunRecord) {
+        {
+            let workflow = self.coding_workflow_mut_or_insert(&record.workflow_id, &record.task_id);
+            workflow.record_test_run(record);
+        }
+        for artifact_id in record
+            .stdout_artifact_id
+            .iter()
+            .chain(record.stderr_artifact_id.iter())
+        {
+            let artifact = self.artifact_mut_or_insert(artifact_id);
+            artifact.kind = Some(ArtifactKind::TestReport);
+            artifact.record_reference("test_run_recorded");
+        }
+        self.record_evidence_artifacts(
+            &record.diagnostics,
+            ArtifactKind::TestReport,
+            "test_run_recorded",
+        );
+        self.status.update_artifact_summary(&self.artifacts);
+        self.refresh_coding_workflow_summary();
+    }
+
+    fn record_coding_workflow_review_bundle(&mut self, bundle: &ReviewBundle) {
+        {
+            let workflow = self.coding_workflow_mut_or_insert(&bundle.workflow_id, &bundle.task_id);
+            workflow.record_review_bundle(bundle);
+        }
+        self.refresh_coding_workflow_summary();
+    }
+
+    fn record_coding_workflow_restore_plan(&mut self, plan: &RestorePlanRecord) {
+        {
+            let workflow = self.coding_workflow_mut_or_insert(&plan.workflow_id, &plan.task_id);
+            workflow.record_restore_plan(plan);
+        }
+        self.refresh_coding_workflow_summary();
+    }
+
     fn record_subagent_session(&mut self, session: &SubagentSessionDescriptor) {
         let projected = ClientSubagentSession::from_descriptor(session);
         if let Some(existing) = self
@@ -2582,6 +2952,11 @@ impl ClientSnapshot {
         self.refresh_subagent_runtime_summary();
     }
 
+    fn refresh_coding_workflow_summary(&mut self) {
+        self.status
+            .update_coding_workflow_summary(&self.coding_workflows);
+    }
+
     fn refresh_subagent_runtime_summary(&mut self) {
         self.status.update_subagent_runtime_summary(
             &self.subagent_runtime_decisions,
@@ -2590,6 +2965,22 @@ impl ClientSnapshot {
             &self.subagent_inactive_policies,
             &self.subagent_cancellations,
         );
+    }
+
+    fn record_evidence_artifacts(
+        &mut self,
+        evidence: &[HandoffEvidenceRef],
+        kind: ArtifactKind,
+        event_kind: &str,
+    ) {
+        for evidence in evidence {
+            let Some(artifact_id) = &evidence.artifact_id else {
+                continue;
+            };
+            let artifact = self.artifact_mut_or_insert(artifact_id);
+            artifact.kind = Some(kind.clone());
+            artifact.record_reference(event_kind);
+        }
     }
 
     fn apply_artifact_refs_from_frame(&mut self, frame: &EventFrame) {
@@ -2657,6 +3048,14 @@ fn trace_record_task_id(record: &TraceRecord) -> Option<TaskId> {
             .and_then(|value| value.as_str())
             .map(TaskId::from)
     })
+}
+
+fn trace_record_coding_workflow_id(record: &TraceRecord) -> Option<CodingWorkflowId> {
+    record
+        .payload
+        .get("workflow_id")
+        .and_then(|value| value.as_str())
+        .map(CodingWorkflowId::from)
 }
 
 fn trace_record_task_ownership_id(record: &TraceRecord) -> Option<TaskOwnershipId> {

@@ -49,7 +49,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
 | v0.5 | Single-agent and resumable task foundations | Foundation stable | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server alignment DTOs are usable; runtime-complete work is explicitly staged into future gates. |
 | v0.6 | Persistent sub-agents and structured review | Foundation complete | Provider-neutral structured handoff, reviewer gate, sub-agent session metadata, runtime ownership, and transcript artifact lifecycle events/projections exist; persistent child-agent execution is not implemented yet. |
-| v0.7 | Project coding-agent workflow | Planned | No file-modifying coding-agent workflow, patch workflow, or GUI/TUI diff control yet. |
+| v0.7 | Project coding-agent workflow | Metadata foundation complete | Provider-neutral coding workflow metadata, non-executing core validation, and read-only client/GUI projection exist; no file mutation, apply-patch execution, test execution, checkpoint restore, Git mutation, or GUI/TUI diff control yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
 | v0.9 | Learning proposal system | Planned | No automatic learning or self-modification; proposals only. |
 
@@ -262,9 +262,15 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 
 **Goal:** Support codebase modification workflows through explicit diff, test, checkpoint, and rollback contracts.
 
-**Status:** Planned.
+**Status:** Metadata foundation complete; runtime execution remains gated.
 
-**Planned Scope:**
+**Completed Foundation Scope:**
+
+- Provider-neutral coding workflow metadata events for workflow start, workspace mutation scope, patch proposals, patch application records, test plans/runs, review bundles, and restore plans.
+- Non-executing core coordinator that validates relative workspace paths, required diff/test artifact references, checkpoint references, reviewer gates, and restore-plan blocking while returning `RunEvent` values only.
+- Read-only client and GUI binding projection from live events and replayed trace records.
+
+**Remaining Planned Scope:**
 
 - Coding-agent workflow over a bounded workspace scope.
 - Apply-patch tool.

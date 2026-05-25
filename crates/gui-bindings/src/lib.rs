@@ -3,7 +3,7 @@
 use std::{fs, path::Path};
 
 use tessera_client::{
-    ClientAgentHandoff, ClientApproval, ClientApprovalStatus, ClientArtifact,
+    ClientAgentHandoff, ClientApproval, ClientApprovalStatus, ClientArtifact, ClientCodingWorkflow,
     ClientContextBudgetSummary, ClientContextHandle, ClientContextPlacement,
     ClientContextSourceKind, ClientIntent, ClientMemoryProposal, ClientMemoryProposalStatus,
     ClientMessage, ClientMessageRole, ClientProjection, ClientReviewerGate,
@@ -26,8 +26,8 @@ use tessera_protocol::{
     ReviewerGateRequest, RuntimeApiAuthMode, RuntimeApiAuthPolicy, RuntimeApiBindConfig,
     RuntimeApiBindKind, RuntimeApiCommand, RuntimeApiCommandAck, RuntimeApiCommandEnvelope,
     RuntimeApiCommandStatus, RuntimeApiEventStreamRequest, RuntimeApiQueueOverflow,
-    RuntimeApiQueuePolicy, RuntimeApiServerConfig, RuntimeInstanceId, SubagentApprovalForwarding,
-    SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
+    RuntimeApiQueuePolicy, RuntimeApiServerConfig, RuntimeInstanceId, SnapshotId,
+    SubagentApprovalForwarding, SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
     SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
     SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
     SubagentRuntimeDecisionKind, SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId,
@@ -67,6 +67,7 @@ pub fn generate_bindings() -> String {
     push_decl::<ClientApproval>(&mut output, &cfg);
     push_decl::<ClientApprovalStatus>(&mut output, &cfg);
     push_decl::<ClientArtifact>(&mut output, &cfg);
+    push_decl::<ClientCodingWorkflow>(&mut output, &cfg);
     push_decl::<ClientInstanceId>(&mut output, &cfg);
     push_decl::<CodingWorkflowEvidenceRedactionStatus>(&mut output, &cfg);
     push_decl::<CodingWorkflowId>(&mut output, &cfg);
@@ -138,6 +139,7 @@ pub fn generate_bindings() -> String {
     push_decl::<RuntimeApiQueuePolicy>(&mut output, &cfg);
     push_decl::<RuntimeApiServerConfig>(&mut output, &cfg);
     push_decl::<RuntimeInstanceId>(&mut output, &cfg);
+    push_decl::<SnapshotId>(&mut output, &cfg);
     push_decl::<SubagentApprovalForwarding>(&mut output, &cfg);
     push_decl::<SubagentApprovalForwardingRecord>(&mut output, &cfg);
     push_decl::<SubagentApprovalForwardingStatus>(&mut output, &cfg);

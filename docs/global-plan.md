@@ -30,8 +30,8 @@
 当前 `main` 基线已完成 v0.1 release，并已将 v0.2-v0.5 收口为 foundation-stable 工作。必须明确区分：
 
 - **用户可用能力**：CLI/TUI/mock chat、trace/replay、session resume、chat-only paused task resume、opt-in project instructions、explicit read-only skill activation 等。
-- **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、runtime API / app-server DTO alignment、diagnostics event、memory proposal UI、trace-backed task ownership metadata/recorder/projection、no-tool chat/agent run owner attach/detach、structured handoff/reviewer gate、sub-agent session/runtime ownership/transcript lifecycle metadata projection 等。
-- **尚未支持能力**：真实 tool execution、executable/default/global skill runtime、tool-using/full coding-agent runtime、MCP runtime、background reattach、daemon/app-server listener、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、persistent sub-agent runtime、swarm、learning apply。
+- **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、runtime API / app-server DTO alignment、diagnostics event、memory proposal UI、trace-backed task ownership metadata/recorder/projection、no-tool chat/agent run owner attach/detach、structured handoff/reviewer gate、sub-agent session/runtime ownership/transcript lifecycle metadata projection、metadata-only coding-agent workflow protocol/core/client projection 等。
+- **尚未支持能力**：真实 tool execution、executable/default/global skill runtime、tool-using/full coding-agent runtime、MCP runtime、background reattach、daemon/app-server listener、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、persistent sub-agent runtime、apply-patch/file/test/Git execution workflow、swarm、learning apply。
 
 ## 4. Version Status Matrix
 
@@ -43,7 +43,7 @@
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | [~] Foundation complete | RuntimeHttpApi shape, metadata-only MCP adapter, diagnostics event, memory proposal UI; no server/runtime/store. |
 | v0.5 | Single-agent and resumable task foundations | [~] Foundation stable | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server DTO alignment; runtime-complete gaps are staged into future gates. |
 | v0.6 | Persistent sub-agents and structured review | [x] Foundation complete | Structured handoff/reviewer gate, sub-agent session/runtime ownership, and transcript artifact lifecycle metadata events/projections exist; persistent child-agent execution is not implemented yet. |
-| v0.7 | Project coding-agent workflow | [ ] Planned | No apply-patch, diff/test/checkpoint/rollback, worktree mutation, or GUI/TUI diff workflow yet. |
+| v0.7 | Project coding-agent workflow | [~] Metadata foundation complete | Provider-neutral workflow/scope/patch/test/review/restore metadata events, non-executing core coordinator, and read-only client/GUI projection exist; no apply-patch, test runner, checkpoint restore, worktree mutation execution, Git mutation, or GUI/TUI diff workflow yet. |
 | v0.8 | Swarm scheduler | [!] Blocked | Requires v0.6 structured handoff and reviewer gate. |
 | v0.9 | Learning proposal system | [ ] Planned | No learning runtime; proposals only by design. |
 
@@ -132,6 +132,13 @@
 - [x] Non-executing core sub-agent task owner bridge that maps child task ids to task owner attach/detach metadata without child scheduling, provider execution, heartbeat loops, lost-owner detection, storage internals, or UI scheduling.
 - [x] Non-executing core sub-agent owner heartbeat/lost/reattach bridge that maps child task ids to task owner heartbeat, lost-owner and reattach metadata without heartbeat loops, lost-owner detection, automatic reattach, provider resume, storage internals, or UI scheduling.
 
+### v0.7 Metadata Foundation Work
+
+- [x] Provider-neutral coding workflow metadata events for workflow start, workspace mutation scope, patch proposals, patch application records, test plans/runs, review bundles, and restore plans.
+- [x] Non-executing core `CodingWorkflowCoordinator` that validates scope/path/evidence/checkpoint/reviewer requirements and returns `RunEvent` values only.
+- [x] Read-only `tessera-client` and GUI binding projection for coding workflow metadata from live events and replayed trace records.
+- [x] Generated GUI TypeScript bindings for coding workflow projection and related DTOs, including snapshot IDs referenced by patch/checkpoint metadata.
+
 ## 6. Current Gaps
 
 ### Needs Verification, Not New Architecture
@@ -163,9 +170,10 @@
 - [ ] Automatic approval forwarding and inactive-child execution over reviewer-gated session metadata.
 - [ ] Hook runtime.
 - [ ] Automation runtime.
-- [ ] Coding-agent diff/test/checkpoint/rollback workflow.
+- [x] Metadata-only coding-agent workflow contract and read-only projection for diff/test/checkpoint/review/restore evidence.
+- [ ] Executable coding-agent diff/test/checkpoint/rollback workflow.
 - [ ] Apply-patch tool.
-- [ ] Worktree-first mutation mode.
+- [ ] Worktree-first mutation execution mode.
 - [ ] GUI/TUI diff and review surfaces.
 - [ ] Swarm scheduler.
 - [ ] Learning proposal system.
@@ -199,7 +207,7 @@ The next implementation slices should stay conservative and preserve the current
 23. [x] Add non-executing core sub-agent task owner bridge metadata helper.
 24. [x] Add non-executing core sub-agent owner heartbeat/lost/reattach metadata helper.
 25. [x] Design v0.7 coding-agent workflow foundation: patch proposal, diff/test evidence, checkpoint requirement, review bundle, restore plan and worktree-first mutation boundaries without execution.
-26. [ ] Implement metadata-only v0.7 coding-agent workflow protocol, core coordinator, client projection and GUI bindings before any apply-patch execution.
+26. [x] Implement metadata-only v0.7 coding-agent workflow protocol, core coordinator, client projection and GUI bindings before any apply-patch execution.
 27. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
 28. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
 29. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
