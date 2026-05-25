@@ -49,7 +49,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
 | v0.5 | Single-agent and resumable task foundations | Foundation stable | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server alignment DTOs are usable; runtime-complete work is explicitly staged into future gates. |
 | v0.6 | Persistent sub-agents and structured review | Foundation complete | Provider-neutral structured handoff, reviewer gate, sub-agent session metadata, runtime ownership, and transcript artifact lifecycle events/projections exist; persistent child-agent execution is not implemented yet. |
-| v0.7 | Project coding-agent workflow | Metadata foundation complete | Provider-neutral coding workflow metadata, non-executing core validation, and read-only client/GUI projection exist; no file mutation, apply-patch execution, test execution, checkpoint restore, Git mutation, or GUI/TUI diff control yet. |
+| v0.7 | Project coding-agent workflow | Runtime gate foundations complete | Provider-neutral coding workflow metadata, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planning, and read-only client/GUI projection exist; no file mutation, apply-patch execution, test execution, checkpoint restore, worktree creation, Git mutation, or GUI/TUI diff control yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
 | v0.9 | Learning proposal system | Planned | No automatic learning or self-modification; proposals only. |
 
@@ -262,7 +262,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 
 **Goal:** Support codebase modification workflows through explicit diff, test, checkpoint, and rollback contracts.
 
-**Status:** Metadata foundation complete; runtime execution remains gated.
+**Status:** Runtime gate foundations complete; runtime execution remains gated.
 
 **Completed Foundation Scope:**
 
@@ -270,8 +270,12 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Non-executing core coordinator that validates relative workspace paths, required diff/test artifact references, checkpoint references, reviewer gates, and restore-plan blocking while returning `RunEvent` values only.
 - Read-only client and GUI binding projection from live events and replayed trace records.
 - Runtime gate assessment documenting that executable apply-patch, test execution, checkpoint restore, worktree mutation, Git mutation, hooks, automations, app-server mutation listener, swarm, and learning apply remain blocked until enforcement gates are complete.
+- Mutation request proposal contracts that record operation kind, requested paths, required checkpoint, reviewer gate, policy decision, sandbox profile and worktree requirement metadata before any executor.
+- Artifact body/redaction storage contracts and checkpoint lifecycle records, including blocked restore lifecycle status, without mutating a workspace.
+- Non-executing mutation enforcement planner that defaults file-changing workflows to worktree-first, requires policy for explicit-local mode, records sandbox selection metadata, and rejects unsafe paths.
+- Final runtime gate verification over the v0.7 closure diff found no apply-patch, shell/test, checkpoint restore, worktree creation, Git mutation, or tool-dispatch executor path.
 
-**Runtime Gate Assessment:** The metadata foundation is necessary but insufficient for workspace mutation. Before any executor can apply patches or run tests, Tessera still needs mutation request proposal contracts, artifact body/redaction semantics, real checkpoint lifecycle contracts, worktree lifecycle planning, sandbox enforcement planning, policy binding to concrete operations, reviewer-gate enforcement, and client intents that remain projections over core-owned runtime state.
+**Runtime Gate Assessment:** The v0.7 foundation now records mutation intent, required checkpoint/reviewer/policy/sandbox metadata, artifact body/redaction handles, checkpoint lifecycle records, and non-executing worktree/sandbox plans. It still does not apply patches, run tests, restore checkpoints, create worktrees, run Git, or execute shell/file mutations. Any future executor must be approved as a separate plan and bind these records to concrete policy decisions, reviewer approvals, sandbox launch, checkpoint creation/restore semantics, artifact persistence, and client intents that remain projections over core-owned runtime state.
 
 **Remaining Planned Scope:**
 
