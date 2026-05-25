@@ -5,7 +5,8 @@ use tessera_protocol::{
     SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
     SubagentRuntimeDecisionKind, SubagentSessionDescriptor, SubagentSessionStatus,
     SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactStatus, TaskId,
-    TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, Timestamp,
+    TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
+    TaskPauseCheckpointId, TaskReattachMode, TaskReattachRecord, Timestamp,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -72,6 +73,34 @@ pub struct SubagentTaskOwnerDetachRequest {
     pub session: SubagentSessionDescriptor,
     pub lease_id: TaskOwnershipId,
     pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubagentTaskOwnerHeartbeatRequest {
+    pub session: SubagentSessionDescriptor,
+    pub lease_id: TaskOwnershipId,
+    pub runtime_id: RuntimeInstanceId,
+    pub heartbeat_at: Timestamp,
+    pub expires_at: Timestamp,
+    pub last_seq: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubagentTaskOwnerLostRequest {
+    pub session: SubagentSessionDescriptor,
+    pub lease_id: TaskOwnershipId,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubagentTaskOwnerReattachRequest {
+    pub session: SubagentSessionDescriptor,
+    pub mode: TaskReattachMode,
+    pub previous_lease_id: Option<TaskOwnershipId>,
+    pub new_lease_id: Option<TaskOwnershipId>,
+    pub checkpoint_id: Option<TaskPauseCheckpointId>,
+    pub since_seq: Option<u64>,
+    pub reason: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -303,14 +332,135 @@ impl SubagentRuntimeCoordinator {
             reason: request.reason,
         })
     }
+
+    pub fn task_owner_heartbeat_event(
+        &self,
+        request: SubagentTaskOwnerHeartbeatRequest,
+    ) -> Result<RunEvent, SubagentRuntimeError> {
+        let child_task_id = validate_task_owner_heartbeat(&request)?;
+
+        Ok(RunEvent::TaskOwnerHeartbeat {
+            heartbeat: TaskOwnerHeartbeat {
+                lease_id: request.lease_id,
+                task_id: child_task_id,
+                runtime_id: request.runtime_id,
+                heartbeat_at: request.heartbeat_at,
+                expires_at: request.expires_at,
+                last_seq: request.last_seq,
+            },
+        })
+    }
+
+    pub fn task_owner_lost_event(
+        &self,
+        request: SubagentTaskOwnerLostRequest,
+    ) -> Result<RunEvent, SubagentRuntimeError> {
+        let child_task_id = required_child_task_id(&request.session)?;
+        validate_non_empty_reason(
+            &request.reason,
+            "reason is required for sub-agent task owner lost",
+        )?;
+
+        Ok(RunEvent::TaskOwnerLost {
+            lease_id: request.lease_id,
+            task_id: child_task_id,
+            reason: Some(request.reason),
+        })
+    }
+
+    pub fn task_owner_reattach_event(
+        &self,
+        request: SubagentTaskOwnerReattachRequest,
+    ) -> Result<RunEvent, SubagentRuntimeError> {
+        let child_task_id = validate_task_owner_reattach(&request)?;
+
+        Ok(RunEvent::TaskReattachRecorded {
+            record: TaskReattachRecord {
+                task_id: child_task_id,
+                mode: request.mode,
+                previous_lease_id: request.previous_lease_id,
+                new_lease_id: request.new_lease_id,
+                checkpoint_id: request.checkpoint_id,
+                since_seq: request.since_seq,
+                reason: Some(request.reason),
+            },
+        })
+    }
+}
+
+fn validate_task_owner_heartbeat(
+    request: &SubagentTaskOwnerHeartbeatRequest,
+) -> Result<TaskId, SubagentRuntimeError> {
+    let child_task_id = required_child_task_id(&request.session)?;
+    if is_terminal_subagent_status(request.session.status) {
+        return Err(SubagentRuntimeError::new(
+            "terminal sub-agent session cannot heartbeat task owner",
+        ));
+    }
+
+    Ok(child_task_id)
+}
+
+fn validate_task_owner_reattach(
+    request: &SubagentTaskOwnerReattachRequest,
+) -> Result<TaskId, SubagentRuntimeError> {
+    let child_task_id = required_child_task_id(&request.session)?;
+    validate_non_empty_reason(
+        &request.reason,
+        "reason is required for sub-agent task owner reattach",
+    )?;
+
+    match request.mode {
+        TaskReattachMode::ObserveExistingOwner => {
+            if request.new_lease_id.is_none() {
+                return Err(SubagentRuntimeError::new(
+                    "observe_existing_owner reattach requires new_lease_id",
+                ));
+            }
+        }
+        TaskReattachMode::ResumeFromCheckpoint => {
+            if request.checkpoint_id.is_none() {
+                return Err(SubagentRuntimeError::new(
+                    "resume_from_checkpoint reattach requires checkpoint_id",
+                ));
+            }
+        }
+        TaskReattachMode::OwnerLost => {
+            if request.previous_lease_id.is_none() {
+                return Err(SubagentRuntimeError::new(
+                    "owner_lost reattach requires previous_lease_id",
+                ));
+            }
+        }
+        TaskReattachMode::TerminalProjection => {}
+    }
+
+    Ok(child_task_id)
+}
+
+fn required_child_task_id(
+    session: &SubagentSessionDescriptor,
+) -> Result<TaskId, SubagentRuntimeError> {
+    session.child_task_id.clone().ok_or_else(|| {
+        SubagentRuntimeError::new("child_task_id is required for sub-agent task owner")
+    })
+}
+
+fn validate_non_empty_reason(
+    reason: &str,
+    message: &'static str,
+) -> Result<(), SubagentRuntimeError> {
+    if reason.trim().is_empty() {
+        return Err(SubagentRuntimeError::new(message));
+    }
+
+    Ok(())
 }
 
 fn validate_task_owner_attach(
     request: &SubagentTaskOwnerAttachRequest,
 ) -> Result<TaskId, SubagentRuntimeError> {
-    let child_task_id = request.session.child_task_id.clone().ok_or_else(|| {
-        SubagentRuntimeError::new("child_task_id is required for sub-agent task owner")
-    })?;
+    let child_task_id = required_child_task_id(&request.session)?;
 
     if request.trace_id.trim().is_empty() {
         return Err(SubagentRuntimeError::new(
@@ -318,11 +468,10 @@ fn validate_task_owner_attach(
         ));
     }
 
-    if request.reason.trim().is_empty() {
-        return Err(SubagentRuntimeError::new(
-            "reason is required for sub-agent task owner",
-        ));
-    }
+    validate_non_empty_reason(
+        &request.reason,
+        "reason is required for sub-agent task owner",
+    )?;
 
     if request.heartbeat_interval_ms == 0 {
         return Err(SubagentRuntimeError::new(

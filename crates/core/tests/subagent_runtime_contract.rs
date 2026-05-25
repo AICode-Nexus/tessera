@@ -2,7 +2,8 @@ use tessera_core::{
     SubagentApprovalForwardingRequest, SubagentCancellationRequest, SubagentCompletionRequest,
     SubagentInactivePolicyRequest, SubagentRuntimeCoordinator, SubagentRuntimeStartRequest,
     SubagentTaskOwnerAttachRequest, SubagentTaskOwnerDetachRequest,
-    SubagentTranscriptArtifactLifecycleRequest,
+    SubagentTaskOwnerHeartbeatRequest, SubagentTaskOwnerLostRequest,
+    SubagentTaskOwnerReattachRequest, SubagentTranscriptArtifactLifecycleRequest,
 };
 use tessera_protocol::{
     AgentProfileId, ApprovalId, ArtifactId, ClientInstanceId, CostEstimate, EventRange,
@@ -11,6 +12,7 @@ use tessera_protocol::{
     SubagentInactivePolicy, SubagentRuntimeDecisionKind, SubagentSessionCaps,
     SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
     SubagentTranscriptArtifactStatus, TaskId, TaskOwnerKind, TaskOwnerStatus, TaskOwnershipId,
+    TaskPauseCheckpointId, TaskReattachMode, Timestamp,
 };
 
 fn subagent_session(status: SubagentSessionStatus) -> SubagentSessionDescriptor {
@@ -698,6 +700,203 @@ fn subagent_task_owner_bridge_detach_event_targets_child_task() {
     assert_eq!(payload["reason"], "child session reached terminal metadata");
     assert!(payload.get("provider_request").is_none());
     assert!(payload.get("tool_call").is_none());
+    assert!(payload.get("storage_write").is_none());
+    assert!(payload.get("ui_action").is_none());
+}
+
+#[test]
+fn subagent_owner_heartbeat_bridge_heartbeat_targets_child_task() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let heartbeat_at = Timestamp::now_utc();
+    let expires_at = Timestamp::now_utc();
+    let event = coordinator.task_owner_heartbeat_event(SubagentTaskOwnerHeartbeatRequest {
+        session: subagent_session(SubagentSessionStatus::Active),
+        lease_id: TaskOwnershipId::from_static("task_owner_subagent_child"),
+        runtime_id: RuntimeInstanceId::from_static("runtime_subagent_child"),
+        heartbeat_at: heartbeat_at.clone(),
+        expires_at: expires_at.clone(),
+        last_seq: 33,
+    });
+
+    let event = event.expect("active sub-agent should emit child heartbeat metadata");
+    assert_eq!(event.kind(), "task_owner_heartbeat");
+    assert_eq!(
+        event.task_id(),
+        Some(TaskId::from_static("task_child_subagent"))
+    );
+    let payload = event.payload();
+    assert_eq!(
+        payload["heartbeat"]["lease_id"],
+        "task_owner_subagent_child"
+    );
+    assert_eq!(payload["heartbeat"]["task_id"], "task_child_subagent");
+    assert_eq!(payload["heartbeat"]["last_seq"], 33);
+
+    match event {
+        RunEvent::TaskOwnerHeartbeat { heartbeat } => {
+            assert_eq!(
+                heartbeat.lease_id,
+                TaskOwnershipId::from_static("task_owner_subagent_child")
+            );
+            assert_eq!(
+                heartbeat.runtime_id,
+                RuntimeInstanceId::from_static("runtime_subagent_child")
+            );
+            assert_eq!(heartbeat.heartbeat_at, heartbeat_at);
+            assert_eq!(heartbeat.expires_at, expires_at);
+            assert_eq!(heartbeat.last_seq, 33);
+        }
+        other => panic!("unexpected event: {other:?}"),
+    }
+}
+
+#[test]
+fn subagent_owner_heartbeat_bridge_rejects_terminal_heartbeat() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error = coordinator.task_owner_heartbeat_event(SubagentTaskOwnerHeartbeatRequest {
+        session: subagent_session(SubagentSessionStatus::Completed),
+        lease_id: TaskOwnershipId::from_static("task_owner_subagent_child"),
+        runtime_id: RuntimeInstanceId::from_static("runtime_subagent_child"),
+        heartbeat_at: Timestamp::now_utc(),
+        expires_at: Timestamp::now_utc(),
+        last_seq: 34,
+    });
+
+    let error = error.expect_err("terminal session should not emit a fresh heartbeat");
+    assert!(error
+        .to_string()
+        .contains("terminal sub-agent session cannot heartbeat task owner"));
+}
+
+#[test]
+fn subagent_owner_heartbeat_bridge_lost_requires_child_task_id() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let mut session = subagent_session(SubagentSessionStatus::Active);
+    session.child_task_id = None;
+
+    let error = coordinator.task_owner_lost_event(SubagentTaskOwnerLostRequest {
+        session,
+        lease_id: TaskOwnershipId::from_static("task_owner_subagent_child"),
+        reason: "lost owner metadata".to_string(),
+    });
+
+    let error = error.expect_err("lost owner metadata should require child task id");
+    assert!(error
+        .to_string()
+        .contains("child_task_id is required for sub-agent task owner"));
+}
+
+#[test]
+fn subagent_owner_heartbeat_bridge_lost_rejects_empty_reason() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error = coordinator.task_owner_lost_event(SubagentTaskOwnerLostRequest {
+        session: subagent_session(SubagentSessionStatus::Active),
+        lease_id: TaskOwnershipId::from_static("task_owner_subagent_child"),
+        reason: "  ".to_string(),
+    });
+
+    let error = error.expect_err("lost owner metadata should require a reason");
+    assert!(error
+        .to_string()
+        .contains("reason is required for sub-agent task owner lost"));
+}
+
+#[test]
+fn subagent_owner_heartbeat_bridge_lost_event_is_metadata_only() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let event = coordinator.task_owner_lost_event(SubagentTaskOwnerLostRequest {
+        session: subagent_session(SubagentSessionStatus::Inactive),
+        lease_id: TaskOwnershipId::from_static("task_owner_subagent_child"),
+        reason: "child owner heartbeat expired".to_string(),
+    });
+
+    let event = event.expect("lost owner metadata should target child task");
+    assert_eq!(event.kind(), "task_owner_lost");
+    assert_eq!(
+        event.task_id(),
+        Some(TaskId::from_static("task_child_subagent"))
+    );
+    let payload = event.payload();
+    assert_eq!(payload["lease_id"], "task_owner_subagent_child");
+    assert_eq!(payload["task_id"], "task_child_subagent");
+    assert_eq!(payload["reason"], "child owner heartbeat expired");
+    assert!(payload.get("provider_request").is_none());
+    assert!(payload.get("tool_call").is_none());
+    assert!(payload.get("scheduler_loop").is_none());
+    assert!(payload.get("storage_write").is_none());
+    assert!(payload.get("ui_action").is_none());
+}
+
+#[test]
+fn subagent_owner_heartbeat_bridge_observe_reattach_requires_new_lease() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error = coordinator.task_owner_reattach_event(SubagentTaskOwnerReattachRequest {
+        session: subagent_session(SubagentSessionStatus::Active),
+        mode: TaskReattachMode::ObserveExistingOwner,
+        previous_lease_id: Some(TaskOwnershipId::from_static("task_owner_previous")),
+        new_lease_id: None,
+        checkpoint_id: None,
+        since_seq: Some(40),
+        reason: "observe an existing child owner".to_string(),
+    });
+
+    let error = error.expect_err("observe reattach should require a new lease");
+    assert!(error
+        .to_string()
+        .contains("observe_existing_owner reattach requires new_lease_id"));
+}
+
+#[test]
+fn subagent_owner_heartbeat_bridge_resume_reattach_requires_checkpoint() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let error = coordinator.task_owner_reattach_event(SubagentTaskOwnerReattachRequest {
+        session: subagent_session(SubagentSessionStatus::Active),
+        mode: TaskReattachMode::ResumeFromCheckpoint,
+        previous_lease_id: Some(TaskOwnershipId::from_static("task_owner_previous")),
+        new_lease_id: Some(TaskOwnershipId::from_static("task_owner_new")),
+        checkpoint_id: None,
+        since_seq: Some(41),
+        reason: "resume child from checkpoint".to_string(),
+    });
+
+    let error = error.expect_err("resume reattach should require a checkpoint");
+    assert!(error
+        .to_string()
+        .contains("resume_from_checkpoint reattach requires checkpoint_id"));
+}
+
+#[test]
+fn subagent_owner_heartbeat_bridge_terminal_projection_is_metadata_only() {
+    let coordinator = SubagentRuntimeCoordinator;
+    let event = coordinator.task_owner_reattach_event(SubagentTaskOwnerReattachRequest {
+        session: subagent_session(SubagentSessionStatus::Completed),
+        mode: TaskReattachMode::TerminalProjection,
+        previous_lease_id: Some(TaskOwnershipId::from_static("task_owner_previous")),
+        new_lease_id: None,
+        checkpoint_id: Some(TaskPauseCheckpointId::from_static(
+            "task_pause_checkpoint_child",
+        )),
+        since_seq: Some(42),
+        reason: "project completed child owner from trace".to_string(),
+    });
+
+    let event = event.expect("terminal projection should emit child reattach metadata");
+    assert_eq!(event.kind(), "task_reattach_recorded");
+    assert_eq!(
+        event.task_id(),
+        Some(TaskId::from_static("task_child_subagent"))
+    );
+    let payload = event.payload();
+    assert_eq!(payload["record"]["task_id"], "task_child_subagent");
+    assert_eq!(payload["record"]["mode"], "terminal_projection");
+    assert_eq!(payload["record"]["since_seq"], 42);
+    assert_eq!(
+        payload["record"]["reason"],
+        "project completed child owner from trace"
+    );
+    assert!(payload.get("provider_request").is_none());
+    assert!(payload.get("tool_call").is_none());
+    assert!(payload.get("scheduler_loop").is_none());
     assert!(payload.get("storage_write").is_none());
     assert!(payload.get("ui_action").is_none());
 }

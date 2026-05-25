@@ -4,7 +4,8 @@ pub use subagent_runtime::{
     SubagentApprovalForwardingRequest, SubagentCancellationRequest, SubagentCompletionRequest,
     SubagentInactivePolicyRequest, SubagentRuntimeCoordinator, SubagentRuntimeError,
     SubagentRuntimeStartRequest, SubagentTaskOwnerAttachRequest, SubagentTaskOwnerDetachRequest,
-    SubagentTranscriptArtifactLifecycleRequest,
+    SubagentTaskOwnerHeartbeatRequest, SubagentTaskOwnerLostRequest,
+    SubagentTaskOwnerReattachRequest, SubagentTranscriptArtifactLifecycleRequest,
 };
 
 use futures::TryStreamExt;
