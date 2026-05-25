@@ -15,7 +15,7 @@ Tessera 是一个 Rust-first、AI-friendly、agent-ready 的本地终端大模�
 - Replayable：所有运行都能通过 JSONL trace 回放和审计。
 - Auditable：未来所有工具调用必须经过 policy gate。
 - AI-friendly：代码边界小、协议清晰、fixture/replay 完整，方便 AI 稳定参与开发。
-- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已收口为 no-tool single-agent loop、opt-in project instruction discovery/source reporting、explicit read-only Skill Runtime v1、background task ownership trace-backed foundation、no-tool chat/agent run owner attach/detach 和 runtime API/app-server DTO alignment；v0.6 已完成 structured handoff / reviewer gate 以及 persistent sub-agent session metadata 的 protocol、client projection 和 GUI bindings foundation；工具、executable skills、默认/全局指令加载、background reattach、persistent child-agent runtime 和 swarm 仍必须按门禁推进。
+- Agent-ready：v0.1 先预留 agent 接入点；当前 v0.5 已收口为 no-tool single-agent loop、opt-in project instruction discovery/source reporting、explicit read-only Skill Runtime v1、background task ownership trace-backed foundation、no-tool chat/agent run owner attach/detach 和 runtime API/app-server DTO alignment；v0.6 已完成 structured handoff / reviewer gate、persistent sub-agent session metadata、runtime ownership metadata 和 transcript artifact lifecycle metadata 的 protocol、core helper、client projection 和 GUI bindings foundation；工具、executable skills、默认/全局指令加载、background reattach、persistent child-agent runtime 和 swarm 仍必须按门禁推进。
 
 ## 2. 技术选型
 
@@ -372,7 +372,7 @@ DeepSeek-TUI 的 sub-agent 设计还暴露出一个关键点：父 agent 不应�
 3. v0.3：tool descriptor、policy gate、approval UI、artifact handles、OS sandbox、workspace checkpoint。
 4. v0.4：MCP adapter、HTTP/SSE runtime API shape、diagnostics/LSP metadata、memory proposal UI。
 5. v0.5：no-tool single agent loop、non-interactive agent run envelope、opt-in project instruction discovery、skill runtime v1、trace-backed background ownership foundation、no-tool owner attach/detach、runtime API/app-server DTO alignment、pause/resume、context handle projection。
-6. v0.6：persistent sub-agent sessions、structured handoff、reviewer gate、artifact-backed transcript isolation、core-owned sub-agent runtime ownership contract。
+6. v0.6：persistent sub-agent sessions、structured handoff、reviewer gate、artifact-backed transcript isolation、core-owned sub-agent runtime ownership contract、transcript artifact lifecycle metadata。
 7. v0.7：coding agent workflow、worktree-first mutation、diff/test/checkpoint/rollback、apply-patch tool、TUI/GUI diff and review surfaces。
 8. v0.8：swarm scheduler 和 automation trigger integration，建立在稳定 agent/task/trace/review/cost gates 之上。
 9. v0.9：learning proposal system，默认只提案、不自动应用。

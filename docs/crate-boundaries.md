@@ -302,7 +302,7 @@ TUI 是 view，不是 runtime。
 - UI-neutral intent。
 - status / message / task projection。
 - approval / memory / context / task ownership / handoff-reviewer / sub-agent session projection。
-- future sub-agent runtime ownership projection as read-only metadata only。
+- sub-agent runtime ownership and transcript artifact lifecycle projection as read-only metadata only。
 - trace record 到 view model 的纯函数转换。
 - keymap、command palette 和 GUI action 的共享 command schema。
 
