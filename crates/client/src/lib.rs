@@ -6,13 +6,14 @@ use tessera_protocol::{
     AgentHandoffId, AgentHandoffStatus, AgentHandoffSummary, ApprovalId, ApprovalStatus,
     ArtifactId, ArtifactKind, ClientInstanceId, CodingWorkflowId, ContextId, ContextPlacement,
     ContextReference, ContextSourceKind, EventFrame, EventRange, HandoffEvidenceRef, ItemId,
-    MemoryProposal, MemoryProposalId, MemoryProposalStatus, PatchApplicationRecord, PatchProposal,
-    RestorePlanRecord, ReviewBundle, ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId,
-    ReviewerGateRequest, RunEvent, RuntimeInstanceId, SubagentApprovalForwardingRecord,
-    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
-    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
-    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionDescriptor,
-    SubagentSessionId, SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
+    MemoryProposal, MemoryProposalId, MemoryProposalStatus, MutationRequestProposal,
+    PatchApplicationRecord, PatchProposal, RestorePlanRecord, ReviewBundle, ReviewerDecisionKind,
+    ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RunEvent, RuntimeInstanceId,
+    SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
+    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
+    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
+    SubagentRuntimeDecisionKind, SubagentSessionDescriptor, SubagentSessionId,
+    SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
     SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskKind,
     TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
     TaskReattachMode, TaskReattachRecord, TaskStatus, TestPlanRecord, TestRunRecord, ThreadId,
@@ -981,6 +982,7 @@ pub struct ClientCodingWorkflow {
     pub objective: Option<String>,
     pub active: bool,
     pub workspace_scope: Option<WorkspaceMutationScope>,
+    pub mutation_requests: Vec<MutationRequestProposal>,
     pub patch_proposals: Vec<PatchProposal>,
     pub patch_applications: Vec<PatchApplicationRecord>,
     pub test_plans: Vec<TestPlanRecord>,
@@ -997,6 +999,7 @@ impl ClientCodingWorkflow {
             objective: None,
             active: true,
             workspace_scope: None,
+            mutation_requests: Vec::new(),
             patch_proposals: Vec::new(),
             patch_applications: Vec::new(),
             test_plans: Vec::new(),
@@ -1015,6 +1018,19 @@ impl ClientCodingWorkflow {
     fn record_scope(&mut self, scope: &WorkspaceMutationScope) {
         self.task_id = scope.task_id.clone();
         self.workspace_scope = Some(scope.clone());
+    }
+
+    fn record_mutation_request(&mut self, proposal: &MutationRequestProposal) {
+        self.task_id = proposal.task_id.clone();
+        if let Some(existing) = self
+            .mutation_requests
+            .iter_mut()
+            .find(|existing| existing.request_id == proposal.request_id)
+        {
+            *existing = proposal.clone();
+        } else {
+            self.mutation_requests.push(proposal.clone());
+        }
     }
 
     fn record_patch_proposal(&mut self, proposal: &PatchProposal) {
@@ -1307,7 +1323,7 @@ impl ClientStatus {
             memory_summary: "memory 0 pending".to_string(),
             handoff_summary: "handoffs 0 / reviews 0 pending".to_string(),
             coding_workflow_summary:
-                "coding workflows 0 / patches 0 / tests 0 / reviews 0 / blocked restores 0"
+                "coding workflows 0 / patches 0 / tests 0 / reviews 0 / mutation requests 0 / blocked restores 0"
                     .to_string(),
             subagent_summary: "subagents 0 / active 0 / waiting 0 / inactive 0".to_string(),
             subagent_runtime_summary:
@@ -1427,13 +1443,17 @@ impl ClientStatus {
             .iter()
             .map(|workflow| workflow.review_bundles.len())
             .sum::<usize>();
+        let mutation_requests = workflows
+            .iter()
+            .map(|workflow| workflow.mutation_requests.len())
+            .sum::<usize>();
         let blocked_restores = workflows
             .iter()
             .flat_map(|workflow| workflow.restore_plans.iter())
             .filter(|plan| plan.execution_blocked)
             .count();
         self.coding_workflow_summary = format!(
-            "coding workflows {} / patches {patches} / tests {tests} / reviews {reviews} / blocked restores {blocked_restores}",
+            "coding workflows {} / patches {patches} / tests {tests} / reviews {reviews} / mutation requests {mutation_requests} / blocked restores {blocked_restores}",
             workflows.len()
         );
     }
@@ -1918,6 +1938,9 @@ impl ClientSnapshot {
             RunEvent::WorkspaceMutationScopeRecorded { scope } => {
                 self.record_coding_workflow_scope(scope);
             }
+            RunEvent::MutationRequestProposalRecorded { proposal } => {
+                self.record_coding_workflow_mutation_request(proposal);
+            }
             RunEvent::PatchProposalRecorded { proposal } => {
                 self.record_coding_workflow_patch_proposal(proposal);
             }
@@ -2292,6 +2315,14 @@ impl ClientSnapshot {
                     return;
                 };
                 self.record_coding_workflow_scope(&scope);
+            }
+            "mutation_request_proposal_recorded" => {
+                let Some(proposal) =
+                    trace_payload::<MutationRequestProposal>(record.payload.get("proposal"))
+                else {
+                    return;
+                };
+                self.record_coding_workflow_mutation_request(&proposal);
             }
             "patch_proposal_recorded" => {
                 let Some(proposal) = trace_payload::<PatchProposal>(record.payload.get("proposal"))
@@ -2780,6 +2811,21 @@ impl ClientSnapshot {
             let workflow = self.coding_workflow_mut_or_insert(&scope.workflow_id, &scope.task_id);
             workflow.record_scope(scope);
         }
+        self.refresh_coding_workflow_summary();
+    }
+
+    fn record_coding_workflow_mutation_request(&mut self, proposal: &MutationRequestProposal) {
+        {
+            let workflow =
+                self.coding_workflow_mut_or_insert(&proposal.workflow_id, &proposal.task_id);
+            workflow.record_mutation_request(proposal);
+        }
+        self.record_evidence_artifacts(
+            &proposal.evidence,
+            ArtifactKind::Patch,
+            "mutation_request_proposal_recorded",
+        );
+        self.status.update_artifact_summary(&self.artifacts);
         self.refresh_coding_workflow_summary();
     }
 

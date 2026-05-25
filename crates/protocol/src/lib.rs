@@ -91,6 +91,7 @@ id_type!(ReviewerGateId, "reviewer_gate");
 id_type!(SubagentSessionId, "subagent_session");
 id_type!(CodingWorkflowId, "coding_workflow");
 id_type!(PatchProposalId, "patch_proposal");
+id_type!(MutationRequestId, "mutation_request");
 id_type!(TestPlanId, "test_plan");
 id_type!(TestRunId, "test_run");
 id_type!(ReviewBundleId, "review_bundle");
@@ -997,6 +998,31 @@ pub enum CodingWorkflowEvidenceRedactionStatus {
     Redacted,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum MutationRequestOperationKind {
+    PatchApplication,
+    TestRun,
+    CheckpointRestore,
+    VersionControlStage,
+    VersionControlCommit,
+    VersionControlPush,
+    PullRequestPublication,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum MutationRequestStatus {
+    Proposed,
+    PolicyPending,
+    PolicyBlocked,
+    ReviewerPending,
+    Approved,
+    Rejected,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct WorkspaceMutationScope {
@@ -1010,6 +1036,26 @@ pub struct WorkspaceMutationScope {
     pub mutation_mode: MutationMode,
     pub worktree_required: bool,
     pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct MutationRequestProposal {
+    pub request_id: MutationRequestId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub operation: MutationRequestOperationKind,
+    pub status: MutationRequestStatus,
+    pub summary: String,
+    #[serde(default)]
+    pub requested_paths: Vec<String>,
+    pub required_checkpoint_id: Option<SnapshotId>,
+    pub reviewer_gate_id: Option<ReviewerGateId>,
+    pub policy_decision_id: Option<PolicyDecisionId>,
+    pub sandbox_profile_label: Option<String>,
+    pub worktree_required: bool,
+    #[serde(default)]
+    pub evidence: Vec<HandoffEvidenceRef>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1776,6 +1822,9 @@ pub enum RunEvent {
     WorkspaceMutationScopeRecorded {
         scope: WorkspaceMutationScope,
     },
+    MutationRequestProposalRecorded {
+        proposal: MutationRequestProposal,
+    },
     PatchProposalRecorded {
         proposal: PatchProposal,
     },
@@ -1927,6 +1976,7 @@ impl RunEvent {
             Self::ReviewerGateResolved { .. } => "reviewer_gate_resolved",
             Self::CodingWorkflowStarted { .. } => "coding_workflow_started",
             Self::WorkspaceMutationScopeRecorded { .. } => "workspace_mutation_scope_recorded",
+            Self::MutationRequestProposalRecorded { .. } => "mutation_request_proposal_recorded",
             Self::PatchProposalRecorded { .. } => "patch_proposal_recorded",
             Self::PatchApplicationRecorded { .. } => "patch_application_recorded",
             Self::TestPlanRecorded { .. } => "test_plan_recorded",
@@ -2011,6 +2061,7 @@ impl RunEvent {
             Self::AgentHandoffRecorded { summary } => Some(summary.parent_task_id.clone()),
             Self::ReviewerGateRequested { request } => Some(request.parent_task_id.clone()),
             Self::WorkspaceMutationScopeRecorded { scope } => Some(scope.task_id.clone()),
+            Self::MutationRequestProposalRecorded { proposal } => Some(proposal.task_id.clone()),
             Self::PatchProposalRecorded { proposal } => Some(proposal.task_id.clone()),
             Self::PatchApplicationRecorded { record } => Some(record.task_id.clone()),
             Self::TestPlanRecorded { plan } => Some(plan.task_id.clone()),
@@ -2193,6 +2244,9 @@ impl RunEvent {
                 "objective": objective,
             }),
             Self::WorkspaceMutationScopeRecorded { scope } => json!({ "scope": scope }),
+            Self::MutationRequestProposalRecorded { proposal } => {
+                json!({ "proposal": proposal })
+            }
             Self::PatchProposalRecorded { proposal } => json!({ "proposal": proposal }),
             Self::PatchApplicationRecorded { record } => json!({ "record": record }),
             Self::TestPlanRecorded { plan } => json!({ "plan": plan }),

@@ -63,6 +63,7 @@ pub struct ReviewerGateId(String);
 pub struct SubagentSessionId(String);
 pub struct CodingWorkflowId(String);
 pub struct PatchProposalId(String);
+pub struct MutationRequestId(String);
 pub struct TestPlanId(String);
 pub struct TestRunId(String);
 pub struct ReviewBundleId(String);
@@ -541,6 +542,7 @@ pub enum RunEvent {
         objective: String,
     },
     WorkspaceMutationScopeRecorded { scope: WorkspaceMutationScope },
+    MutationRequestProposalRecorded { proposal: MutationRequestProposal },
     PatchProposalRecorded { proposal: PatchProposal },
     PatchApplicationRecorded { record: PatchApplicationRecord },
     TestPlanRecorded { plan: TestPlanRecord },
@@ -587,7 +589,7 @@ pub enum RunEvent {
 
 `AgentHandoffRecorded` / `ReviewerGateRequested` / `ReviewerGateResolved` 是 v0.6 structured handoff and reviewer gate foundation。它们只记录 compact summary、bounded evidence refs 和 reviewer decision metadata，供 replay、client projection、CLI/TUI/GUI 和 future runtime API 检查。它们不启动 persistent child-agent runtime，不执行工具，不修改 workspace，不批准 file diff，也不创建 swarm scheduler。
 
-`CodingWorkflowStarted` / `WorkspaceMutationScopeRecorded` / `PatchProposalRecorded` / `PatchApplicationRecorded` / `TestPlanRecorded` / `TestRunRecorded` / `ReviewBundleRecorded` / `RestorePlanRecorded` 是 v0.7 coding-agent workflow foundation。它们只记录 workflow id、task id、worktree-first mutation scope、patch proposal summary、diff artifact refs、checkpoint/reviewer references、test plan/test result artifact refs、review bundle metadata and restore plan metadata。它们不得 inline patch body、file contents、stdout/stderr bodies、provider-private responses、hidden reasoning、API keys、cookies、authorization headers 或 filesystem handles。`PatchApplicationRecorded` 和 `RestorePlanRecorded` 在当前 foundation 中仍是 metadata-only：不执行 apply-patch，不写文件，不运行测试，不 restore/revert checkpoint，不 stage/commit/push Git。
+`CodingWorkflowStarted` / `WorkspaceMutationScopeRecorded` / `MutationRequestProposalRecorded` / `PatchProposalRecorded` / `PatchApplicationRecorded` / `TestPlanRecorded` / `TestRunRecorded` / `ReviewBundleRecorded` / `RestorePlanRecorded` 是 v0.7 coding-agent workflow foundation。它们只记录 workflow id、task id、worktree-first mutation scope、policy-controlled mutation request proposals、patch proposal summary、diff artifact refs、checkpoint/reviewer/policy references、sandbox profile labels、test plan/test result artifact refs、review bundle metadata and restore plan metadata。Mutation request operation kind 使用 `patch_application`、`test_run`、`checkpoint_restore`、`version_control_*` 等中性标签，不暴露 GUI/runtime command 字符串。它们不得 inline patch body、file contents、stdout/stderr bodies、provider-private responses、hidden reasoning、API keys、cookies、authorization headers 或 filesystem handles。`MutationRequestProposalRecorded`、`PatchApplicationRecorded` 和 `RestorePlanRecorded` 在当前 foundation 中仍是 metadata-only：不执行 apply-patch，不写文件，不运行测试，不 restore/revert checkpoint，不 stage/commit/push Git。
 
 仍只预留、不执行的事件：
 

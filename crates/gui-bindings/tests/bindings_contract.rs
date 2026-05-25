@@ -39,6 +39,9 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type CodingWorkflowId"));
     assert!(bindings.contains("export type WorkspaceMutationScope"));
     assert!(bindings.contains("export type MutationMode"));
+    assert!(bindings.contains("export type MutationRequestProposal"));
+    assert!(bindings.contains("export type MutationRequestOperationKind"));
+    assert!(bindings.contains("export type MutationRequestStatus"));
     assert!(bindings.contains("export type PatchProposal"));
     assert!(bindings.contains("export type PatchApplicationRecord"));
     assert!(bindings.contains("export type TestPlanRecord"));
@@ -69,6 +72,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("reviewer_gate_resolved"));
     assert!(bindings.contains("coding_workflow_started"));
     assert!(bindings.contains("workspace_mutation_scope_recorded"));
+    assert!(bindings.contains("mutation_request_proposal_recorded"));
     assert!(bindings.contains("patch_proposal_recorded"));
     assert!(bindings.contains("patch_application_recorded"));
     assert!(bindings.contains("test_plan_recorded"));

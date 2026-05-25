@@ -12,7 +12,8 @@ use tessera_protocol::{
     CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextId, ContextPlacement,
     ContextReference, ContextSource, ContextSourceKind, CostEstimate, ErrorSource, EventFrame,
     EventRange, HandoffEvidenceKind, HandoffEvidenceRef, ItemId, MemoryProposal, MemoryProposalId,
-    MemoryProposalStatus, MutationMode, NormalizedError, PatchApplicationOutcome,
+    MemoryProposalStatus, MutationMode, MutationRequestId, MutationRequestOperationKind,
+    MutationRequestProposal, MutationRequestStatus, NormalizedError, PatchApplicationOutcome,
     PatchApplicationRecord, PatchProposal, PatchProposalId, PolicyDecisionId, PolicyOutcome,
     ProviderCapability, ProviderId, RestorePlanId, RestorePlanRecord, ReviewBundle, ReviewBundleId,
     ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RunEvent,
@@ -677,6 +678,24 @@ fn coding_workflow_events(test_status: TestRunStatus) -> Vec<RunEvent> {
     ]
 }
 
+fn mutation_request(status: MutationRequestStatus) -> MutationRequestProposal {
+    MutationRequestProposal {
+        request_id: MutationRequestId::from_static("mutation_request_client_apply"),
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        operation: MutationRequestOperationKind::PatchApplication,
+        status,
+        summary: "Request apply-patch execution after gates.".to_string(),
+        requested_paths: vec!["crates/client/src/lib.rs".to_string()],
+        required_checkpoint_id: Some(SnapshotId::from_static("snapshot_before_client_patch")),
+        reviewer_gate_id: Some(ReviewerGateId::from_static("gate_coding_review")),
+        policy_decision_id: Some(PolicyDecisionId::from_static("policy_client_apply")),
+        sandbox_profile_label: Some("workspace_write".to_string()),
+        worktree_required: true,
+        evidence: vec![coding_diff_evidence()],
+    }
+}
+
 #[test]
 fn client_snapshot_projects_coding_workflow_metadata_from_live_events() {
     let mut snapshot = ClientSnapshot::new("mock-default");
@@ -754,7 +773,87 @@ fn client_snapshot_projects_coding_workflow_metadata_from_live_events() {
     assert!(workflow.restore_plans[0].execution_blocked);
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / blocked restores 1"
+        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / blocked restores 1"
+    );
+}
+
+#[test]
+fn client_snapshot_projects_mutation_request_proposals_from_live_and_replayed_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    snapshot.apply_event(&EventFrame::new(
+        "trace_mutation_request_live",
+        1,
+        RunEvent::CodingWorkflowStarted {
+            workflow_id: coding_workflow_id(),
+            task_id: coding_task_id(),
+            objective: "request gated mutation".to_string(),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_mutation_request_live",
+        2,
+        RunEvent::MutationRequestProposalRecorded {
+            proposal: mutation_request(MutationRequestStatus::ReviewerPending),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_mutation_request_live",
+        3,
+        RunEvent::MutationRequestProposalRecorded {
+            proposal: mutation_request(MutationRequestStatus::Approved),
+        },
+    ));
+
+    assert_eq!(snapshot.coding_workflows.len(), 1);
+    let workflow = &snapshot.coding_workflows[0];
+    assert_eq!(workflow.mutation_requests.len(), 1);
+    assert_eq!(
+        workflow.mutation_requests[0].request_id,
+        MutationRequestId::from_static("mutation_request_client_apply")
+    );
+    assert_eq!(
+        workflow.mutation_requests[0].operation,
+        MutationRequestOperationKind::PatchApplication
+    );
+    assert_eq!(
+        workflow.mutation_requests[0].status,
+        MutationRequestStatus::Approved
+    );
+    assert_eq!(
+        workflow.mutation_requests[0].requested_paths,
+        vec!["crates/client/src/lib.rs".to_string()]
+    );
+    assert!(workflow.mutation_requests[0].worktree_required);
+    assert_eq!(
+        workflow.mutation_requests[0]
+            .sandbox_profile_label
+            .as_deref(),
+        Some("workspace_write")
+    );
+    assert_eq!(
+        snapshot.status.coding_workflow_summary,
+        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 1 / blocked restores 0"
+    );
+
+    let mut replayed = ClientSnapshot::new("mock-default");
+    let record = EventFrame::new(
+        "trace_mutation_request_replay",
+        1,
+        RunEvent::MutationRequestProposalRecorded {
+            proposal: mutation_request(MutationRequestStatus::PolicyBlocked),
+        },
+    )
+    .to_trace_record();
+    replayed.apply_trace_record(&record);
+
+    assert_eq!(replayed.coding_workflows.len(), 1);
+    assert_eq!(
+        replayed.coding_workflows[0].mutation_requests[0].status,
+        MutationRequestStatus::PolicyBlocked
+    );
+    assert_eq!(
+        replayed.coding_workflows[0].mutation_requests[0].policy_decision_id,
+        Some(PolicyDecisionId::from_static("policy_client_apply"))
     );
 }
 
@@ -792,7 +891,7 @@ fn client_snapshot_projects_coding_workflow_metadata_from_replayed_records() {
     );
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / blocked restores 1"
+        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / blocked restores 1"
     );
 }
 

@@ -7,31 +7,32 @@ use tessera_protocol::{
     DiagnosticReportId, DiagnosticSeverity, EventFrame, EventRange, HandoffEvidenceKind,
     HandoffEvidenceRef, InstructionLoadStatus, InstructionRedactionStatus, InstructionSource,
     InstructionSourceKind, ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus,
-    ModelProfileId, MutationMode, NoProgressAction, NoProgressLoop, NoProgressSignalKind,
-    OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId,
-    OsSandboxShell, PatchApplicationOutcome, PatchApplicationRecord, PatchProposal,
-    PatchProposalId, PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId,
-    RestorePlanId, RestorePlanRecord, ReviewBundle, ReviewBundleId, ReviewerDecisionKind,
-    ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RouteDecision, RouteDecisionId,
-    RouteStrategy, RunEvent, RuntimeApiCommand, RuntimeApiCommandAck, RuntimeApiCommandEnvelope,
-    RuntimeApiCommandStatus, RuntimeApiEventStreamRequest, RuntimeApiServerConfig,
-    RuntimeInstanceId, SandboxDecision, SandboxDecisionId, SandboxDecisionKind, SkillActivation,
-    SkillActivationStatus, SkillActivationStep, SkillEntrypoint, SkillEntrypointFormat, SkillId,
-    SkillLoadStatus, SkillManifest, SkillPolicy, SkillRedactionStatus, SkillReferenceSource,
-    SkillRequirements, SkillSource, SkillSourceKind, SkillStepKind, SkillStepStatus, SnapshotId,
-    SnapshotKind, SubagentApprovalForwarding, SubagentApprovalForwardingRecord,
-    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
-    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
-    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionCaps,
-    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
-    SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactRecord,
-    SubagentTranscriptArtifactStatus, TaskId, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus,
-    TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId, TaskStatus, TestPlanId,
-    TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus, Timestamp, ToolApproval, ToolCallId,
-    ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId, ToolPermission,
-    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolResultId,
-    ToolResultStatus, ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail,
-    WorkspaceMutationScope, WorkspaceScope,
+    ModelProfileId, MutationMode, MutationRequestId, MutationRequestOperationKind,
+    MutationRequestProposal, MutationRequestStatus, NoProgressAction, NoProgressLoop,
+    NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
+    OsSandboxProfileId, OsSandboxShell, PatchApplicationOutcome, PatchApplicationRecord,
+    PatchProposal, PatchProposalId, PolicyDecisionId, PolicyOutcome, ProviderCapability,
+    ProviderId, RestorePlanId, RestorePlanRecord, ReviewBundle, ReviewBundleId,
+    ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RouteDecision,
+    RouteDecisionId, RouteStrategy, RunEvent, RuntimeApiCommand, RuntimeApiCommandAck,
+    RuntimeApiCommandEnvelope, RuntimeApiCommandStatus, RuntimeApiEventStreamRequest,
+    RuntimeApiServerConfig, RuntimeInstanceId, SandboxDecision, SandboxDecisionId,
+    SandboxDecisionKind, SkillActivation, SkillActivationStatus, SkillActivationStep,
+    SkillEntrypoint, SkillEntrypointFormat, SkillId, SkillLoadStatus, SkillManifest, SkillPolicy,
+    SkillRedactionStatus, SkillReferenceSource, SkillRequirements, SkillSource, SkillSourceKind,
+    SkillStepKind, SkillStepStatus, SnapshotId, SnapshotKind, SubagentApprovalForwarding,
+    SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
+    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
+    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
+    SubagentRuntimeDecisionKind, SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId,
+    SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
+    SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskOwnerKind,
+    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId,
+    TaskStatus, TestPlanId, TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus, Timestamp,
+    ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId,
+    ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
+    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
+    WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceMutationScope, WorkspaceScope,
 };
 
 #[test]
@@ -1579,6 +1580,80 @@ fn coding_workflow_events_are_traceable_without_mutation_execution() {
     assert!(!encoded.contains("authorization"));
     assert!(!encoded.contains("api_key"));
     assert!(!encoded.contains("cookie"));
+}
+
+#[test]
+fn mutation_request_proposals_are_traceable_without_execution() {
+    let workflow_id = CodingWorkflowId::from_static("coding_workflow_mutation_request");
+    let task_id = TaskId::from_static("task_mutation_request");
+    let request_id = MutationRequestId::from_static("mutation_request_apply_patch");
+    let checkpoint_id = SnapshotId::from_static("snapshot_before_mutation_request");
+    let reviewer_gate_id = ReviewerGateId::from_static("reviewer_gate_mutation_request");
+    let policy_decision_id = PolicyDecisionId::from_static("policy_mutation_request");
+
+    let proposal = MutationRequestProposal {
+        request_id: request_id.clone(),
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        operation: MutationRequestOperationKind::PatchApplication,
+        status: MutationRequestStatus::ReviewerPending,
+        summary: "Apply reviewed patch proposal after policy and checkpoint gates.".to_string(),
+        requested_paths: vec!["crates/client/src/lib.rs".to_string()],
+        required_checkpoint_id: Some(checkpoint_id.clone()),
+        reviewer_gate_id: Some(reviewer_gate_id.clone()),
+        policy_decision_id: Some(policy_decision_id.clone()),
+        sandbox_profile_label: Some("workspace_write".to_string()),
+        worktree_required: true,
+        evidence: vec![HandoffEvidenceRef {
+            kind: HandoffEvidenceKind::DiffArtifact,
+            artifact_id: Some(ArtifactId::from_static("artifact_mutation_request_diff")),
+            trace_id: None,
+            event_range: None,
+            label: Some("redacted diff".to_string()),
+            summary: Some("diff artifact handle only".to_string()),
+        }],
+    };
+    let event = RunEvent::MutationRequestProposalRecorded {
+        proposal: proposal.clone(),
+    };
+
+    assert_eq!(event.kind(), "mutation_request_proposal_recorded");
+    assert_eq!(event.task_id(), Some(task_id));
+
+    let payload = event.payload();
+    assert_eq!(payload["proposal"]["request_id"], request_id.as_str());
+    assert_eq!(payload["proposal"]["workflow_id"], workflow_id.as_str());
+    assert_eq!(payload["proposal"]["operation"], "patch_application");
+    assert_eq!(payload["proposal"]["status"], "reviewer_pending");
+    assert_eq!(
+        payload["proposal"]["requested_paths"][0],
+        "crates/client/src/lib.rs"
+    );
+    assert_eq!(
+        payload["proposal"]["required_checkpoint_id"],
+        checkpoint_id.as_str()
+    );
+    assert_eq!(
+        payload["proposal"]["reviewer_gate_id"],
+        reviewer_gate_id.as_str()
+    );
+    assert_eq!(
+        payload["proposal"]["policy_decision_id"],
+        policy_decision_id.as_str()
+    );
+    assert_eq!(
+        payload["proposal"]["sandbox_profile_label"],
+        "workspace_write"
+    );
+    assert_eq!(payload["proposal"]["worktree_required"], true);
+    assert!(payload["proposal"].get("patch_body").is_none());
+    assert!(payload["proposal"].get("command_output").is_none());
+
+    let frame = EventFrame::new("trace_mutation_request", 1, event);
+    assert_eq!(
+        frame.to_trace_record().event_kind,
+        "mutation_request_proposal_recorded"
+    );
 }
 
 #[test]
