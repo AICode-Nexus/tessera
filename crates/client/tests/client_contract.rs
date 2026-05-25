@@ -2,6 +2,8 @@ use tessera_client::{
     ClientApprovalStatus, ClientContextBudgetSummary, ClientContextPlacement,
     ClientContextSourceKind, ClientIntent, ClientMemoryProposalStatus, ClientMessageRole,
     ClientProjection, ClientReviewerGateStatus, ClientSnapshot, ClientStatus,
+    ClientSubagentApprovalForwardingStatus, ClientSubagentCancellationCascade,
+    ClientSubagentInactiveParentAction, ClientSubagentRuntimeDecisionKind,
     ClientSubagentSessionStatus,
 };
 use tessera_protocol::{
@@ -11,11 +13,14 @@ use tessera_protocol::{
     EventRange, HandoffEvidenceKind, HandoffEvidenceRef, ItemId, MemoryProposal, MemoryProposalId,
     MemoryProposalStatus, NormalizedError, PolicyDecisionId, PolicyOutcome, ProviderCapability,
     ProviderId, ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest,
-    RunEvent, RuntimeInstanceId, SubagentApprovalForwarding, SubagentInactivePolicy,
-    SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
-    TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus,
-    TaskOwnershipId, TaskReattachMode, TaskStatus, Timestamp, ToolApproval, ToolCallId, ToolId,
-    ToolPermission, ToolPolicyDecision, ToolSideEffect,
+    RunEvent, RuntimeInstanceId, SubagentApprovalForwarding, SubagentApprovalForwardingRecord,
+    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
+    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
+    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionCaps,
+    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
+    SubagentTranscriptArtifactRecord, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind,
+    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, Timestamp,
+    ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect,
 };
 
 #[test]
@@ -702,6 +707,63 @@ fn subagent_session(status: SubagentSessionStatus) -> SubagentSessionDescriptor 
     }
 }
 
+fn subagent_runtime_decision(kind: SubagentRuntimeDecisionKind) -> SubagentRuntimeDecision {
+    let session = subagent_session(SubagentSessionStatus::Planned);
+    SubagentRuntimeDecision {
+        session_id: session.session_id,
+        parent_task_id: session.parent_task_id,
+        child_task_id: session.child_task_id,
+        kind,
+        reason: "caps and reviewer gate are satisfied".to_string(),
+        caps_snapshot: session.caps,
+    }
+}
+
+fn subagent_transcript_record() -> SubagentTranscriptArtifactRecord {
+    SubagentTranscriptArtifactRecord {
+        session_id: SubagentSessionId::from_static("subagent_session_review"),
+        parent_task_id: TaskId::from_static("task_parent_subagent"),
+        child_task_id: Some(TaskId::from_static("task_child_subagent")),
+        artifact_id: ArtifactId::from_static("artifact_child_transcript"),
+        event_range: EventRange {
+            start_seq: 11,
+            end_seq: 19,
+        },
+        summary_label: Some("child transcript summary".to_string()),
+    }
+}
+
+fn subagent_forwarding_record() -> SubagentApprovalForwardingRecord {
+    SubagentApprovalForwardingRecord {
+        session_id: SubagentSessionId::from_static("subagent_session_review"),
+        parent_task_id: TaskId::from_static("task_parent_subagent"),
+        approval_id: ApprovalId::from_static("approval_subagent_review"),
+        reviewer_gate_id: Some(ReviewerGateId::from_static("gate_subagent_review")),
+        status: SubagentApprovalForwardingStatus::QueuedForReviewer,
+        reason: "child task is inactive".to_string(),
+    }
+}
+
+fn subagent_inactive_record() -> SubagentInactivePolicyRecord {
+    SubagentInactivePolicyRecord {
+        session_id: SubagentSessionId::from_static("subagent_session_review"),
+        parent_task_id: TaskId::from_static("task_parent_subagent"),
+        policy: SubagentInactivePolicy::RequireReviewer,
+        parent_action: SubagentInactiveParentAction::PauseParent,
+        reason: "reviewer must inspect inactive child".to_string(),
+    }
+}
+
+fn subagent_cancellation_record() -> SubagentCancellationRecord {
+    SubagentCancellationRecord {
+        session_id: SubagentSessionId::from_static("subagent_session_review"),
+        parent_task_id: TaskId::from_static("task_parent_subagent"),
+        source_task_id: TaskId::from_static("task_parent_subagent"),
+        reason: "parent cancelled".to_string(),
+        cascade: SubagentCancellationCascade::CancelChild,
+    }
+}
+
 #[test]
 fn client_snapshot_projects_subagent_session_metadata_from_live_events() {
     let mut snapshot = ClientSnapshot::new("mock-default");
@@ -797,6 +859,160 @@ fn client_snapshot_projects_subagent_session_metadata_from_replayed_records() {
     assert_eq!(
         snapshot.status.subagent_summary,
         "subagents 1 / active 0 / waiting 0 / inactive 0"
+    );
+}
+
+#[test]
+fn client_snapshot_projects_subagent_runtime_ownership_from_live_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    snapshot.apply_event(&EventFrame::new(
+        "trace_subagent_runtime_live",
+        1,
+        RunEvent::SubagentRuntimeDecisionRecorded {
+            decision: subagent_runtime_decision(SubagentRuntimeDecisionKind::StartAllowed),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_subagent_runtime_live",
+        2,
+        RunEvent::SubagentTranscriptArtifactRecorded {
+            transcript: subagent_transcript_record(),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_subagent_runtime_live",
+        3,
+        RunEvent::SubagentApprovalForwardingRecorded {
+            forwarding: subagent_forwarding_record(),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_subagent_runtime_live",
+        4,
+        RunEvent::SubagentInactivePolicyRecorded {
+            inactive: subagent_inactive_record(),
+        },
+    ));
+    snapshot.apply_event(&EventFrame::new(
+        "trace_subagent_runtime_live",
+        5,
+        RunEvent::SubagentCancellationRecorded {
+            cancellation: subagent_cancellation_record(),
+        },
+    ));
+
+    assert_eq!(snapshot.subagent_runtime_decisions.len(), 1);
+    assert_eq!(
+        snapshot.subagent_runtime_decisions[0].kind,
+        ClientSubagentRuntimeDecisionKind::StartAllowed
+    );
+    assert_eq!(snapshot.subagent_runtime_decisions[0].max_steps, 4);
+    assert_eq!(snapshot.subagent_transcripts.len(), 1);
+    assert_eq!(
+        snapshot.subagent_transcripts[0].artifact_id,
+        ArtifactId::from_static("artifact_child_transcript")
+    );
+    assert_eq!(snapshot.subagent_approval_forwarding.len(), 1);
+    assert_eq!(
+        snapshot.subagent_approval_forwarding[0].status,
+        ClientSubagentApprovalForwardingStatus::QueuedForReviewer
+    );
+    assert_eq!(snapshot.subagent_inactive_policies.len(), 1);
+    assert_eq!(
+        snapshot.subagent_inactive_policies[0].parent_action,
+        ClientSubagentInactiveParentAction::PauseParent
+    );
+    assert_eq!(snapshot.subagent_cancellations.len(), 1);
+    assert_eq!(
+        snapshot.subagent_cancellations[0].cascade,
+        ClientSubagentCancellationCascade::CancelChild
+    );
+
+    let transcript_artifact = snapshot
+        .artifacts
+        .iter()
+        .find(|artifact| {
+            artifact.artifact_id == ArtifactId::from_static("artifact_child_transcript")
+        })
+        .expect("transcript artifact is projected as an artifact handle");
+    assert_eq!(
+        transcript_artifact.kind,
+        Some(ArtifactKind::AgentTranscript)
+    );
+    assert!(transcript_artifact
+        .referenced_by_event_kinds
+        .contains(&"subagent_transcript_artifact_recorded".to_string()));
+    assert_eq!(
+        snapshot.status.subagent_runtime_summary,
+        "subagent runtime decisions 1 / transcripts 1 / forwarding queued 1 / inactive require_reviewer 1 / cancellations 1"
+    );
+}
+
+#[test]
+fn client_snapshot_projects_subagent_runtime_ownership_from_replayed_records() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    for record in [
+        EventFrame::new(
+            "trace_subagent_runtime_replay",
+            1,
+            RunEvent::SubagentRuntimeDecisionRecorded {
+                decision: subagent_runtime_decision(SubagentRuntimeDecisionKind::RequireReviewer),
+            },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_subagent_runtime_replay",
+            2,
+            RunEvent::SubagentTranscriptArtifactRecorded {
+                transcript: subagent_transcript_record(),
+            },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_subagent_runtime_replay",
+            3,
+            RunEvent::SubagentApprovalForwardingRecorded {
+                forwarding: subagent_forwarding_record(),
+            },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_subagent_runtime_replay",
+            4,
+            RunEvent::SubagentInactivePolicyRecorded {
+                inactive: subagent_inactive_record(),
+            },
+        )
+        .to_trace_record(),
+        EventFrame::new(
+            "trace_subagent_runtime_replay",
+            5,
+            RunEvent::SubagentCancellationRecorded {
+                cancellation: subagent_cancellation_record(),
+            },
+        )
+        .to_trace_record(),
+    ] {
+        snapshot.apply_trace_record(&record);
+    }
+
+    assert_eq!(
+        snapshot.subagent_runtime_decisions[0].kind,
+        ClientSubagentRuntimeDecisionKind::RequireReviewer
+    );
+    assert_eq!(
+        snapshot.subagent_transcripts[0].summary_label.as_deref(),
+        Some("child transcript summary")
+    );
+    assert_eq!(
+        snapshot.subagent_inactive_policies[0].policy.as_deref(),
+        Some("require_reviewer")
+    );
+    assert_eq!(
+        snapshot.status.subagent_runtime_summary,
+        "subagent runtime decisions 1 / transcripts 1 / forwarding queued 1 / inactive require_reviewer 1 / cancellations 1"
     );
 }
 

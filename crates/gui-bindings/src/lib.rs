@@ -7,8 +7,12 @@ use tessera_client::{
     ClientContextBudgetSummary, ClientContextHandle, ClientContextPlacement,
     ClientContextSourceKind, ClientIntent, ClientMemoryProposal, ClientMemoryProposalStatus,
     ClientMessage, ClientMessageRole, ClientProjection, ClientReviewerGate,
-    ClientReviewerGateStatus, ClientSnapshot, ClientStatus, ClientSubagentSession,
-    ClientSubagentSessionStatus, ClientTask, ClientTelemetrySummary,
+    ClientReviewerGateStatus, ClientSnapshot, ClientStatus, ClientSubagentApprovalForwarding,
+    ClientSubagentApprovalForwardingStatus, ClientSubagentCancellation,
+    ClientSubagentCancellationCascade, ClientSubagentInactiveParentAction,
+    ClientSubagentInactivePolicy, ClientSubagentRuntimeDecision, ClientSubagentRuntimeDecisionKind,
+    ClientSubagentSession, ClientSubagentSessionStatus, ClientSubagentTranscriptArtifact,
+    ClientTask, ClientTelemetrySummary,
 };
 use tessera_gui_bridge::{GuiCommandOutcome, GuiEvent, GuiProfile, GuiRuntimeMode, GuiShellState};
 use tessera_protocol::{
@@ -19,10 +23,14 @@ use tessera_protocol::{
     RuntimeApiAuthMode, RuntimeApiAuthPolicy, RuntimeApiBindConfig, RuntimeApiBindKind,
     RuntimeApiCommand, RuntimeApiCommandAck, RuntimeApiCommandEnvelope, RuntimeApiCommandStatus,
     RuntimeApiEventStreamRequest, RuntimeApiQueueOverflow, RuntimeApiQueuePolicy,
-    RuntimeApiServerConfig, RuntimeInstanceId, SubagentApprovalForwarding, SubagentInactivePolicy,
-    SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
-    TaskId, TaskKind, TaskOwnerKind, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode,
-    TaskStatus, ThreadId, Timestamp, ToolCallId, ToolId, TraceRecord, TurnId,
+    RuntimeApiServerConfig, RuntimeInstanceId, SubagentApprovalForwarding,
+    SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
+    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
+    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
+    SubagentRuntimeDecisionKind, SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId,
+    SubagentSessionStatus, SubagentTranscriptArtifactRecord, TaskId, TaskKind, TaskOwnerKind,
+    TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, ThreadId, Timestamp,
+    ToolCallId, ToolId, TraceRecord, TurnId,
 };
 use ts_rs::{Config, TS};
 
@@ -35,7 +43,7 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 ";
 
 const TRACE_EVENT_KIND_DECL: &str = "\
-export type TraceEventKind = \"thread_created\" | \"turn_started\" | \"user_message_recorded\" | \"provider_request_started\" | \"assistant_message_started\" | \"assistant_delta\" | \"assistant_reasoning_delta\" | \"assistant_message_completed\" | \"usage_reported\" | \"provider_capability_reported\" | \"route_decision_recorded\" | \"provider_request_completed\" | \"turn_completed\" | \"task_created\" | \"task_started\" | \"task_completed\" | \"task_failed\" | \"task_cancelled\" | \"task_pause_checkpoint_created\" | \"task_paused\" | \"task_resumed\" | \"runtime_instance_started\" | \"task_owner_attached\" | \"task_owner_heartbeat\" | \"task_owner_detached\" | \"task_owner_lost\" | \"task_reattach_recorded\" | \"agent_run_started\" | \"agent_step_started\" | \"agent_step_completed\" | \"agent_run_completed\" | \"agent_handoff_recorded\" | \"reviewer_gate_requested\" | \"reviewer_gate_resolved\" | \"subagent_session_planned\" | \"subagent_session_started\" | \"subagent_session_waiting_for_approval\" | \"subagent_session_inactive\" | \"subagent_session_completed\" | \"no_progress_loop_detected\" | \"diagnostics_reported\" | \"memory_write_proposed\" | \"memory_write_applied\" | \"memory_write_rejected\" | \"artifact_created\" | \"snapshot_created\" | \"tool_call_requested\" | \"tool_policy_decision_recorded\" | \"sandbox_decision_recorded\" | \"os_sandbox_profile_selected\" | \"tool_dispatch_started\" | \"tool_dispatch_completed\" | \"tool_result\" | \"tool_repair_reported\" | \"tool_call_approved\" | \"tool_call_denied\" | \"error\" | \"done\";
+export type TraceEventKind = \"thread_created\" | \"turn_started\" | \"user_message_recorded\" | \"provider_request_started\" | \"assistant_message_started\" | \"assistant_delta\" | \"assistant_reasoning_delta\" | \"assistant_message_completed\" | \"usage_reported\" | \"provider_capability_reported\" | \"route_decision_recorded\" | \"provider_request_completed\" | \"turn_completed\" | \"task_created\" | \"task_started\" | \"task_completed\" | \"task_failed\" | \"task_cancelled\" | \"task_pause_checkpoint_created\" | \"task_paused\" | \"task_resumed\" | \"runtime_instance_started\" | \"task_owner_attached\" | \"task_owner_heartbeat\" | \"task_owner_detached\" | \"task_owner_lost\" | \"task_reattach_recorded\" | \"agent_run_started\" | \"agent_step_started\" | \"agent_step_completed\" | \"agent_run_completed\" | \"agent_handoff_recorded\" | \"reviewer_gate_requested\" | \"reviewer_gate_resolved\" | \"subagent_session_planned\" | \"subagent_session_started\" | \"subagent_session_waiting_for_approval\" | \"subagent_session_inactive\" | \"subagent_session_completed\" | \"subagent_runtime_decision_recorded\" | \"subagent_transcript_artifact_recorded\" | \"subagent_approval_forwarding_recorded\" | \"subagent_inactive_policy_recorded\" | \"subagent_cancellation_recorded\" | \"no_progress_loop_detected\" | \"diagnostics_reported\" | \"memory_write_proposed\" | \"memory_write_applied\" | \"memory_write_rejected\" | \"artifact_created\" | \"snapshot_created\" | \"tool_call_requested\" | \"tool_policy_decision_recorded\" | \"sandbox_decision_recorded\" | \"os_sandbox_profile_selected\" | \"tool_dispatch_started\" | \"tool_dispatch_completed\" | \"tool_result\" | \"tool_repair_reported\" | \"tool_call_approved\" | \"tool_call_denied\" | \"error\" | \"done\";
 ";
 
 pub fn generate_bindings() -> String {
@@ -69,8 +77,17 @@ pub fn generate_bindings() -> String {
     push_decl::<ClientReviewerGateStatus>(&mut output, &cfg);
     push_decl::<ClientSnapshot>(&mut output, &cfg);
     push_decl::<ClientStatus>(&mut output, &cfg);
+    push_decl::<ClientSubagentApprovalForwarding>(&mut output, &cfg);
+    push_decl::<ClientSubagentApprovalForwardingStatus>(&mut output, &cfg);
+    push_decl::<ClientSubagentCancellation>(&mut output, &cfg);
+    push_decl::<ClientSubagentCancellationCascade>(&mut output, &cfg);
+    push_decl::<ClientSubagentInactiveParentAction>(&mut output, &cfg);
+    push_decl::<ClientSubagentInactivePolicy>(&mut output, &cfg);
+    push_decl::<ClientSubagentRuntimeDecision>(&mut output, &cfg);
+    push_decl::<ClientSubagentRuntimeDecisionKind>(&mut output, &cfg);
     push_decl::<ClientSubagentSession>(&mut output, &cfg);
     push_decl::<ClientSubagentSessionStatus>(&mut output, &cfg);
+    push_decl::<ClientSubagentTranscriptArtifact>(&mut output, &cfg);
     push_decl::<ClientTask>(&mut output, &cfg);
     push_decl::<ClientTelemetrySummary>(&mut output, &cfg);
     push_decl::<ContextId>(&mut output, &cfg);
@@ -104,11 +121,20 @@ pub fn generate_bindings() -> String {
     push_decl::<RuntimeApiServerConfig>(&mut output, &cfg);
     push_decl::<RuntimeInstanceId>(&mut output, &cfg);
     push_decl::<SubagentApprovalForwarding>(&mut output, &cfg);
+    push_decl::<SubagentApprovalForwardingRecord>(&mut output, &cfg);
+    push_decl::<SubagentApprovalForwardingStatus>(&mut output, &cfg);
+    push_decl::<SubagentCancellationCascade>(&mut output, &cfg);
+    push_decl::<SubagentCancellationRecord>(&mut output, &cfg);
+    push_decl::<SubagentInactiveParentAction>(&mut output, &cfg);
     push_decl::<SubagentInactivePolicy>(&mut output, &cfg);
+    push_decl::<SubagentInactivePolicyRecord>(&mut output, &cfg);
+    push_decl::<SubagentRuntimeDecision>(&mut output, &cfg);
+    push_decl::<SubagentRuntimeDecisionKind>(&mut output, &cfg);
     push_decl::<SubagentSessionCaps>(&mut output, &cfg);
     push_decl::<SubagentSessionDescriptor>(&mut output, &cfg);
     push_decl::<SubagentSessionId>(&mut output, &cfg);
     push_decl::<SubagentSessionStatus>(&mut output, &cfg);
+    push_decl::<SubagentTranscriptArtifactRecord>(&mut output, &cfg);
     push_decl::<TaskId>(&mut output, &cfg);
     push_decl::<TaskKind>(&mut output, &cfg);
     push_decl::<TaskOwnerKind>(&mut output, &cfg);

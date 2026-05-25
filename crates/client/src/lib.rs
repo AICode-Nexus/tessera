@@ -7,11 +7,15 @@ use tessera_protocol::{
     ArtifactId, ArtifactKind, ClientInstanceId, ContextId, ContextPlacement, ContextReference,
     ContextSourceKind, EventFrame, EventRange, HandoffEvidenceRef, ItemId, MemoryProposal,
     MemoryProposalId, MemoryProposalStatus, ReviewerDecisionKind, ReviewerGateDecision,
-    ReviewerGateId, ReviewerGateRequest, RunEvent, RuntimeInstanceId, SubagentInactivePolicy,
-    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus, TaskId, TaskKind,
-    TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
-    TaskReattachMode, TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolApproval,
-    ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect, TraceRecord, TurnId,
+    ReviewerGateId, ReviewerGateRequest, RunEvent, RuntimeInstanceId,
+    SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
+    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
+    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
+    SubagentRuntimeDecisionKind, SubagentSessionDescriptor, SubagentSessionId,
+    SubagentSessionStatus, SubagentTranscriptArtifactRecord, TaskId, TaskKind, TaskOwnerHeartbeat,
+    TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode,
+    TaskReattachRecord, TaskStatus, ThreadId, Timestamp, ToolApproval, ToolCallId, ToolId,
+    ToolPermission, ToolPolicyDecision, ToolSideEffect, TraceRecord, TurnId,
 };
 
 /// User intent shared by CLI/TUI/GUI surfaces before it reaches runtime code.
@@ -692,6 +696,229 @@ impl ClientSubagentSession {
     }
 }
 
+/// UI-neutral sub-agent runtime decision kind shared by client shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientSubagentRuntimeDecisionKind {
+    StartAllowed,
+    StartDenied,
+    QueueOnly,
+    RequireReviewer,
+}
+
+impl From<SubagentRuntimeDecisionKind> for ClientSubagentRuntimeDecisionKind {
+    fn from(kind: SubagentRuntimeDecisionKind) -> Self {
+        match kind {
+            SubagentRuntimeDecisionKind::StartAllowed => Self::StartAllowed,
+            SubagentRuntimeDecisionKind::StartDenied => Self::StartDenied,
+            SubagentRuntimeDecisionKind::QueueOnly => Self::QueueOnly,
+            SubagentRuntimeDecisionKind::RequireReviewer => Self::RequireReviewer,
+        }
+    }
+}
+
+/// UI-neutral sub-agent runtime decision projection.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientSubagentRuntimeDecision {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub kind: ClientSubagentRuntimeDecisionKind,
+    pub reason: String,
+    pub max_steps: u32,
+    pub max_depth: u32,
+    pub timeout_ms: Option<u64>,
+    pub max_child_sessions: u32,
+    pub estimated_cost: Option<f64>,
+    pub cost_currency: Option<String>,
+    pub concurrency_slot: Option<String>,
+}
+
+impl ClientSubagentRuntimeDecision {
+    fn from_decision(decision: &SubagentRuntimeDecision) -> Self {
+        Self {
+            session_id: decision.session_id.clone(),
+            parent_task_id: decision.parent_task_id.clone(),
+            child_task_id: decision.child_task_id.clone(),
+            kind: decision.kind.into(),
+            reason: decision.reason.clone(),
+            max_steps: decision.caps_snapshot.max_steps,
+            max_depth: decision.caps_snapshot.max_depth,
+            timeout_ms: decision.caps_snapshot.timeout_ms,
+            max_child_sessions: decision.caps_snapshot.max_child_sessions,
+            estimated_cost: decision
+                .caps_snapshot
+                .max_estimated_cost
+                .as_ref()
+                .map(|cost| cost.amount),
+            cost_currency: decision
+                .caps_snapshot
+                .max_estimated_cost
+                .as_ref()
+                .map(|cost| cost.currency.clone()),
+            concurrency_slot: decision.caps_snapshot.concurrency_slot.clone(),
+        }
+    }
+}
+
+/// UI-neutral sub-agent transcript artifact projection.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientSubagentTranscriptArtifact {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub child_task_id: Option<TaskId>,
+    pub artifact_id: ArtifactId,
+    pub event_range: EventRange,
+    pub summary_label: Option<String>,
+}
+
+impl ClientSubagentTranscriptArtifact {
+    fn from_record(record: &SubagentTranscriptArtifactRecord) -> Self {
+        Self {
+            session_id: record.session_id.clone(),
+            parent_task_id: record.parent_task_id.clone(),
+            child_task_id: record.child_task_id.clone(),
+            artifact_id: record.artifact_id.clone(),
+            event_range: record.event_range.clone(),
+            summary_label: record.summary_label.clone(),
+        }
+    }
+}
+
+/// UI-neutral sub-agent approval forwarding status shared by client shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientSubagentApprovalForwardingStatus {
+    QueuedForReviewer,
+    ForwardedToParent,
+    DeniedByPolicy,
+}
+
+impl From<SubagentApprovalForwardingStatus> for ClientSubagentApprovalForwardingStatus {
+    fn from(status: SubagentApprovalForwardingStatus) -> Self {
+        match status {
+            SubagentApprovalForwardingStatus::QueuedForReviewer => Self::QueuedForReviewer,
+            SubagentApprovalForwardingStatus::ForwardedToParent => Self::ForwardedToParent,
+            SubagentApprovalForwardingStatus::DeniedByPolicy => Self::DeniedByPolicy,
+        }
+    }
+}
+
+/// UI-neutral sub-agent approval forwarding projection.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientSubagentApprovalForwarding {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub approval_id: ApprovalId,
+    pub reviewer_gate_id: Option<ReviewerGateId>,
+    pub status: ClientSubagentApprovalForwardingStatus,
+    pub reason: String,
+}
+
+impl ClientSubagentApprovalForwarding {
+    fn from_record(record: &SubagentApprovalForwardingRecord) -> Self {
+        Self {
+            session_id: record.session_id.clone(),
+            parent_task_id: record.parent_task_id.clone(),
+            approval_id: record.approval_id.clone(),
+            reviewer_gate_id: record.reviewer_gate_id.clone(),
+            status: record.status.into(),
+            reason: record.reason.clone(),
+        }
+    }
+}
+
+/// UI-neutral inactive-child parent action shared by client shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientSubagentInactiveParentAction {
+    PauseParent,
+    QueueDecision,
+    RequireReviewer,
+}
+
+impl From<SubagentInactiveParentAction> for ClientSubagentInactiveParentAction {
+    fn from(action: SubagentInactiveParentAction) -> Self {
+        match action {
+            SubagentInactiveParentAction::PauseParent => Self::PauseParent,
+            SubagentInactiveParentAction::QueueDecision => Self::QueueDecision,
+            SubagentInactiveParentAction::RequireReviewer => Self::RequireReviewer,
+        }
+    }
+}
+
+/// UI-neutral sub-agent inactive policy projection.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientSubagentInactivePolicy {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub policy: Option<String>,
+    pub parent_action: ClientSubagentInactiveParentAction,
+    pub reason: String,
+}
+
+impl ClientSubagentInactivePolicy {
+    fn from_record(record: &SubagentInactivePolicyRecord) -> Self {
+        Self {
+            session_id: record.session_id.clone(),
+            parent_task_id: record.parent_task_id.clone(),
+            policy: Some(inactive_policy_label(record.policy).to_string()),
+            parent_action: record.parent_action.into(),
+            reason: record.reason.clone(),
+        }
+    }
+}
+
+/// UI-neutral sub-agent cancellation cascade shared by client shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientSubagentCancellationCascade {
+    CancelChild,
+    ObserveOnly,
+    QueueCancellation,
+}
+
+impl From<SubagentCancellationCascade> for ClientSubagentCancellationCascade {
+    fn from(cascade: SubagentCancellationCascade) -> Self {
+        match cascade {
+            SubagentCancellationCascade::CancelChild => Self::CancelChild,
+            SubagentCancellationCascade::ObserveOnly => Self::ObserveOnly,
+            SubagentCancellationCascade::QueueCancellation => Self::QueueCancellation,
+        }
+    }
+}
+
+/// UI-neutral sub-agent cancellation projection.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientSubagentCancellation {
+    pub session_id: SubagentSessionId,
+    pub parent_task_id: TaskId,
+    pub source_task_id: TaskId,
+    pub reason: String,
+    pub cascade: ClientSubagentCancellationCascade,
+}
+
+impl ClientSubagentCancellation {
+    fn from_record(record: &SubagentCancellationRecord) -> Self {
+        Self {
+            session_id: record.session_id.clone(),
+            parent_task_id: record.parent_task_id.clone(),
+            source_task_id: record.source_task_id.clone(),
+            reason: record.reason.clone(),
+            cascade: record.cascade.into(),
+        }
+    }
+}
+
 /// Provider-neutral telemetry projection shared by terminal and future GUI shells.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
@@ -854,6 +1081,8 @@ pub struct ClientStatus {
     pub handoff_summary: String,
     #[serde(default)]
     pub subagent_summary: String,
+    #[serde(default)]
+    pub subagent_runtime_summary: String,
     pub usage_summary: String,
     pub cache_summary: String,
     pub cost_summary: String,
@@ -897,6 +1126,9 @@ impl ClientStatus {
             memory_summary: "memory 0 pending".to_string(),
             handoff_summary: "handoffs 0 / reviews 0 pending".to_string(),
             subagent_summary: "subagents 0 / active 0 / waiting 0 / inactive 0".to_string(),
+            subagent_runtime_summary:
+                "subagent runtime decisions 0 / transcripts 0 / forwarding queued 0 / inactive require_reviewer 0 / cancellations 0"
+                    .to_string(),
             usage_summary: "usage in 0 / out 0 / total 0".to_string(),
             cache_summary: "cache 0/0".to_string(),
             cost_summary: "CNY 0.0000".to_string(),
@@ -1011,6 +1243,32 @@ impl ClientStatus {
         self.subagent_summary = format!(
             "subagents {} / active {active} / waiting {waiting} / inactive {inactive}",
             sessions.len()
+        );
+    }
+
+    fn update_subagent_runtime_summary(
+        &mut self,
+        decisions: &[ClientSubagentRuntimeDecision],
+        transcripts: &[ClientSubagentTranscriptArtifact],
+        forwarding: &[ClientSubagentApprovalForwarding],
+        inactive: &[ClientSubagentInactivePolicy],
+        cancellations: &[ClientSubagentCancellation],
+    ) {
+        let forwarding_queued = forwarding
+            .iter()
+            .filter(|record| {
+                record.status == ClientSubagentApprovalForwardingStatus::QueuedForReviewer
+            })
+            .count();
+        let inactive_require_reviewer = inactive
+            .iter()
+            .filter(|record| record.policy.as_deref() == Some("require_reviewer"))
+            .count();
+        self.subagent_runtime_summary = format!(
+            "subagent runtime decisions {} / transcripts {} / forwarding queued {forwarding_queued} / inactive require_reviewer {inactive_require_reviewer} / cancellations {}",
+            decisions.len(),
+            transcripts.len(),
+            cancellations.len()
         );
     }
 
@@ -1183,6 +1441,16 @@ pub struct ClientSnapshot {
     #[serde(default)]
     pub subagent_sessions: Vec<ClientSubagentSession>,
     #[serde(default)]
+    pub subagent_runtime_decisions: Vec<ClientSubagentRuntimeDecision>,
+    #[serde(default)]
+    pub subagent_transcripts: Vec<ClientSubagentTranscriptArtifact>,
+    #[serde(default)]
+    pub subagent_approval_forwarding: Vec<ClientSubagentApprovalForwarding>,
+    #[serde(default)]
+    pub subagent_inactive_policies: Vec<ClientSubagentInactivePolicy>,
+    #[serde(default)]
+    pub subagent_cancellations: Vec<ClientSubagentCancellation>,
+    #[serde(default)]
     pub context_handles: Vec<ClientContextHandle>,
     pub draft_input: String,
 }
@@ -1209,6 +1477,11 @@ impl ClientSnapshot {
             handoffs: Vec::new(),
             reviewer_gates: Vec::new(),
             subagent_sessions: Vec::new(),
+            subagent_runtime_decisions: Vec::new(),
+            subagent_transcripts: Vec::new(),
+            subagent_approval_forwarding: Vec::new(),
+            subagent_inactive_policies: Vec::new(),
+            subagent_cancellations: Vec::new(),
             context_handles: Vec::new(),
             draft_input: String::new(),
         }
@@ -1399,6 +1672,21 @@ impl ClientSnapshot {
             | RunEvent::SubagentSessionInactive { session }
             | RunEvent::SubagentSessionCompleted { session } => {
                 self.record_subagent_session(session);
+            }
+            RunEvent::SubagentRuntimeDecisionRecorded { decision } => {
+                self.record_subagent_runtime_decision(decision);
+            }
+            RunEvent::SubagentTranscriptArtifactRecorded { transcript } => {
+                self.record_subagent_transcript(transcript);
+            }
+            RunEvent::SubagentApprovalForwardingRecorded { forwarding } => {
+                self.record_subagent_approval_forwarding(forwarding);
+            }
+            RunEvent::SubagentInactivePolicyRecorded { inactive } => {
+                self.record_subagent_inactive_policy(inactive);
+            }
+            RunEvent::SubagentCancellationRecorded { cancellation } => {
+                self.record_subagent_cancellation(cancellation);
             }
             RunEvent::TaskOwnerAttached { lease } => {
                 let task = self.task_mut_or_insert(&lease.task_id);
@@ -1723,6 +2011,46 @@ impl ClientSnapshot {
                 };
                 self.record_subagent_session(&session);
             }
+            "subagent_runtime_decision_recorded" => {
+                let Some(decision) =
+                    trace_payload::<SubagentRuntimeDecision>(record.payload.get("decision"))
+                else {
+                    return;
+                };
+                self.record_subagent_runtime_decision(&decision);
+            }
+            "subagent_transcript_artifact_recorded" => {
+                let Some(transcript) = trace_payload::<SubagentTranscriptArtifactRecord>(
+                    record.payload.get("transcript"),
+                ) else {
+                    return;
+                };
+                self.record_subagent_transcript(&transcript);
+            }
+            "subagent_approval_forwarding_recorded" => {
+                let Some(forwarding) = trace_payload::<SubagentApprovalForwardingRecord>(
+                    record.payload.get("forwarding"),
+                ) else {
+                    return;
+                };
+                self.record_subagent_approval_forwarding(&forwarding);
+            }
+            "subagent_inactive_policy_recorded" => {
+                let Some(inactive) =
+                    trace_payload::<SubagentInactivePolicyRecord>(record.payload.get("inactive"))
+                else {
+                    return;
+                };
+                self.record_subagent_inactive_policy(&inactive);
+            }
+            "subagent_cancellation_recorded" => {
+                let Some(cancellation) =
+                    trace_payload::<SubagentCancellationRecord>(record.payload.get("cancellation"))
+                else {
+                    return;
+                };
+                self.record_subagent_cancellation(&cancellation);
+            }
             "task_owner_attached" => {
                 let Some(lease) = trace_payload::<TaskOwnerLease>(record.payload.get("lease"))
                 else {
@@ -1827,6 +2155,11 @@ impl ClientSnapshot {
         self.handoffs.clear();
         self.reviewer_gates.clear();
         self.subagent_sessions.clear();
+        self.subagent_runtime_decisions.clear();
+        self.subagent_transcripts.clear();
+        self.subagent_approval_forwarding.clear();
+        self.subagent_inactive_policies.clear();
+        self.subagent_cancellations.clear();
         self.context_handles.clear();
         self.draft_input.clear();
         self.status.reset_telemetry();
@@ -1837,6 +2170,7 @@ impl ClientSnapshot {
         self.status
             .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
         self.status.update_subagent_summary(&self.subagent_sessions);
+        self.refresh_subagent_runtime_summary();
         self.status.update_context_handles_summary(
             &self.context_handles,
             &ClientContextBudgetSummary::default(),
@@ -2068,6 +2402,70 @@ impl ClientSnapshot {
             self.subagent_sessions.push(projected);
         }
         self.status.update_subagent_summary(&self.subagent_sessions);
+    }
+
+    fn record_subagent_runtime_decision(&mut self, decision: &SubagentRuntimeDecision) {
+        self.subagent_runtime_decisions
+            .push(ClientSubagentRuntimeDecision::from_decision(decision));
+        self.refresh_subagent_runtime_summary();
+    }
+
+    fn record_subagent_transcript(&mut self, transcript: &SubagentTranscriptArtifactRecord) {
+        let projected = ClientSubagentTranscriptArtifact::from_record(transcript);
+        if let Some(existing) = self.subagent_transcripts.iter_mut().find(|existing| {
+            existing.session_id == transcript.session_id
+                && existing.artifact_id == transcript.artifact_id
+        }) {
+            *existing = projected;
+        } else {
+            self.subagent_transcripts.push(projected);
+        }
+
+        let artifact = self.artifact_mut_or_insert(&transcript.artifact_id);
+        artifact.kind = Some(ArtifactKind::AgentTranscript);
+        artifact.update_scope(
+            None,
+            None,
+            transcript
+                .child_task_id
+                .clone()
+                .or_else(|| Some(transcript.parent_task_id.clone())),
+            None,
+        );
+        artifact.record_reference("subagent_transcript_artifact_recorded");
+        self.status.update_artifact_summary(&self.artifacts);
+        self.refresh_subagent_runtime_summary();
+    }
+
+    fn record_subagent_approval_forwarding(
+        &mut self,
+        forwarding: &SubagentApprovalForwardingRecord,
+    ) {
+        self.subagent_approval_forwarding
+            .push(ClientSubagentApprovalForwarding::from_record(forwarding));
+        self.refresh_subagent_runtime_summary();
+    }
+
+    fn record_subagent_inactive_policy(&mut self, inactive: &SubagentInactivePolicyRecord) {
+        self.subagent_inactive_policies
+            .push(ClientSubagentInactivePolicy::from_record(inactive));
+        self.refresh_subagent_runtime_summary();
+    }
+
+    fn record_subagent_cancellation(&mut self, cancellation: &SubagentCancellationRecord) {
+        self.subagent_cancellations
+            .push(ClientSubagentCancellation::from_record(cancellation));
+        self.refresh_subagent_runtime_summary();
+    }
+
+    fn refresh_subagent_runtime_summary(&mut self) {
+        self.status.update_subagent_runtime_summary(
+            &self.subagent_runtime_decisions,
+            &self.subagent_transcripts,
+            &self.subagent_approval_forwarding,
+            &self.subagent_inactive_policies,
+            &self.subagent_cancellations,
+        );
     }
 
     fn apply_artifact_refs_from_frame(&mut self, frame: &EventFrame) {

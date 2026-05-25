@@ -221,12 +221,15 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Read-only `tessera-client` sub-agent session projection from live events and replayed trace records.
 - Generated GUI TypeScript bindings for sub-agent session DTOs and trace event kinds.
 - Persistent sub-agent runtime ownership design gate: future scheduling must be coordinated by `core`, record task ownership and lifecycle events, publish transcript artifact handles, mediate approval forwarding through policy/reviewer gates, and make inactive-child handling deterministic before child execution is enabled.
+- Provider-neutral sub-agent runtime ownership events for scheduler decisions, transcript artifact publication, approval forwarding state, inactive-child policy handling, and cancellation cascade metadata.
+- Non-executing core `SubagentRuntimeCoordinator` skeleton that validates caps/reviewer/transcript metadata and returns provider-neutral runtime decisions without calling providers, tools, storage internals, or UI.
+- Read-only `tessera-client` and GUI binding projection for sub-agent runtime ownership metadata from live events and replayed trace records.
 
 **Remaining Runtime Scope:**
 
 - Persistent child-agent execution and scheduling over the recorded session metadata.
-- Runtime lifecycle ownership for child sessions, including start/stop/reattach semantics.
-- Transcript artifact creation and retention lifecycle.
+- Runtime lifecycle ownership for real child sessions, including start/stop/reattach semantics beyond metadata-only decisions.
+- Real transcript artifact creation and retention lifecycle for child runs.
 - Runtime enforcement of per-agent scope, cost, recursion, timeout and concurrency limits.
 - Runtime approval forwarding and inactive-child task handling.
 - Skill-scoped subagent entrypoints.
@@ -242,9 +245,9 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Stable task lifecycle and trace replay.
 - Tool policy and approval surfaces.
 
-**Runtime Ownership Gate:** Persistent sub-agent runtime cannot begin with direct child execution. The next runtime-capable slices must first add provider-neutral runtime decision events, a non-executing `SubagentRuntimeCoordinator` in `core`, transcript artifact lifecycle records, approval-forwarding policy records, inactive-child policy records, and cancellation/reattach metadata. CLI, TUI, GUI, client, providers and storage must not schedule child sessions or bypass core.
+**Runtime Ownership Gate:** Persistent sub-agent runtime cannot begin with direct child execution. The current foundation provides provider-neutral runtime ownership records, a non-executing `SubagentRuntimeCoordinator` in `core`, and read-only projection of transcript artifact, approval-forwarding, inactive-policy and cancellation metadata. The next runtime-capable slices must integrate real child task lifecycle, task ownership, transcript artifact persistence, approval-forwarding policy checks, inactive-child handling and cancellation/reattach metadata before provider-backed child execution. CLI, TUI, GUI, client, providers and storage must not schedule child sessions or bypass core.
 
-**Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable; reviewer gate can accept, reject, or request revision without relying on UI-only state. The v0.6 foundation milestones are complete: protocol/trace/client projections can represent handoff summaries, reviewer decisions, persistent sub-agent session metadata, caps, transcript artifact handles, approval forwarding metadata and inactive-child handling state without starting persistent sub-agents, executing tools, mutating workspaces, starting a scheduler, or depending on UI-only state. Runtime completion still requires persistent child execution, parent/child task scheduling, approval forwarding runtime and transcript artifact lifecycle.
+**Exit Criteria:** Parent agents receive structured summaries/evidence/metrics; detailed child transcripts remain trace/artifact-backed and replayable; reviewer gate can accept, reject, or request revision without relying on UI-only state. The v0.6 foundation milestones are complete: protocol/trace/client projections can represent handoff summaries, reviewer decisions, persistent sub-agent session metadata, caps, transcript artifact handles, runtime ownership decisions, approval forwarding metadata, inactive-child policy state and cancellation metadata without starting persistent sub-agents, executing tools, mutating workspaces, starting an executing scheduler, or depending on UI-only state. Runtime completion still requires persistent child execution, parent/child task scheduling, approval forwarding runtime and real transcript artifact lifecycle.
 
 ## 11. v0.7: Project Coding-Agent Workflow
 
