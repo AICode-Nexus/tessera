@@ -30,7 +30,7 @@
 当前 `main` 基线已完成 v0.1 release，并已将 v0.2-v0.5 收口为 foundation-stable 工作。必须明确区分：
 
 - **用户可用能力**：CLI/TUI/mock chat、trace/replay、session resume、chat-only paused task resume、opt-in project instructions、explicit read-only skill activation 等。
-- **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、runtime API / app-server DTO alignment、diagnostics event、memory proposal UI、trace-backed task ownership metadata/recorder/projection、no-tool chat/agent run owner attach/detach、structured handoff/reviewer gate、sub-agent session/runtime ownership/transcript lifecycle metadata projection、metadata-only coding-agent workflow protocol/core/client projection 等。
+- **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、runtime API / app-server DTO alignment、diagnostics event、memory proposal UI、trace-backed task ownership metadata/recorder/projection、no-tool chat/agent run owner attach/detach、structured handoff/reviewer gate、sub-agent session/runtime ownership/transcript lifecycle metadata projection、metadata-only coding-agent workflow protocol/core/client projection、v0.7 runtime gate assessment 等。
 - **尚未支持能力**：真实 tool execution、executable/default/global skill runtime、tool-using/full coding-agent runtime、MCP runtime、background reattach、daemon/app-server listener、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、persistent sub-agent runtime、apply-patch/file/test/Git execution workflow、swarm、learning apply。
 
 ## 4. Version Status Matrix
@@ -171,6 +171,8 @@
 - [ ] Hook runtime.
 - [ ] Automation runtime.
 - [x] Metadata-only coding-agent workflow contract and read-only projection for diff/test/checkpoint/review/restore evidence.
+- [x] v0.7 runtime gate assessment documenting why apply-patch, test execution, checkpoint restore, worktree mutation, Git mutation, hooks, automations, app-server mutation listener, swarm and learning apply remain blocked.
+- [ ] v0.7 runtime gate closure foundations for mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle contracts, and worktree/sandbox enforcement planning before any executor.
 - [ ] Executable coding-agent diff/test/checkpoint/rollback workflow.
 - [ ] Apply-patch tool.
 - [ ] Worktree-first mutation execution mode.
@@ -208,10 +210,12 @@ The next implementation slices should stay conservative and preserve the current
 24. [x] Add non-executing core sub-agent owner heartbeat/lost/reattach metadata helper.
 25. [x] Design v0.7 coding-agent workflow foundation: patch proposal, diff/test evidence, checkpoint requirement, review bundle, restore plan and worktree-first mutation boundaries without execution.
 26. [x] Implement metadata-only v0.7 coding-agent workflow protocol, core coordinator, client projection and GUI bindings before any apply-patch execution.
-27. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-28. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
-29. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
-30. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
+27. [x] Audit v0.7 runtime gate readiness and document missing execution prerequisites before any apply-patch runtime.
+28. [ ] Execute the v0.7 runtime gate closure plan for proposal contracts, artifact/redaction contracts, checkpoint lifecycle contracts, and worktree/sandbox enforcement planning while keeping mutation execution blocked.
+29. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+30. [!] Do not start apply-patch/file mutation workflow until policy, sandbox, checkpoint, single-agent loop, background ownership, and reviewer gate are all stable.
+31. [!] Do not start swarm until structured handoff, reviewer gate, cost budgets and deterministic result publication exist.
+32. [!] Do not start learning apply path until skill runtime, policy, review, and replay/eval evidence exist.
 
 ## 8. Mandatory Gates
 

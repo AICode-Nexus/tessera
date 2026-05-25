@@ -269,6 +269,9 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Provider-neutral coding workflow metadata events for workflow start, workspace mutation scope, patch proposals, patch application records, test plans/runs, review bundles, and restore plans.
 - Non-executing core coordinator that validates relative workspace paths, required diff/test artifact references, checkpoint references, reviewer gates, and restore-plan blocking while returning `RunEvent` values only.
 - Read-only client and GUI binding projection from live events and replayed trace records.
+- Runtime gate assessment documenting that executable apply-patch, test execution, checkpoint restore, worktree mutation, Git mutation, hooks, automations, app-server mutation listener, swarm, and learning apply remain blocked until enforcement gates are complete.
+
+**Runtime Gate Assessment:** The metadata foundation is necessary but insufficient for workspace mutation. Before any executor can apply patches or run tests, Tessera still needs mutation request proposal contracts, artifact body/redaction semantics, real checkpoint lifecycle contracts, worktree lifecycle planning, sandbox enforcement planning, policy binding to concrete operations, reviewer-gate enforcement, and client intents that remain projections over core-owned runtime state.
 
 **Remaining Planned Scope:**
 
