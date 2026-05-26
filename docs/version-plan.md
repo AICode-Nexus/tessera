@@ -283,12 +283,13 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Read-only client and GUI binding projection for execution records without CLI/TUI/GUI mutation buttons.
 - Final narrow-executor verification found no shell/test execution, checkpoint restore, worktree creation/lifecycle, Git mutation, tool-dispatch executor, or GUI-owned mutation path.
 
-**Runtime Gate Assessment:** The v0.7 foundation now records mutation intent, required checkpoint/reviewer/policy/sandbox metadata, artifact body/redaction handles, checkpoint lifecycle records, non-executing worktree/sandbox plans, apply-patch preflight/dry-run readiness metadata, and a narrow executor result record. The first executor is intentionally small: core-owned, in-process, limited to one UTF-8 text file create/modify operation, and writing only inside an explicitly supplied isolated non-primary mutation root after executor-ready preflight, policy, reviewer, sandbox, checkpoint and path/symlink checks pass. It still does not run tests, restore checkpoints, create worktrees, run Git, expose a user-facing apply-patch tool, or execute shell/provider tool mutations.
+**Runtime Gate Assessment:** The v0.7 foundation now records mutation intent, required checkpoint/reviewer/policy/sandbox metadata, artifact body/redaction handles, checkpoint lifecycle records, non-executing worktree/sandbox plans, apply-patch preflight/dry-run readiness metadata, and a narrow executor result record. The first executor is intentionally small: core-owned, in-process, limited to one UTF-8 text file create/modify operation, and writing only inside an explicitly supplied isolated non-primary mutation root after executor-ready preflight, policy, reviewer, sandbox, checkpoint and path/symlink checks pass. The next planned user-facing surface is an explicit `tessera apply-patch` CLI envelope that requires operator-supplied refs, allowed paths, patch source and isolated root, then records preflight/execution metadata through the core gate. v0.7 still does not run tests, restore checkpoints, create worktrees, run Git, expose trace-driven workflow automation, or execute shell/provider tool mutations.
 
 **Remaining Planned Scope:**
 
 - Coding-agent workflow over a bounded workspace scope.
-- User-facing apply-patch tool over the narrow executor.
+- User-facing explicit apply-patch CLI tool over the narrow executor.
+- Trace-driven apply-patch workflow automation after explicit CLI semantics are verified.
 - Automatic isolated worktree lifecycle before mutation execution.
 - Diff preview and approval.
 - Test runner integration through policy gates.

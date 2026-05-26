@@ -191,6 +191,7 @@
 - [x] Provider-neutral apply-patch execution records and read-only client/GUI projection for actual executor result metadata.
 - [x] Explicit executor-ready gate while default preflight/dry-run records remain `executor_blocked`.
 - [x] Pure in-memory single-file patch model and isolated-root UTF-8 create/modify executor with path/symlink guardrails.
+- [x] v0.7 explicit apply-patch CLI tool design for a gated, operator-supplied isolated-root envelope over the narrow executor.
 - [ ] Executable coding-agent diff/test/checkpoint/rollback workflow.
 - [ ] User-facing apply-patch tool over the narrow executor.
 - [ ] Automatic worktree-first mutation lifecycle and cleanup.
@@ -237,8 +238,10 @@ The next implementation slices should stay conservative and preserve the current
 33. [x] Gate executor readiness explicitly while preserving the default `executor_blocked` behavior for preflight/dry-run records.
 34. [x] Add a pure in-memory single-file patch application model before filesystem writes.
 35. [x] Add isolated-root single-file apply-patch execution only after protocol, readiness, policy, sandbox, checkpoint, reviewer and path/symlink checks are verified.
-36. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-37. [!] Do not start test runner, checkpoint restore, Git mutation, worktree creation, GUI mutation controls, app-server mutation listener, swarm, or learning apply until their stated gates exist.
+36. [x] Design the explicit `tessera apply-patch` CLI envelope over the narrow executor: operator-supplied isolated root, allowed paths, gate refs, patch source, preflight trace event, execution trace event, and no automatic worktree/test/checkpoint/Git/UI behavior.
+37. [ ] Implement the explicit `tessera apply-patch` CLI envelope before trace-driven workflow automation.
+38. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+39. [!] Do not start test runner, checkpoint restore, Git mutation, worktree creation, GUI mutation controls, app-server mutation listener, swarm, or learning apply until their stated gates exist.
 
 ## 8. Mandatory Gates
 
