@@ -18,29 +18,30 @@ use tessera_client::{
 use tessera_gui_bridge::{GuiCommandOutcome, GuiEvent, GuiProfile, GuiRuntimeMode, GuiShellState};
 use tessera_protocol::{
     AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, AgentProfileId,
-    ApplyPatchDryRunOperationKind, ApplyPatchDryRunOperationSummary, ApplyPatchPreflightBlocker,
-    ApplyPatchPreflightId, ApplyPatchPreflightRecord, ApplyPatchPreflightStatus, ApprovalId,
-    ArtifactBodyRecord, ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind, ClientInstanceId,
-    CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextId, CostEstimate, EventId,
-    EventRange, HandoffEvidenceKind, HandoffEvidenceRef, ItemId, MemoryProposalId, MutationMode,
-    MutationRequestId, MutationRequestOperationKind, MutationRequestProposal,
-    MutationRequestStatus, PatchApplicationOutcome, PatchApplicationRecord, PatchProposal,
-    PatchProposalId, RestorePlanId, RestorePlanRecord, ReviewBundle, ReviewBundleId,
-    ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest,
-    RuntimeApiAuthMode, RuntimeApiAuthPolicy, RuntimeApiBindConfig, RuntimeApiBindKind,
-    RuntimeApiCommand, RuntimeApiCommandAck, RuntimeApiCommandEnvelope, RuntimeApiCommandStatus,
-    RuntimeApiEventStreamRequest, RuntimeApiQueueOverflow, RuntimeApiQueuePolicy,
-    RuntimeApiServerConfig, RuntimeInstanceId, SnapshotId, SubagentApprovalForwarding,
-    SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
-    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
-    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
-    SubagentRuntimeDecisionKind, SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId,
-    SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
-    SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskKind,
-    TaskOwnerKind, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, TestPlanId,
-    TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus, ThreadId, Timestamp, ToolCallId,
-    ToolId, TraceRecord, TurnId, WorkspaceCheckpointLifecycleRecord,
-    WorkspaceCheckpointLifecycleStatus, WorkspaceMutationScope,
+    ApplyPatchDryRunOperationKind, ApplyPatchDryRunOperationSummary, ApplyPatchExecutionBlocker,
+    ApplyPatchExecutionId, ApplyPatchExecutionRecord, ApplyPatchExecutionStatus,
+    ApplyPatchPreflightBlocker, ApplyPatchPreflightId, ApplyPatchPreflightRecord,
+    ApplyPatchPreflightStatus, ApprovalId, ArtifactBodyRecord, ArtifactBodyRedactionStatus,
+    ArtifactId, ArtifactKind, ClientInstanceId, CodingWorkflowEvidenceRedactionStatus,
+    CodingWorkflowId, ContextId, CostEstimate, EventId, EventRange, HandoffEvidenceKind,
+    HandoffEvidenceRef, ItemId, MemoryProposalId, MutationMode, MutationRequestId,
+    MutationRequestOperationKind, MutationRequestProposal, MutationRequestStatus,
+    PatchApplicationOutcome, PatchApplicationRecord, PatchProposal, PatchProposalId, RestorePlanId,
+    RestorePlanRecord, ReviewBundle, ReviewBundleId, ReviewerDecisionKind, ReviewerGateDecision,
+    ReviewerGateId, ReviewerGateRequest, RuntimeApiAuthMode, RuntimeApiAuthPolicy,
+    RuntimeApiBindConfig, RuntimeApiBindKind, RuntimeApiCommand, RuntimeApiCommandAck,
+    RuntimeApiCommandEnvelope, RuntimeApiCommandStatus, RuntimeApiEventStreamRequest,
+    RuntimeApiQueueOverflow, RuntimeApiQueuePolicy, RuntimeApiServerConfig, RuntimeInstanceId,
+    SnapshotId, SubagentApprovalForwarding, SubagentApprovalForwardingRecord,
+    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
+    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
+    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionCaps,
+    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
+    SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactRecord,
+    SubagentTranscriptArtifactStatus, TaskId, TaskKind, TaskOwnerKind, TaskOwnerStatus,
+    TaskOwnershipId, TaskReattachMode, TaskStatus, TestPlanId, TestPlanRecord, TestRunId,
+    TestRunRecord, TestRunStatus, ThreadId, Timestamp, ToolCallId, ToolId, TraceRecord, TurnId,
+    WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus, WorkspaceMutationScope,
 };
 use ts_rs::{Config, TS};
 
@@ -53,7 +54,7 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 ";
 
 const TRACE_EVENT_KIND_DECL: &str = "\
-export type TraceEventKind = \"thread_created\" | \"turn_started\" | \"user_message_recorded\" | \"provider_request_started\" | \"assistant_message_started\" | \"assistant_delta\" | \"assistant_reasoning_delta\" | \"assistant_message_completed\" | \"usage_reported\" | \"provider_capability_reported\" | \"route_decision_recorded\" | \"provider_request_completed\" | \"turn_completed\" | \"task_created\" | \"task_started\" | \"task_completed\" | \"task_failed\" | \"task_cancelled\" | \"task_pause_checkpoint_created\" | \"task_paused\" | \"task_resumed\" | \"runtime_instance_started\" | \"task_owner_attached\" | \"task_owner_heartbeat\" | \"task_owner_detached\" | \"task_owner_lost\" | \"task_reattach_recorded\" | \"agent_run_started\" | \"agent_step_started\" | \"agent_step_completed\" | \"agent_run_completed\" | \"agent_handoff_recorded\" | \"reviewer_gate_requested\" | \"reviewer_gate_resolved\" | \"coding_workflow_started\" | \"workspace_mutation_scope_recorded\" | \"mutation_request_proposal_recorded\" | \"apply_patch_preflight_recorded\" | \"patch_proposal_recorded\" | \"patch_application_recorded\" | \"test_plan_recorded\" | \"test_run_recorded\" | \"review_bundle_recorded\" | \"restore_plan_recorded\" | \"subagent_session_planned\" | \"subagent_session_started\" | \"subagent_session_waiting_for_approval\" | \"subagent_session_inactive\" | \"subagent_session_completed\" | \"subagent_runtime_decision_recorded\" | \"subagent_transcript_artifact_recorded\" | \"subagent_transcript_artifact_lifecycle_recorded\" | \"subagent_approval_forwarding_recorded\" | \"subagent_inactive_policy_recorded\" | \"subagent_cancellation_recorded\" | \"no_progress_loop_detected\" | \"diagnostics_reported\" | \"memory_write_proposed\" | \"memory_write_applied\" | \"memory_write_rejected\" | \"artifact_created\" | \"artifact_body_recorded\" | \"snapshot_created\" | \"snapshot_lifecycle_recorded\" | \"tool_call_requested\" | \"tool_policy_decision_recorded\" | \"sandbox_decision_recorded\" | \"os_sandbox_profile_selected\" | \"tool_dispatch_started\" | \"tool_dispatch_completed\" | \"tool_result\" | \"tool_repair_reported\" | \"tool_call_approved\" | \"tool_call_denied\" | \"error\" | \"done\";
+export type TraceEventKind = \"thread_created\" | \"turn_started\" | \"user_message_recorded\" | \"provider_request_started\" | \"assistant_message_started\" | \"assistant_delta\" | \"assistant_reasoning_delta\" | \"assistant_message_completed\" | \"usage_reported\" | \"provider_capability_reported\" | \"route_decision_recorded\" | \"provider_request_completed\" | \"turn_completed\" | \"task_created\" | \"task_started\" | \"task_completed\" | \"task_failed\" | \"task_cancelled\" | \"task_pause_checkpoint_created\" | \"task_paused\" | \"task_resumed\" | \"runtime_instance_started\" | \"task_owner_attached\" | \"task_owner_heartbeat\" | \"task_owner_detached\" | \"task_owner_lost\" | \"task_reattach_recorded\" | \"agent_run_started\" | \"agent_step_started\" | \"agent_step_completed\" | \"agent_run_completed\" | \"agent_handoff_recorded\" | \"reviewer_gate_requested\" | \"reviewer_gate_resolved\" | \"coding_workflow_started\" | \"workspace_mutation_scope_recorded\" | \"mutation_request_proposal_recorded\" | \"apply_patch_preflight_recorded\" | \"apply_patch_execution_recorded\" | \"patch_proposal_recorded\" | \"patch_application_recorded\" | \"test_plan_recorded\" | \"test_run_recorded\" | \"review_bundle_recorded\" | \"restore_plan_recorded\" | \"subagent_session_planned\" | \"subagent_session_started\" | \"subagent_session_waiting_for_approval\" | \"subagent_session_inactive\" | \"subagent_session_completed\" | \"subagent_runtime_decision_recorded\" | \"subagent_transcript_artifact_recorded\" | \"subagent_transcript_artifact_lifecycle_recorded\" | \"subagent_approval_forwarding_recorded\" | \"subagent_inactive_policy_recorded\" | \"subagent_cancellation_recorded\" | \"no_progress_loop_detected\" | \"diagnostics_reported\" | \"memory_write_proposed\" | \"memory_write_applied\" | \"memory_write_rejected\" | \"artifact_created\" | \"artifact_body_recorded\" | \"snapshot_created\" | \"snapshot_lifecycle_recorded\" | \"tool_call_requested\" | \"tool_policy_decision_recorded\" | \"sandbox_decision_recorded\" | \"os_sandbox_profile_selected\" | \"tool_dispatch_started\" | \"tool_dispatch_completed\" | \"tool_result\" | \"tool_repair_reported\" | \"tool_call_approved\" | \"tool_call_denied\" | \"error\" | \"done\";
 ";
 
 pub fn generate_bindings() -> String {
@@ -127,6 +128,10 @@ pub fn generate_bindings() -> String {
     push_decl::<MutationRequestStatus>(&mut output, &cfg);
     push_decl::<ApplyPatchDryRunOperationKind>(&mut output, &cfg);
     push_decl::<ApplyPatchDryRunOperationSummary>(&mut output, &cfg);
+    push_decl::<ApplyPatchExecutionBlocker>(&mut output, &cfg);
+    push_decl::<ApplyPatchExecutionId>(&mut output, &cfg);
+    push_decl::<ApplyPatchExecutionRecord>(&mut output, &cfg);
+    push_decl::<ApplyPatchExecutionStatus>(&mut output, &cfg);
     push_decl::<ApplyPatchPreflightBlocker>(&mut output, &cfg);
     push_decl::<ApplyPatchPreflightId>(&mut output, &cfg);
     push_decl::<ApplyPatchPreflightRecord>(&mut output, &cfg);

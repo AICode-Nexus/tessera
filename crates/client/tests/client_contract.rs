@@ -8,27 +8,29 @@ use tessera_client::{
 };
 use tessera_protocol::{
     AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary,
-    ApplyPatchDryRunOperationKind, ApplyPatchDryRunOperationSummary, ApplyPatchPreflightBlocker,
-    ApplyPatchPreflightId, ApplyPatchPreflightRecord, ApplyPatchPreflightStatus, ApprovalId,
-    ApprovalStatus, ArtifactId, ArtifactKind, ClientInstanceId,
-    CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextId, ContextPlacement,
-    ContextReference, ContextSource, ContextSourceKind, CostEstimate, ErrorSource, EventFrame,
-    EventRange, HandoffEvidenceKind, HandoffEvidenceRef, ItemId, MemoryProposal, MemoryProposalId,
-    MemoryProposalStatus, MutationMode, MutationRequestId, MutationRequestOperationKind,
-    MutationRequestProposal, MutationRequestStatus, NormalizedError, PatchApplicationOutcome,
-    PatchApplicationRecord, PatchProposal, PatchProposalId, PolicyDecisionId, PolicyOutcome,
-    ProviderCapability, ProviderId, RestorePlanId, RestorePlanRecord, ReviewBundle, ReviewBundleId,
-    ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RunEvent,
-    RuntimeInstanceId, SnapshotId, SubagentApprovalForwarding, SubagentApprovalForwardingRecord,
-    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
-    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
-    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionCaps,
-    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
-    SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactRecord,
-    SubagentTranscriptArtifactStatus, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind,
-    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus, TestPlanId,
-    TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus, Timestamp, ToolApproval, ToolCallId,
-    ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect, WorkspaceMutationScope,
+    ApplyPatchDryRunOperationKind, ApplyPatchDryRunOperationSummary, ApplyPatchExecutionBlocker,
+    ApplyPatchExecutionId, ApplyPatchExecutionRecord, ApplyPatchExecutionStatus,
+    ApplyPatchPreflightBlocker, ApplyPatchPreflightId, ApplyPatchPreflightRecord,
+    ApplyPatchPreflightStatus, ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind,
+    ClientInstanceId, CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextId,
+    ContextPlacement, ContextReference, ContextSource, ContextSourceKind, CostEstimate,
+    ErrorSource, EventFrame, EventRange, HandoffEvidenceKind, HandoffEvidenceRef, ItemId,
+    MemoryProposal, MemoryProposalId, MemoryProposalStatus, MutationMode, MutationRequestId,
+    MutationRequestOperationKind, MutationRequestProposal, MutationRequestStatus, NormalizedError,
+    PatchApplicationOutcome, PatchApplicationRecord, PatchProposal, PatchProposalId,
+    PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, RestorePlanId,
+    RestorePlanRecord, ReviewBundle, ReviewBundleId, ReviewerDecisionKind, ReviewerGateDecision,
+    ReviewerGateId, ReviewerGateRequest, RunEvent, RuntimeInstanceId, SnapshotId,
+    SubagentApprovalForwarding, SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
+    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
+    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
+    SubagentRuntimeDecisionKind, SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId,
+    SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
+    SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskKind,
+    TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
+    TaskReattachMode, TaskStatus, TestPlanId, TestPlanRecord, TestRunId, TestRunRecord,
+    TestRunStatus, Timestamp, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
+    ToolSideEffect, WorkspaceMutationScope,
 };
 
 #[test]
@@ -718,6 +720,36 @@ fn apply_patch_preflight(status: ApplyPatchPreflightStatus) -> ApplyPatchPreflig
     }
 }
 
+fn apply_patch_execution(status: ApplyPatchExecutionStatus) -> ApplyPatchExecutionRecord {
+    ApplyPatchExecutionRecord {
+        execution_id: ApplyPatchExecutionId::from_static("apply_patch_execution_client"),
+        preflight_id: ApplyPatchPreflightId::from_static("apply_patch_preflight_client"),
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        request_id: MutationRequestId::from_static("mutation_request_client_apply"),
+        patch_id: PatchProposalId::from_static("patch_proposal_client"),
+        checkpoint_id: Some(SnapshotId::from_static("snapshot_before_client_patch")),
+        reviewer_gate_id: Some(ReviewerGateId::from_static("gate_coding_review")),
+        policy_decision_id: Some(PolicyDecisionId::from_static("policy_client_apply")),
+        sandbox_profile_label: Some("workspace_write_isolated".to_string()),
+        isolated_root_label: "worktree:client-apply-patch".to_string(),
+        executor_label: "core.apply_patch_executor.v1".to_string(),
+        status,
+        blockers: match status {
+            ApplyPatchExecutionStatus::Conflict => vec![ApplyPatchExecutionBlocker::HunkConflict],
+            ApplyPatchExecutionStatus::Rejected => vec![ApplyPatchExecutionBlocker::UnsafePath],
+            _ => Vec::new(),
+        },
+        affected_paths: vec!["crates/client/src/lib.rs".to_string()],
+        conflict_paths: match status {
+            ApplyPatchExecutionStatus::Conflict => vec!["crates/client/src/lib.rs".to_string()],
+            _ => Vec::new(),
+        },
+        artifact_refs: vec![ArtifactId::from_static("artifact_apply_patch_execution")],
+        evidence: vec![coding_diff_evidence()],
+    }
+}
+
 #[test]
 fn client_snapshot_projects_coding_workflow_metadata_from_live_events() {
     let mut snapshot = ClientSnapshot::new("mock-default");
@@ -795,7 +827,7 @@ fn client_snapshot_projects_coding_workflow_metadata_from_live_events() {
     assert!(workflow.restore_plans[0].execution_blocked);
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / apply-patch preflights 0 / blocked restores 1"
+        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / apply-patch preflights 0 / apply-patch executions 0 / blocked restores 1"
     );
 }
 
@@ -854,7 +886,7 @@ fn client_snapshot_projects_mutation_request_proposals_from_live_and_replayed_ev
     );
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 1 / apply-patch preflights 0 / blocked restores 0"
+        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 1 / apply-patch preflights 0 / apply-patch executions 0 / blocked restores 0"
     );
 
     let mut replayed = ClientSnapshot::new("mock-default");
@@ -912,7 +944,7 @@ fn client_snapshot_projects_apply_patch_preflight_from_live_and_replayed_events(
     assert!(workflow.apply_patch_preflights[0].executor_blocked);
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 0 / apply-patch preflights 1 / blocked restores 0"
+        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 0 / apply-patch preflights 1 / apply-patch executions 0 / blocked restores 0"
     );
 
     let mut replayed = ClientSnapshot::new("mock-default");
@@ -933,6 +965,65 @@ fn client_snapshot_projects_apply_patch_preflight_from_live_and_replayed_events(
     assert_eq!(
         replayed.coding_workflows[0].apply_patch_preflights[0].operations[0].path,
         "crates/client/src/lib.rs"
+    );
+}
+
+#[test]
+fn client_snapshot_projects_apply_patch_execution_from_live_and_replayed_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    snapshot.apply_event(&EventFrame::new(
+        "trace_apply_patch_execution_live",
+        1,
+        RunEvent::ApplyPatchExecutionRecorded {
+            record: apply_patch_execution(ApplyPatchExecutionStatus::Applied),
+        },
+    ));
+
+    assert_eq!(snapshot.coding_workflows.len(), 1);
+    let workflow = &snapshot.coding_workflows[0];
+    assert_eq!(workflow.apply_patch_executions.len(), 1);
+    assert_eq!(
+        workflow.apply_patch_executions[0].status,
+        ApplyPatchExecutionStatus::Applied
+    );
+    assert_eq!(
+        workflow.apply_patch_executions[0].affected_paths,
+        vec!["crates/client/src/lib.rs".to_string()]
+    );
+    assert!(workflow.apply_patch_executions[0].blockers.is_empty());
+    assert_eq!(
+        workflow.apply_patch_executions[0].artifact_refs,
+        vec![ArtifactId::from_static("artifact_apply_patch_execution")]
+    );
+    assert!(snapshot.artifacts.iter().any(|artifact| artifact
+        .referenced_by_event_kinds
+        .contains(&"apply_patch_execution_recorded".to_string())));
+    assert_eq!(
+        snapshot.status.coding_workflow_summary,
+        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 0 / apply-patch preflights 0 / apply-patch executions 1 / blocked restores 0"
+    );
+
+    let mut replayed = ClientSnapshot::new("mock-default");
+    let record = EventFrame::new(
+        "trace_apply_patch_execution_replay",
+        1,
+        RunEvent::ApplyPatchExecutionRecorded {
+            record: apply_patch_execution(ApplyPatchExecutionStatus::Conflict),
+        },
+    )
+    .to_trace_record();
+    replayed.apply_trace_record(&record);
+
+    assert_eq!(replayed.coding_workflows.len(), 1);
+    let execution = &replayed.coding_workflows[0].apply_patch_executions[0];
+    assert_eq!(execution.status, ApplyPatchExecutionStatus::Conflict);
+    assert_eq!(
+        execution.blockers,
+        vec![ApplyPatchExecutionBlocker::HunkConflict]
+    );
+    assert_eq!(
+        execution.conflict_paths,
+        vec!["crates/client/src/lib.rs".to_string()]
     );
 }
 
@@ -970,7 +1061,7 @@ fn client_snapshot_projects_coding_workflow_metadata_from_replayed_records() {
     );
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / apply-patch preflights 0 / blocked restores 1"
+        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / apply-patch preflights 0 / apply-patch executions 0 / blocked restores 1"
     );
 }
 

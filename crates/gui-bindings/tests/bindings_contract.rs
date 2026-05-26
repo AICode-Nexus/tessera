@@ -47,6 +47,9 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type ApplyPatchPreflightRecord"));
     assert!(bindings.contains("export type ApplyPatchPreflightStatus"));
     assert!(bindings.contains("export type ApplyPatchPreflightBlocker"));
+    assert!(bindings.contains("export type ApplyPatchExecutionRecord"));
+    assert!(bindings.contains("export type ApplyPatchExecutionStatus"));
+    assert!(bindings.contains("export type ApplyPatchExecutionBlocker"));
     assert!(bindings.contains("export type ApplyPatchDryRunOperationSummary"));
     assert!(bindings.contains("export type ApplyPatchDryRunOperationKind"));
     assert!(bindings.contains("export type PatchProposal"));
@@ -69,6 +72,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("context_handles"));
     assert!(bindings.contains("coding_workflows"));
     assert!(bindings.contains("apply_patch_preflights"));
+    assert!(bindings.contains("apply_patch_executions"));
     assert!(bindings.contains("loopback_dev_token"));
     assert!(bindings.contains("localhost_tcp"));
     assert!(bindings.contains("submit_prompt"));
@@ -84,6 +88,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("workspace_mutation_scope_recorded"));
     assert!(bindings.contains("mutation_request_proposal_recorded"));
     assert!(bindings.contains("apply_patch_preflight_recorded"));
+    assert!(bindings.contains("apply_patch_execution_recorded"));
     assert!(bindings.contains("patch_proposal_recorded"));
     assert!(bindings.contains("patch_application_recorded"));
     assert!(bindings.contains("test_plan_recorded"));
@@ -107,6 +112,9 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(!bindings.contains("start_server"));
     assert!(!bindings.contains("bind_remote"));
     assert!(!bindings.contains("call_provider"));
+    assert!(!bindings.contains("apply_patch_command"));
+    assert!(!bindings.contains("git_commit"));
+    assert!(!bindings.contains("run_apply_patch"));
     assert!(!bindings.contains("read_sql"));
     assert!(!bindings.contains("execute_shell"));
     assert!(!bindings.contains("start_child_agent"));
