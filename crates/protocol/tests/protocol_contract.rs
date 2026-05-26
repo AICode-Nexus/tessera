@@ -1,13 +1,15 @@
 use tessera_protocol::{
     AgentHandoffId, AgentHandoffMetrics, AgentHandoffStatus, AgentHandoffSummary, AgentProfile,
     AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary,
-    ApplyPatchDryRunOperationKind, ApplyPatchDryRunOperationSummary, ApplyPatchPreflightBlocker,
-    ApplyPatchPreflightId, ApplyPatchPreflightRecord, ApplyPatchPreflightStatus, ApprovalId,
-    ApprovalStatus, ArtifactBodyRecord, ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind,
-    ClientInstanceId, CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextBudget,
-    ContextId, ContextPlacement, ContextReference, ContextSource, ContextSourceKind, CostEstimate,
-    Diagnostic, DiagnosticRange, DiagnosticReport, DiagnosticReportId, DiagnosticSeverity,
-    EventFrame, EventRange, HandoffEvidenceKind, HandoffEvidenceRef, InstructionLoadStatus,
+    ApplyPatchDryRunOperationKind, ApplyPatchDryRunOperationSummary, ApplyPatchExecutionBlocker,
+    ApplyPatchExecutionId, ApplyPatchExecutionRecord, ApplyPatchExecutionStatus,
+    ApplyPatchPreflightBlocker, ApplyPatchPreflightId, ApplyPatchPreflightRecord,
+    ApplyPatchPreflightStatus, ApprovalId, ApprovalStatus, ArtifactBodyRecord,
+    ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind, ClientInstanceId,
+    CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextBudget, ContextId,
+    ContextPlacement, ContextReference, ContextSource, ContextSourceKind, CostEstimate, Diagnostic,
+    DiagnosticRange, DiagnosticReport, DiagnosticReportId, DiagnosticSeverity, EventFrame,
+    EventRange, HandoffEvidenceKind, HandoffEvidenceRef, InstructionLoadStatus,
     InstructionRedactionStatus, InstructionSource, InstructionSourceKind, ItemId, MemoryProposal,
     MemoryProposalId, MemoryProposalStatus, ModelProfileId, MutationMode, MutationRequestId,
     MutationRequestOperationKind, MutationRequestProposal, MutationRequestStatus, NoProgressAction,
@@ -1713,6 +1715,154 @@ fn apply_patch_preflight_records_are_traceable_without_execution() {
     assert_eq!(
         frame.to_trace_record().event_kind,
         "apply_patch_preflight_recorded"
+    );
+}
+
+#[test]
+fn apply_patch_execution_record_serializes_metadata_only() {
+    let workflow_id = CodingWorkflowId::from_static("coding_workflow_apply_patch_execution");
+    let task_id = TaskId::from_static("task_apply_patch_execution");
+    let execution_id = ApplyPatchExecutionId::from_static("apply_patch_execution_contract");
+    let record = ApplyPatchExecutionRecord {
+        execution_id: execution_id.clone(),
+        preflight_id: ApplyPatchPreflightId::from_static("apply_patch_preflight_executor_ready"),
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        request_id: MutationRequestId::from_static("mutation_request_apply_patch_execution"),
+        patch_id: PatchProposalId::from_static("patch_proposal_apply_patch_execution"),
+        checkpoint_id: Some(SnapshotId::from_static("snapshot_apply_patch_execution")),
+        reviewer_gate_id: Some(ReviewerGateId::from_static(
+            "reviewer_gate_apply_patch_execution",
+        )),
+        policy_decision_id: Some(PolicyDecisionId::from_static(
+            "policy_apply_patch_execution",
+        )),
+        sandbox_profile_label: Some("workspace_write_isolated".to_string()),
+        isolated_root_label: "worktree:apply-patch-execution".to_string(),
+        executor_label: "core.apply_patch_executor.v1".to_string(),
+        status: ApplyPatchExecutionStatus::Applied,
+        blockers: Vec::new(),
+        affected_paths: vec!["docs/README.md".to_string()],
+        conflict_paths: Vec::new(),
+        artifact_refs: vec![ArtifactId::from_static(
+            "artifact_apply_patch_execution_result",
+        )],
+        evidence: vec![HandoffEvidenceRef {
+            kind: HandoffEvidenceKind::DiffArtifact,
+            artifact_id: Some(ArtifactId::from_static(
+                "artifact_apply_patch_execution_diff",
+            )),
+            trace_id: None,
+            event_range: None,
+            label: Some("execution diff".to_string()),
+            summary: Some("result artifact handle only".to_string()),
+        }],
+    };
+
+    let payload = serde_json::to_value(&record).unwrap();
+    assert_eq!(payload["execution_id"], execution_id.as_str());
+    assert_eq!(payload["workflow_id"], workflow_id.as_str());
+    assert_eq!(payload["status"], "applied");
+    assert_eq!(
+        payload["isolated_root_label"],
+        "worktree:apply-patch-execution"
+    );
+    assert_eq!(payload["executor_label"], "core.apply_patch_executor.v1");
+    assert_eq!(payload["affected_paths"][0], "docs/README.md");
+
+    let encoded = payload.to_string();
+    assert!(!encoded.contains("BEGIN PATCH"));
+    assert!(!encoded.contains("patch_body"));
+    assert!(!encoded.contains("file_contents"));
+    assert!(!encoded.contains("workspace_handle"));
+    assert!(!encoded.contains("/Users/admin/work/tessera"));
+    assert!(!encoded.contains("authorization"));
+    assert!(!encoded.contains("api_key"));
+    assert!(!encoded.contains("cookie"));
+}
+
+#[test]
+fn apply_patch_execution_record_tracks_preflight_and_checkpoint_refs() {
+    let preflight_id = ApplyPatchPreflightId::from_static("apply_patch_preflight_execution_refs");
+    let checkpoint_id = SnapshotId::from_static("snapshot_execution_refs");
+    let reviewer_gate_id = ReviewerGateId::from_static("reviewer_gate_execution_refs");
+    let policy_decision_id = PolicyDecisionId::from_static("policy_execution_refs");
+
+    let record = ApplyPatchExecutionRecord {
+        execution_id: ApplyPatchExecutionId::from_static("apply_patch_execution_refs"),
+        preflight_id: preflight_id.clone(),
+        workflow_id: CodingWorkflowId::from_static("coding_workflow_execution_refs"),
+        task_id: TaskId::from_static("task_execution_refs"),
+        request_id: MutationRequestId::from_static("mutation_request_execution_refs"),
+        patch_id: PatchProposalId::from_static("patch_proposal_execution_refs"),
+        checkpoint_id: Some(checkpoint_id.clone()),
+        reviewer_gate_id: Some(reviewer_gate_id.clone()),
+        policy_decision_id: Some(policy_decision_id.clone()),
+        sandbox_profile_label: Some("workspace_write_isolated".to_string()),
+        isolated_root_label: "worktree:execution-refs".to_string(),
+        executor_label: "core.apply_patch_executor.v1".to_string(),
+        status: ApplyPatchExecutionStatus::Conflict,
+        blockers: vec![ApplyPatchExecutionBlocker::HunkConflict],
+        affected_paths: vec!["crates/protocol/src/lib.rs".to_string()],
+        conflict_paths: vec!["crates/protocol/src/lib.rs".to_string()],
+        artifact_refs: vec![ArtifactId::from_static("artifact_execution_conflict")],
+        evidence: Vec::new(),
+    };
+
+    let payload = serde_json::to_value(&record).unwrap();
+    assert_eq!(payload["preflight_id"], preflight_id.as_str());
+    assert_eq!(payload["checkpoint_id"], checkpoint_id.as_str());
+    assert_eq!(payload["reviewer_gate_id"], reviewer_gate_id.as_str());
+    assert_eq!(payload["policy_decision_id"], policy_decision_id.as_str());
+    assert_eq!(payload["sandbox_profile_label"], "workspace_write_isolated");
+    assert_eq!(payload["blockers"][0], "hunk_conflict");
+    assert_eq!(payload["conflict_paths"][0], "crates/protocol/src/lib.rs");
+}
+
+#[test]
+fn apply_patch_execution_event_has_stable_kind() {
+    let task_id = TaskId::from_static("task_apply_patch_execution_event");
+    let record = ApplyPatchExecutionRecord {
+        execution_id: ApplyPatchExecutionId::from_static("apply_patch_execution_event"),
+        preflight_id: ApplyPatchPreflightId::from_static("apply_patch_preflight_execution_event"),
+        workflow_id: CodingWorkflowId::from_static("coding_workflow_execution_event"),
+        task_id: task_id.clone(),
+        request_id: MutationRequestId::from_static("mutation_request_execution_event"),
+        patch_id: PatchProposalId::from_static("patch_proposal_execution_event"),
+        checkpoint_id: Some(SnapshotId::from_static("snapshot_execution_event")),
+        reviewer_gate_id: Some(ReviewerGateId::from_static("reviewer_gate_execution_event")),
+        policy_decision_id: Some(PolicyDecisionId::from_static("policy_execution_event")),
+        sandbox_profile_label: Some("workspace_write_isolated".to_string()),
+        isolated_root_label: "worktree:execution-event".to_string(),
+        executor_label: "core.apply_patch_executor.v1".to_string(),
+        status: ApplyPatchExecutionStatus::Rejected,
+        blockers: vec![ApplyPatchExecutionBlocker::UnsafePath],
+        affected_paths: vec!["docs/README.md".to_string()],
+        conflict_paths: Vec::new(),
+        artifact_refs: Vec::new(),
+        evidence: Vec::new(),
+    };
+    let event = RunEvent::ApplyPatchExecutionRecorded {
+        record: record.clone(),
+    };
+
+    assert_eq!(event.kind(), "apply_patch_execution_recorded");
+    assert_eq!(event.task_id(), Some(task_id));
+    let payload = event.payload();
+    assert_eq!(
+        payload["record"]["execution_id"],
+        record.execution_id.as_str()
+    );
+    assert_eq!(payload["record"]["status"], "rejected");
+    assert_eq!(payload["record"]["blockers"][0], "unsafe_path");
+    assert!(payload["record"].get("patch_body").is_none());
+    assert!(payload["record"].get("file_contents").is_none());
+    assert!(payload["record"].get("filesystem_handle").is_none());
+
+    let frame = EventFrame::new("trace_apply_patch_execution", 1, event);
+    assert_eq!(
+        frame.to_trace_record().event_kind,
+        "apply_patch_execution_recorded"
     );
 }
 

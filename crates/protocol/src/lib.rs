@@ -93,6 +93,7 @@ id_type!(CodingWorkflowId, "coding_workflow");
 id_type!(PatchProposalId, "patch_proposal");
 id_type!(MutationRequestId, "mutation_request");
 id_type!(ApplyPatchPreflightId, "apply_patch_preflight");
+id_type!(ApplyPatchExecutionId, "apply_patch_execution");
 id_type!(TestPlanId, "test_plan");
 id_type!(TestRunId, "test_run");
 id_type!(ReviewBundleId, "review_bundle");
@@ -1118,6 +1119,68 @@ pub struct ApplyPatchPreflightRecord {
     pub evidence: Vec<HandoffEvidenceRef>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyPatchExecutionStatus {
+    Planned,
+    Applied,
+    Conflict,
+    Rejected,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyPatchExecutionBlocker {
+    PreflightNotReady,
+    ExecutorUnavailable,
+    PrimaryRootRejected,
+    MissingCheckpointLifecycle,
+    CheckpointNotCreated,
+    MissingPolicyDecision,
+    PolicyNotAllowed,
+    MissingReviewerDecision,
+    ReviewerNotAccepted,
+    MissingSandboxProfile,
+    MissingIsolatedRoot,
+    UnsafePath,
+    SymlinkRejected,
+    UnsupportedPatchOperation,
+    MultipleFilesUnsupported,
+    HunkConflict,
+    WriteFailed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ApplyPatchExecutionRecord {
+    pub execution_id: ApplyPatchExecutionId,
+    pub preflight_id: ApplyPatchPreflightId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub request_id: MutationRequestId,
+    pub patch_id: PatchProposalId,
+    pub checkpoint_id: Option<SnapshotId>,
+    pub reviewer_gate_id: Option<ReviewerGateId>,
+    pub policy_decision_id: Option<PolicyDecisionId>,
+    pub sandbox_profile_label: Option<String>,
+    pub isolated_root_label: String,
+    pub executor_label: String,
+    pub status: ApplyPatchExecutionStatus,
+    #[serde(default)]
+    pub blockers: Vec<ApplyPatchExecutionBlocker>,
+    #[serde(default)]
+    pub affected_paths: Vec<String>,
+    #[serde(default)]
+    pub conflict_paths: Vec<String>,
+    #[serde(default)]
+    pub artifact_refs: Vec<ArtifactId>,
+    #[serde(default)]
+    pub evidence: Vec<HandoffEvidenceRef>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct WorkspaceMutationScope {
@@ -1947,6 +2010,9 @@ pub enum RunEvent {
     ApplyPatchPreflightRecorded {
         record: ApplyPatchPreflightRecord,
     },
+    ApplyPatchExecutionRecorded {
+        record: ApplyPatchExecutionRecord,
+    },
     PatchProposalRecorded {
         proposal: PatchProposal,
     },
@@ -2106,6 +2172,7 @@ impl RunEvent {
             Self::WorkspaceMutationScopeRecorded { .. } => "workspace_mutation_scope_recorded",
             Self::MutationRequestProposalRecorded { .. } => "mutation_request_proposal_recorded",
             Self::ApplyPatchPreflightRecorded { .. } => "apply_patch_preflight_recorded",
+            Self::ApplyPatchExecutionRecorded { .. } => "apply_patch_execution_recorded",
             Self::PatchProposalRecorded { .. } => "patch_proposal_recorded",
             Self::PatchApplicationRecorded { .. } => "patch_application_recorded",
             Self::TestPlanRecorded { .. } => "test_plan_recorded",
@@ -2196,6 +2263,7 @@ impl RunEvent {
             Self::WorkspaceMutationScopeRecorded { scope } => Some(scope.task_id.clone()),
             Self::MutationRequestProposalRecorded { proposal } => Some(proposal.task_id.clone()),
             Self::ApplyPatchPreflightRecorded { record } => Some(record.task_id.clone()),
+            Self::ApplyPatchExecutionRecorded { record } => Some(record.task_id.clone()),
             Self::PatchProposalRecorded { proposal } => Some(proposal.task_id.clone()),
             Self::PatchApplicationRecorded { record } => Some(record.task_id.clone()),
             Self::TestPlanRecorded { plan } => Some(plan.task_id.clone()),
@@ -2382,6 +2450,7 @@ impl RunEvent {
                 json!({ "proposal": proposal })
             }
             Self::ApplyPatchPreflightRecorded { record } => json!({ "record": record }),
+            Self::ApplyPatchExecutionRecorded { record } => json!({ "record": record }),
             Self::PatchProposalRecorded { proposal } => json!({ "proposal": proposal }),
             Self::PatchApplicationRecorded { record } => json!({ "record": record }),
             Self::TestPlanRecorded { plan } => json!({ "plan": plan }),
