@@ -262,7 +262,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 
 **Goal:** Support codebase modification workflows through explicit diff, test, checkpoint, and rollback contracts.
 
-**Status:** Runtime gate foundations complete; runtime execution remains gated.
+**Status:** Runtime gate foundations complete; apply-patch executor implementation is planned but not yet implemented.
 
 **Completed Foundation Scope:**
 
@@ -276,12 +276,14 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Final runtime gate verification over the v0.7 closure diff found no apply-patch, shell/test, checkpoint restore, worktree creation, Git mutation, or tool-dispatch executor path.
 - Apply-patch executor gate design that defines preflight and dry-run readiness as the next safe slice while keeping actual workspace writes blocked.
 - Apply-patch preflight and dry-run readiness contracts with metadata-only protocol events, read-only client/GUI projection, affected-path and operation summaries, blocker labels, and a permanent `executor_blocked` reason until a separate executor plan is approved.
+- Apply-patch executor design and implementation plan defining the future core-owned, worktree-first, single-file text patch boundary while keeping runtime writes unimplemented in the design commit.
 
-**Runtime Gate Assessment:** The v0.7 foundation now records mutation intent, required checkpoint/reviewer/policy/sandbox metadata, artifact body/redaction handles, checkpoint lifecycle records, non-executing worktree/sandbox plans, and apply-patch preflight/dry-run readiness metadata. It still does not apply patches, run tests, restore checkpoints, create worktrees, run Git, or execute shell/file mutations. Any future executor must be approved as a separate plan and bind these records to concrete policy decisions, reviewer approvals, sandbox launch, checkpoint creation/restore semantics, artifact persistence, and client intents that remain projections over core-owned runtime state.
+**Runtime Gate Assessment:** The v0.7 foundation now records mutation intent, required checkpoint/reviewer/policy/sandbox metadata, artifact body/redaction handles, checkpoint lifecycle records, non-executing worktree/sandbox plans, apply-patch preflight/dry-run readiness metadata, and a planned executor boundary. It still does not apply patches, run tests, restore checkpoints, create worktrees, run Git, or execute shell/file mutations. The first future executor must be implemented as a separate TDD slice: core-owned, in-process, worktree-first, limited to one UTF-8 text file create/modify operation, writing only inside an explicitly supplied isolated non-primary mutation root after executor-ready preflight, policy, reviewer, sandbox, checkpoint and path/symlink checks pass.
 
 **Remaining Planned Scope:**
 
 - Coding-agent workflow over a bounded workspace scope.
+- Apply-patch execution record and isolated single-file apply-patch executor.
 - Apply-patch tool.
 - Diff preview and approval.
 - Test runner integration through policy gates.
