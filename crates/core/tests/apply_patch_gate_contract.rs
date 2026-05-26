@@ -1,7 +1,8 @@
 use tessera_core::{
-    ApplyPatchDryRunInput, ApplyPatchDryRunOperation, ApplyPatchGate, ApplyPatchGateBlocker,
-    ApplyPatchGateRequest, ApplyPatchGateStatus, MutationEnforcementPlan,
-    MutationEnforcementPlanRequest, MutationEnforcementPlanner,
+    ApplyPatchDryRunInput, ApplyPatchDryRunOperation, ApplyPatchExecutorContext,
+    ApplyPatchExecutorRootKind, ApplyPatchGate, ApplyPatchGateBlocker, ApplyPatchGateRequest,
+    ApplyPatchGateStatus, MutationEnforcementPlan, MutationEnforcementPlanRequest,
+    MutationEnforcementPlanner,
 };
 use tessera_protocol::{
     AgentHandoffId, ArtifactId, CodingWorkflowId, HandoffEvidenceKind, HandoffEvidenceRef,
@@ -145,7 +146,18 @@ fn valid_request() -> ApplyPatchGateRequest {
             body: docs_patch_body(),
             max_bytes: 16 * 1024,
         }),
+        executor_context: None,
         operator_label: "coding-agent".to_string(),
+    }
+}
+
+fn isolated_executor_context() -> ApplyPatchExecutorContext {
+    ApplyPatchExecutorContext {
+        isolated_root_label: "worktree:apply-patch-gate".to_string(),
+        root_kind: ApplyPatchExecutorRootKind::IsolatedWorktree,
+        executor_label: "core.apply_patch_executor.v1".to_string(),
+        executor_available: true,
+        request_source_label: "coding-agent".to_string(),
     }
 }
 
@@ -320,4 +332,82 @@ fn apply_patch_dry_run_blocks_binary_rename_and_delete_until_modeled() {
         .operations
         .iter()
         .any(|operation| operation.operation == ApplyPatchDryRunOperation::DeleteUnsupported));
+}
+
+#[test]
+fn apply_patch_gate_remains_executor_blocked_by_default() {
+    let gate = ApplyPatchGate;
+
+    let record = gate.evaluate(valid_request());
+
+    assert_eq!(record.status, ApplyPatchGateStatus::PreflightReady);
+    assert!(record.executor_blocked);
+    assert_eq!(
+        record.executor_block_reason,
+        "apply_patch_executor_not_implemented"
+    );
+}
+
+#[test]
+fn apply_patch_gate_requires_explicit_executor_context_for_executor_ready() {
+    let gate = ApplyPatchGate;
+    let mut request = valid_request();
+    request.executor_context = Some(isolated_executor_context());
+
+    let record = gate.evaluate(request);
+
+    assert_eq!(record.status, ApplyPatchGateStatus::ExecutorReady);
+    assert!(record.blockers.is_empty());
+    assert!(!record.executor_blocked);
+    assert_eq!(record.executor_block_reason, "executor_ready");
+    assert_eq!(record.affected_paths, vec!["docs/README.md"]);
+}
+
+#[test]
+fn apply_patch_gate_rejects_primary_root_executor_context() {
+    let gate = ApplyPatchGate;
+    let mut request = valid_request();
+    request.executor_context = Some(ApplyPatchExecutorContext {
+        isolated_root_label: "project".to_string(),
+        root_kind: ApplyPatchExecutorRootKind::PrimaryProject,
+        executor_label: "core.apply_patch_executor.v1".to_string(),
+        executor_available: true,
+        request_source_label: "coding-agent".to_string(),
+    });
+
+    let record = gate.evaluate(request);
+
+    assert_eq!(record.status, ApplyPatchGateStatus::Blocked);
+    assert!(record
+        .blockers
+        .contains(&ApplyPatchGateBlocker::PrimaryRootRejected));
+    assert!(record.executor_blocked);
+}
+
+#[test]
+fn apply_patch_gate_rejects_executor_ready_without_checkpoint_policy_reviewer_or_sandbox() {
+    let gate = ApplyPatchGate;
+    let mut request = valid_request();
+    request.executor_context = Some(isolated_executor_context());
+    request.checkpoint_lifecycle = None;
+    request.reviewer_decision = None;
+    request.policy_decision = None;
+    request.enforcement_plan.sandbox_profile_label = None;
+
+    let record = gate.evaluate(request);
+
+    assert_eq!(record.status, ApplyPatchGateStatus::Blocked);
+    assert!(record
+        .blockers
+        .contains(&ApplyPatchGateBlocker::MissingCheckpointLifecycle));
+    assert!(record
+        .blockers
+        .contains(&ApplyPatchGateBlocker::MissingPolicyDecision));
+    assert!(record
+        .blockers
+        .contains(&ApplyPatchGateBlocker::MissingReviewerDecision));
+    assert!(record
+        .blockers
+        .contains(&ApplyPatchGateBlocker::MissingSandboxProfile));
+    assert!(record.executor_blocked);
 }

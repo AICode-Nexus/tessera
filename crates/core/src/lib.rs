@@ -5,8 +5,8 @@ mod subagent_runtime;
 
 pub use apply_patch_gate::{
     ApplyPatchDryRunInput, ApplyPatchDryRunOperation, ApplyPatchDryRunOperationSummary,
-    ApplyPatchDryRunSummary, ApplyPatchGate, ApplyPatchGateBlocker, ApplyPatchGateRecord,
-    ApplyPatchGateRequest, ApplyPatchGateStatus,
+    ApplyPatchDryRunSummary, ApplyPatchExecutorContext, ApplyPatchExecutorRootKind, ApplyPatchGate,
+    ApplyPatchGateBlocker, ApplyPatchGateRecord, ApplyPatchGateRequest, ApplyPatchGateStatus,
 };
 pub use coding_workflow::{
     CodingWorkflowArtifactBodyRequest, CodingWorkflowCheckpointLifecycleRequest,

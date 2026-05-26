@@ -13,6 +13,7 @@ use crate::MutationEnforcementPlan;
 pub enum ApplyPatchGateStatus {
     Blocked,
     PreflightReady,
+    ExecutorReady,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,6 +35,9 @@ pub enum ApplyPatchGateBlocker {
     PatchBodyTooLarge,
     UnsafePatchPath,
     UnsupportedPatchOperation,
+    MissingExecutorContext,
+    ExecutorUnavailable,
+    PrimaryRootRejected,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -64,6 +68,23 @@ pub struct ApplyPatchDryRunSummary {
     pub operations: Vec<ApplyPatchDryRunOperationSummary>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApplyPatchExecutorRootKind {
+    IsolatedWorktree,
+    PrimaryProject,
+    ExplicitLocal,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApplyPatchExecutorContext {
+    pub isolated_root_label: String,
+    pub root_kind: ApplyPatchExecutorRootKind,
+    pub executor_label: String,
+    pub executor_available: bool,
+    pub request_source_label: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ApplyPatchGateRequest {
     pub workflow_id: CodingWorkflowId,
@@ -76,6 +97,7 @@ pub struct ApplyPatchGateRequest {
     pub reviewer_decision: Option<ReviewerGateDecision>,
     pub policy_decision: Option<ToolPolicyDecision>,
     pub patch_body: Option<ApplyPatchDryRunInput>,
+    pub executor_context: Option<ApplyPatchExecutorContext>,
     pub operator_label: String,
 }
 
@@ -108,10 +130,26 @@ impl ApplyPatchGate {
         validate_sandbox(&request, &mut blockers);
         let dry_run = validate_dry_run(&request, &mut blockers);
 
-        let status = if blockers.is_empty() {
+        let executor_context_requested = request.executor_context.is_some();
+        if executor_context_requested {
+            validate_executor_context(&request, dry_run.as_ref(), &mut blockers);
+        }
+
+        let status = if blockers.is_empty() && executor_context_requested {
+            ApplyPatchGateStatus::ExecutorReady
+        } else if blockers.is_empty() {
             ApplyPatchGateStatus::PreflightReady
         } else {
             ApplyPatchGateStatus::Blocked
+        };
+        let executor_blocked = status != ApplyPatchGateStatus::ExecutorReady;
+        let executor_block_reason = match status {
+            ApplyPatchGateStatus::ExecutorReady => "executor_ready",
+            ApplyPatchGateStatus::PreflightReady => "apply_patch_executor_not_implemented",
+            ApplyPatchGateStatus::Blocked if executor_context_requested => {
+                "apply_patch_executor_context_blocked"
+            }
+            ApplyPatchGateStatus::Blocked => "apply_patch_executor_not_implemented",
         };
 
         ApplyPatchGateRecord {
@@ -124,8 +162,8 @@ impl ApplyPatchGate {
                 .map(|summary| summary.affected_paths.clone())
                 .unwrap_or(request.patch_proposal.touched_paths),
             dry_run,
-            executor_blocked: true,
-            executor_block_reason: "apply_patch_executor_not_implemented".to_string(),
+            executor_blocked,
+            executor_block_reason: executor_block_reason.to_string(),
             operator_label: request.operator_label,
         }
     }
@@ -275,6 +313,52 @@ fn validate_dry_run(
     }
 
     Some(summary)
+}
+
+fn validate_executor_context(
+    request: &ApplyPatchGateRequest,
+    dry_run: Option<&ApplyPatchDryRunSummary>,
+    blockers: &mut Vec<ApplyPatchGateBlocker>,
+) {
+    let Some(context) = &request.executor_context else {
+        blockers.push(ApplyPatchGateBlocker::MissingExecutorContext);
+        return;
+    };
+
+    if !context.executor_available || context.executor_label.trim().is_empty() {
+        blockers.push(ApplyPatchGateBlocker::ExecutorUnavailable);
+    }
+
+    let root_label = context.isolated_root_label.trim();
+    if root_label.is_empty() {
+        blockers.push(ApplyPatchGateBlocker::WorktreeIsolationRequired);
+    }
+
+    if context.root_kind != ApplyPatchExecutorRootKind::IsolatedWorktree
+        || root_label == "project"
+        || root_label == "local"
+    {
+        blockers.push(ApplyPatchGateBlocker::PrimaryRootRejected);
+    }
+
+    let Some(dry_run) = dry_run else {
+        blockers.push(ApplyPatchGateBlocker::UnsupportedPatchOperation);
+        return;
+    };
+
+    if dry_run.operations.len() != 1 {
+        blockers.push(ApplyPatchGateBlocker::UnsupportedPatchOperation);
+        return;
+    }
+
+    match dry_run.operations[0].operation {
+        ApplyPatchDryRunOperation::Create | ApplyPatchDryRunOperation::Modify => {}
+        ApplyPatchDryRunOperation::DeleteUnsupported
+        | ApplyPatchDryRunOperation::RenameUnsupported
+        | ApplyPatchDryRunOperation::BinaryUnsupported => {
+            blockers.push(ApplyPatchGateBlocker::UnsupportedPatchOperation);
+        }
+    }
 }
 
 fn parse_patch_body(
