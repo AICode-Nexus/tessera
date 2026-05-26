@@ -6,6 +6,7 @@ mod subagent_runtime;
 
 pub use apply_patch_executor::{
     ApplyPatchExecutor, ApplyPatchInMemoryRequest, ApplyPatchInMemoryResult,
+    ApplyPatchIsolatedFileRequest, ApplyPatchIsolatedFileResult,
 };
 pub use apply_patch_gate::{
     ApplyPatchDryRunInput, ApplyPatchDryRunOperation, ApplyPatchDryRunOperationSummary,
