@@ -1,6 +1,6 @@
 # Tessera Version Plan
 
-日期：2026-05-22
+日期：2026-05-27
 
 本文是 Tessera v0.1 到 v0.9 的版本路线图源文件。它回答每个版本“为什么存在、包含什么、不包含什么、怎样算完成”。`docs/global-plan.md` 只记录当前进度和下一步执行顺序；本文件记录跨版本边界。DeepSeek-TUI、Reasonix、Codex CLI / App / App Server、Claude Code CLI / Desktop / Web 等外部方向统一沉淀在 `docs/coding-agent-direction.md`，本文件只承接其中会改变版本边界和门禁的内容。
 
@@ -49,7 +49,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
 | v0.5 | Single-agent and resumable task foundations | Foundation stable | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server alignment DTOs are usable; runtime-complete work is explicitly staged into future gates. |
 | v0.6 | Persistent sub-agents and structured review | Foundation complete | Provider-neutral structured handoff, reviewer gate, sub-agent session metadata, runtime ownership, and transcript artifact lifecycle events/projections exist; persistent child-agent execution is not implemented yet. |
-| v0.7 | Project coding-agent workflow | Automatic worktree lifecycle designed | Provider-neutral coding workflow metadata, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planning, read-only client/GUI projection, apply-patch preflight/dry-run readiness projection, execution records, explicit executor-ready gating, a pure patch model, isolated-root single-file UTF-8 create/modify executor, explicit `tessera apply-patch` CLI envelope, trace-driven `tessera apply-patch --from-trace` envelope, and automatic isolated worktree lifecycle design exist; no test execution, checkpoint restore, worktree creation/lifecycle implementation, branch/stage/commit/push/PR Git mutation, or GUI/TUI diff control yet. |
+| v0.7 | Project coding-agent workflow | Automatic worktree lifecycle implemented | Provider-neutral coding workflow metadata, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planning, read-only client/GUI projection, apply-patch preflight/dry-run readiness projection, execution records, explicit executor-ready gating, a pure patch model, isolated-root single-file UTF-8 create/modify executor, explicit `tessera apply-patch` CLI envelope, trace-driven `tessera apply-patch --from-trace` envelope, and opt-in trace-driven `--auto-worktree` detached worktree lifecycle exist; no test execution, checkpoint restore, branch/stage/commit/push/PR Git mutation, GUI/TUI diff control, or standalone cleanup command yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
 | v0.9 | Learning proposal system | Planned | No automatic learning or self-modification; proposals only. |
 
@@ -262,7 +262,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 
 **Goal:** Support codebase modification workflows through explicit diff, test, checkpoint, and rollback contracts.
 
-**Status:** Runtime gate foundations complete; first narrow apply-patch executor, explicit CLI envelope, and trace-driven `tessera apply-patch --from-trace` envelope are implemented. Automatic isolated worktree lifecycle is designed but not implemented.
+**Status:** Runtime gate foundations complete; first narrow apply-patch executor, explicit CLI envelope, trace-driven `tessera apply-patch --from-trace` envelope, and opt-in trace-driven `--auto-worktree` detached worktree lifecycle are implemented.
 
 **Completed Foundation Scope:**
 
@@ -283,15 +283,15 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Read-only client and GUI binding projection for execution records without CLI/TUI/GUI mutation buttons.
 - Final narrow-executor verification found no shell/test execution, checkpoint restore, worktree creation/lifecycle, Git mutation, tool-dispatch executor, or GUI-owned mutation path.
 - Explicit `tessera apply-patch` CLI envelope that requires operator-supplied workflow/task/request/patch/preflight/execution/checkpoint/reviewer/policy refs, sandbox profile, isolated root, root label, allowed paths and exactly one patch source; it runs the core gate, records preflight metadata, invokes the isolated executor only when `ExecutorReady`, records execution metadata, and does not create worktrees, run tests, restore checkpoints, mutate Git or expose GUI/TUI mutation controls.
-- Trace-driven `tessera apply-patch --from-trace` workflow automation that resolves reviewed mutation bundles from existing trace workflow, scope, mutation request, patch proposal, checkpoint, reviewer, policy, sandbox and clean patch artifact records while still requiring a caller-supplied isolated root and the existing gate/executor path.
-- Automatic isolated worktree lifecycle design for future trace-driven `--auto-worktree` mode, limiting the next implementation gate to detached worktree creation/retention/cleanup metadata without branch creation, stage, commit, push, PR, tests or checkpoint restore.
+- Trace-driven `tessera apply-patch --from-trace` workflow automation that resolves reviewed mutation bundles from existing trace workflow, scope, mutation request, patch proposal, checkpoint, reviewer, policy, sandbox and clean patch artifact records while still supporting a caller-supplied isolated root over the existing gate/executor path.
+- Opt-in trace-driven `tessera apply-patch --from-trace --auto-worktree` lifecycle that creates one detached generated worktree from source `HEAD`, rejects tracked/staged dirty source checkouts before preflight, appends path-redacted `workspace_worktree_lifecycle_recorded` events, applies the reviewed patch in the generated worktree, retains the successful worktree for operator inspection, and keeps dry-run free of worktree creation.
 
-**Runtime Gate Assessment:** The v0.7 foundation now records mutation intent, required checkpoint/reviewer/policy/sandbox metadata, artifact body/redaction handles, checkpoint lifecycle records, non-executing worktree/sandbox plans, apply-patch preflight/dry-run readiness metadata, and a narrow executor result record. The first executor and CLI envelopes are intentionally small: core-owned, in-process, limited to one UTF-8 text file create/modify operation, and writing only inside an explicitly supplied isolated non-primary mutation root after executor-ready preflight, policy, reviewer, sandbox, checkpoint and path/symlink checks pass. The implemented explicit `tessera apply-patch` CLI requires operator-supplied refs, allowed paths, patch source and isolated root, then records preflight/execution metadata through the core gate. The implemented trace-driven mode keeps the same executor boundary and only resolves prior approval metadata and clean patch artifacts from trace. The automatic worktree lifecycle design opens only a future detached worktree lifecycle gate; v0.7 still does not run tests, restore checkpoints, create branches, stage, commit, push, open PRs or execute shell/provider tool mutations.
+**Runtime Gate Assessment:** The v0.7 foundation now records mutation intent, required checkpoint/reviewer/policy/sandbox metadata, artifact body/redaction handles, checkpoint lifecycle records, non-executing worktree/sandbox plans, apply-patch preflight/dry-run readiness metadata, a narrow executor result record, and path-redacted detached worktree lifecycle metadata. The first executor and CLI envelopes are intentionally small: core-owned, in-process, limited to one UTF-8 text file create/modify operation, and writing only inside an isolated non-primary mutation root after executor-ready preflight, policy, reviewer, sandbox, checkpoint and path/symlink checks pass. The implemented explicit `tessera apply-patch` CLI requires operator-supplied refs, allowed paths, patch source and isolated root, then records preflight/execution metadata through the core gate. The implemented trace-driven mode resolves prior approval metadata and clean patch artifacts from trace. The opt-in `--auto-worktree` mode only creates a detached generated worktree, records lifecycle metadata, and returns the local worktree path in CLI output; trace records stay path-redacted. v0.7 still does not run tests, restore checkpoints, create branches, stage, commit, push, open PRs or execute shell/provider tool mutations.
 
 **Remaining Planned Scope:**
 
 - Coding-agent workflow over a bounded workspace scope.
-- Automatic isolated worktree lifecycle implementation before broader mutation execution.
+- Conservative worktree cleanup command design before broader mutation execution.
 - Diff preview and approval.
 - Test runner integration through policy gates.
 - Checkpoint creation before mutating operations.
