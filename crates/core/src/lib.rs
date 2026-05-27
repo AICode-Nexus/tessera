@@ -2,6 +2,7 @@ mod apply_patch_executor;
 mod apply_patch_gate;
 mod apply_patch_trace_resolver;
 mod coding_workflow;
+mod isolated_worktree_lifecycle;
 mod mutation_enforcement;
 mod subagent_runtime;
 
@@ -24,6 +25,10 @@ pub use coding_workflow::{
     CodingWorkflowPatchProposalRequest, CodingWorkflowReviewBundleRequest,
     CodingWorkflowStartRequest, CodingWorkflowTestPlanRequest, CodingWorkflowTestRunRequest,
     CodingWorkflowWorkspaceScopeRequest,
+};
+pub use isolated_worktree_lifecycle::{
+    IsolatedWorktreeLifecycleError, IsolatedWorktreeLifecyclePlanner, IsolatedWorktreePlan,
+    IsolatedWorktreePlanRequest, SourceCheckoutStatus, WorktreeRetentionPolicy,
 };
 pub use mutation_enforcement::{
     MutationEnforcementError, MutationEnforcementPlan, MutationEnforcementPlanRequest,
