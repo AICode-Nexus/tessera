@@ -37,7 +37,8 @@ use tessera_protocol::{
     ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
     ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
     WorkspaceCheckpoint, WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus,
-    WorkspaceGuardrail, WorkspaceMutationScope, WorkspaceScope,
+    WorkspaceGuardrail, WorkspaceMutationScope, WorkspaceScope, WorkspaceWorktreeId,
+    WorkspaceWorktreeLifecycleRecord, WorkspaceWorktreeLifecycleStatus,
 };
 
 #[test]
@@ -1864,6 +1865,110 @@ fn apply_patch_execution_event_has_stable_kind() {
         frame.to_trace_record().event_kind,
         "apply_patch_execution_recorded"
     );
+}
+
+fn workspace_worktree_lifecycle_record(
+    status: WorkspaceWorktreeLifecycleStatus,
+) -> WorkspaceWorktreeLifecycleRecord {
+    WorkspaceWorktreeLifecycleRecord {
+        worktree_id: WorkspaceWorktreeId::from_static("workspace_worktree_apply_patch"),
+        workflow_id: CodingWorkflowId::from_static("coding_workflow_auto_worktree"),
+        task_id: TaskId::from_static("task_auto_worktree"),
+        trace_id: "trace_auto_worktree".to_string(),
+        source_commit: "17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1".to_string(),
+        source_branch_label: Some("main".to_string()),
+        worktree_root_label: "worktree:auto-apply-patch".to_string(),
+        worktree_base_key: "data_dir:worktrees".to_string(),
+        lifecycle_status: status,
+        reason: "trace-driven apply-patch requested an isolated worktree".to_string(),
+        created_for_request_id: Some(MutationRequestId::from_static(
+            "mutation_request_auto_worktree",
+        )),
+        created_for_patch_id: Some(PatchProposalId::from_static("patch_proposal_auto_worktree")),
+        evidence: vec![HandoffEvidenceRef {
+            kind: HandoffEvidenceKind::TraceRange,
+            artifact_id: None,
+            trace_id: Some("trace_auto_worktree".to_string()),
+            event_range: Some(EventRange {
+                start_seq: 7,
+                end_seq: 12,
+            }),
+            label: Some("approved apply-patch bundle".to_string()),
+            summary: Some("approval evidence refs only".to_string()),
+        }],
+        metadata: None,
+    }
+}
+
+#[test]
+fn workspace_worktree_lifecycle_event_has_stable_kind() {
+    let record = workspace_worktree_lifecycle_record(WorkspaceWorktreeLifecycleStatus::Created);
+    let task_id = record.task_id.clone();
+    let event = RunEvent::WorkspaceWorktreeLifecycleRecorded {
+        record: record.clone(),
+    };
+
+    assert_eq!(event.kind(), "workspace_worktree_lifecycle_recorded");
+    assert_eq!(event.task_id(), Some(task_id));
+
+    let payload = event.payload();
+    assert_eq!(
+        payload["record"]["worktree_id"],
+        "workspace_worktree_apply_patch"
+    );
+    assert_eq!(
+        payload["record"]["workflow_id"],
+        record.workflow_id.as_str()
+    );
+    assert_eq!(payload["record"]["task_id"], record.task_id.as_str());
+    assert_eq!(payload["record"]["source_commit"], record.source_commit);
+    assert_eq!(
+        payload["record"]["worktree_root_label"],
+        "worktree:auto-apply-patch"
+    );
+    assert_eq!(payload["record"]["worktree_base_key"], "data_dir:worktrees");
+    assert_eq!(payload["record"]["lifecycle_status"], "created");
+    assert_eq!(
+        payload["record"]["created_for_request_id"],
+        "mutation_request_auto_worktree"
+    );
+    assert_eq!(
+        payload["record"]["created_for_patch_id"],
+        "patch_proposal_auto_worktree"
+    );
+    assert_eq!(payload["record"]["evidence"][0]["kind"], "trace_range");
+
+    let frame = EventFrame::new("trace_auto_worktree", 13, event);
+    assert_eq!(
+        frame.to_trace_record().event_kind,
+        "workspace_worktree_lifecycle_recorded"
+    );
+}
+
+#[test]
+fn workspace_worktree_lifecycle_record_serializes_path_redacted_metadata_only() {
+    let record = workspace_worktree_lifecycle_record(WorkspaceWorktreeLifecycleStatus::Planned);
+    let payload = serde_json::to_value(&record).unwrap();
+
+    assert_eq!(payload["worktree_id"], "workspace_worktree_apply_patch");
+    assert_eq!(payload["lifecycle_status"], "planned");
+    assert_eq!(payload["source_branch_label"], "main");
+    assert_eq!(payload["worktree_base_key"], "data_dir:worktrees");
+    assert_eq!(payload["evidence"][0]["event_range"]["start_seq"], 7);
+    assert!(payload.get("source_root").is_none());
+    assert!(payload.get("source_path").is_none());
+    assert!(payload.get("worktree_path").is_none());
+    assert!(payload.get("git_command").is_none());
+    assert!(payload.get("stdout").is_none());
+    assert!(payload.get("stderr").is_none());
+
+    let encoded = payload.to_string();
+    assert!(!encoded.contains("/Users/admin/work/tessera"));
+    assert!(!encoded.contains("/Users/admin/.config/superpowers/worktrees"));
+    assert!(!encoded.contains("git worktree"));
+    assert!(!encoded.contains("authorization"));
+    assert!(!encoded.contains("api_key"));
+    assert!(!encoded.contains("cookie"));
 }
 
 #[test]

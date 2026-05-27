@@ -92,6 +92,7 @@ id_type!(SubagentSessionId, "subagent_session");
 id_type!(CodingWorkflowId, "coding_workflow");
 id_type!(PatchProposalId, "patch_proposal");
 id_type!(MutationRequestId, "mutation_request");
+id_type!(WorkspaceWorktreeId, "workspace_worktree");
 id_type!(ApplyPatchPreflightId, "apply_patch_preflight");
 id_type!(ApplyPatchExecutionId, "apply_patch_execution");
 id_type!(TestPlanId, "test_plan");
@@ -1181,6 +1182,39 @@ pub struct ApplyPatchExecutionRecord {
     pub evidence: Vec<HandoffEvidenceRef>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceWorktreeLifecycleStatus {
+    Planned,
+    Created,
+    CreationFailed,
+    Retained,
+    CleanupStarted,
+    CleanupCompleted,
+    CleanupFailed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct WorkspaceWorktreeLifecycleRecord {
+    pub worktree_id: WorkspaceWorktreeId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub trace_id: String,
+    pub source_commit: String,
+    pub source_branch_label: Option<String>,
+    pub worktree_root_label: String,
+    pub worktree_base_key: String,
+    pub lifecycle_status: WorkspaceWorktreeLifecycleStatus,
+    pub reason: String,
+    pub created_for_request_id: Option<MutationRequestId>,
+    pub created_for_patch_id: Option<PatchProposalId>,
+    #[serde(default)]
+    pub evidence: Vec<HandoffEvidenceRef>,
+    pub metadata: Option<ExtensionMap>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 pub struct WorkspaceMutationScope {
@@ -2013,6 +2047,9 @@ pub enum RunEvent {
     ApplyPatchExecutionRecorded {
         record: ApplyPatchExecutionRecord,
     },
+    WorkspaceWorktreeLifecycleRecorded {
+        record: WorkspaceWorktreeLifecycleRecord,
+    },
     PatchProposalRecorded {
         proposal: PatchProposal,
     },
@@ -2173,6 +2210,9 @@ impl RunEvent {
             Self::MutationRequestProposalRecorded { .. } => "mutation_request_proposal_recorded",
             Self::ApplyPatchPreflightRecorded { .. } => "apply_patch_preflight_recorded",
             Self::ApplyPatchExecutionRecorded { .. } => "apply_patch_execution_recorded",
+            Self::WorkspaceWorktreeLifecycleRecorded { .. } => {
+                "workspace_worktree_lifecycle_recorded"
+            }
             Self::PatchProposalRecorded { .. } => "patch_proposal_recorded",
             Self::PatchApplicationRecorded { .. } => "patch_application_recorded",
             Self::TestPlanRecorded { .. } => "test_plan_recorded",
@@ -2264,6 +2304,7 @@ impl RunEvent {
             Self::MutationRequestProposalRecorded { proposal } => Some(proposal.task_id.clone()),
             Self::ApplyPatchPreflightRecorded { record } => Some(record.task_id.clone()),
             Self::ApplyPatchExecutionRecorded { record } => Some(record.task_id.clone()),
+            Self::WorkspaceWorktreeLifecycleRecorded { record } => Some(record.task_id.clone()),
             Self::PatchProposalRecorded { proposal } => Some(proposal.task_id.clone()),
             Self::PatchApplicationRecorded { record } => Some(record.task_id.clone()),
             Self::TestPlanRecorded { plan } => Some(plan.task_id.clone()),
@@ -2451,6 +2492,7 @@ impl RunEvent {
             }
             Self::ApplyPatchPreflightRecorded { record } => json!({ "record": record }),
             Self::ApplyPatchExecutionRecorded { record } => json!({ "record": record }),
+            Self::WorkspaceWorktreeLifecycleRecorded { record } => json!({ "record": record }),
             Self::PatchProposalRecorded { proposal } => json!({ "proposal": proposal }),
             Self::PatchApplicationRecorded { record } => json!({ "record": record }),
             Self::TestPlanRecorded { plan } => json!({ "plan": plan }),
