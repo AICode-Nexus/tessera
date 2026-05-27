@@ -41,7 +41,7 @@ Tessera 处理方式：
 - v0.5 已收口为 foundation-stable：chat/resume/tasks、no-tool single-agent loop、opt-in project instructions、explicit read-only skills、task ownership metadata 和 runtime API DTOs 可用，但不声称完整 coding-agent CLI。
 - v0.5 的 non-interactive agent run 只提供无工具、无文件修改的输入/输出 envelope。
 - v0.5 的 project instruction discovery 只支持 opt-in `AGENTS.md` / `CLAUDE.md` source report；default/global/user loading、Claude imports 和 `.claude/` 兼容性继续等待 precedence、byte limit、redaction 和 trace-reference gate。
-- v0.7 已具备 metadata-only coding workflow foundation；apply-patch、diff/test execution、checkpoint restore/rollback 和 code review command 仍按后续 runtime gate 推进。
+- v0.7 已具备 metadata-only coding workflow foundation 和窄的 explicit `tessera apply-patch` CLI envelope；diff/test execution、checkpoint restore/rollback、trace-driven apply automation 和 code review command 仍按后续 runtime gate 推进。
 - runtime API / app-server 必须是 core 的薄协议壳，不能成为第二套 runtime。
 
 ### Codex App / GUI Direction
@@ -59,7 +59,7 @@ Tessera 处理方式：
 
 - v0.2 的 GUI shell 只做 mock/replay 和 read-only projection 是正确的。
 - v0.5-v0.6 应先让 GUI 展示真实 task lifecycle、approvals、artifacts、task ownership metadata、handoff evidence 和 runtime events；background reattach 仍等待 app-server/listener/daemon owner gate。
-- v0.7 metadata foundation 让 GUI 可以只读展示 coding workflow、scope、patch/test/review/restore 证据；Git/diff/review/patch controls 仍必须等待对应 typed client intent、policy、checkpoint 和 trace event。
+- v0.7 metadata foundation 让 GUI 可以只读展示 coding workflow、scope、patch/test/review/restore 证据；当前 apply-patch mutation 只允许通过 explicit CLI envelope，Git/diff/review/patch controls 仍必须等待对应 typed client intent、policy、checkpoint 和 trace event。
 - Worktree mode 应成为 coding-agent workflow 的首选写入模式；local mode 只能在明确 scope 下启用。
 - Automations 后置到 task runtime、skills、worktree、sandbox、notifications 和 failure reporting 稳定之后。
 
@@ -152,11 +152,11 @@ v0.6 should start with structured handoff and reviewer gate foundations. Persist
 
 ### v0.7 Must Be Coding-Workflow Complete
 
-v0.7 should be the first version that can honestly claim coding-agent workflow. The current foundation slice is metadata-only: Tessera can represent and replay workflow scope, patch proposals, patch application records, test plans/runs, review bundles and restore plans through protocol/core/client/GUI bindings, but it still cannot execute mutations.
+v0.7 should be the first version that can honestly claim coding-agent workflow. The current foundation can represent and replay workflow scope, patch proposals, patch application records, test plans/runs, review bundles and restore plans through protocol/core/client/GUI bindings. It also has a narrow explicit `tessera apply-patch` CLI envelope for one gated isolated-root file mutation, but it still is not a full coding-agent diff/test/checkpoint/Git workflow.
 
 Remaining runtime-complete work:
 
-- Apply-patch / edit tool with diff preview.
+- Trace-driven apply-patch/edit workflows with diff preview.
 - Test and lint runner integration through policy.
 - Worktree-first mutation mode.
 - Checkpoint before mutation and restore/revert trace events.

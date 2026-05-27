@@ -49,7 +49,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | Foundation complete | API/MCP/diagnostics/memory shapes exist; no listening server, MCP runtime, LSP runtime, or memory store. |
 | v0.5 | Single-agent and resumable task foundations | Foundation stable | Pause/resume chat path, context handles, the no-tool single-agent loop, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server alignment DTOs are usable; runtime-complete work is explicitly staged into future gates. |
 | v0.6 | Persistent sub-agents and structured review | Foundation complete | Provider-neutral structured handoff, reviewer gate, sub-agent session metadata, runtime ownership, and transcript artifact lifecycle events/projections exist; persistent child-agent execution is not implemented yet. |
-| v0.7 | Project coding-agent workflow | Narrow executor slice complete | Provider-neutral coding workflow metadata, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planning, read-only client/GUI projection, apply-patch preflight/dry-run readiness projection, execution records, explicit executor-ready gating, a pure patch model, and isolated-root single-file UTF-8 create/modify executor exist; no test execution, checkpoint restore, worktree creation/lifecycle, Git mutation, user-facing apply-patch tool, or GUI/TUI diff control yet. |
+| v0.7 | Project coding-agent workflow | Narrow CLI executor slice complete | Provider-neutral coding workflow metadata, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planning, read-only client/GUI projection, apply-patch preflight/dry-run readiness projection, execution records, explicit executor-ready gating, a pure patch model, isolated-root single-file UTF-8 create/modify executor, and explicit `tessera apply-patch` CLI envelope exist; no test execution, checkpoint restore, worktree creation/lifecycle, Git mutation, trace-driven apply-patch automation, or GUI/TUI diff control yet. |
 | v0.8 | Swarm scheduler | Blocked | No swarm until structured handoff and reviewer gate exist. |
 | v0.9 | Learning proposal system | Planned | No automatic learning or self-modification; proposals only. |
 
@@ -262,7 +262,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 
 **Goal:** Support codebase modification workflows through explicit diff, test, checkpoint, and rollback contracts.
 
-**Status:** Runtime gate foundations complete; first narrow apply-patch executor slice is implemented.
+**Status:** Runtime gate foundations complete; first narrow apply-patch executor and explicit CLI envelope are implemented.
 
 **Completed Foundation Scope:**
 
@@ -282,13 +282,13 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Isolated-root single-file apply-patch executor that writes through temp-file + rename only inside a caller-supplied non-primary root and rejects unsafe paths or symlinked parents/targets.
 - Read-only client and GUI binding projection for execution records without CLI/TUI/GUI mutation buttons.
 - Final narrow-executor verification found no shell/test execution, checkpoint restore, worktree creation/lifecycle, Git mutation, tool-dispatch executor, or GUI-owned mutation path.
+- Explicit `tessera apply-patch` CLI envelope that requires operator-supplied workflow/task/request/patch/preflight/execution/checkpoint/reviewer/policy refs, sandbox profile, isolated root, root label, allowed paths and exactly one patch source; it runs the core gate, records preflight metadata, invokes the isolated executor only when `ExecutorReady`, records execution metadata, and does not create worktrees, run tests, restore checkpoints, mutate Git or expose GUI/TUI mutation controls.
 
-**Runtime Gate Assessment:** The v0.7 foundation now records mutation intent, required checkpoint/reviewer/policy/sandbox metadata, artifact body/redaction handles, checkpoint lifecycle records, non-executing worktree/sandbox plans, apply-patch preflight/dry-run readiness metadata, and a narrow executor result record. The first executor is intentionally small: core-owned, in-process, limited to one UTF-8 text file create/modify operation, and writing only inside an explicitly supplied isolated non-primary mutation root after executor-ready preflight, policy, reviewer, sandbox, checkpoint and path/symlink checks pass. The next planned user-facing surface is an explicit `tessera apply-patch` CLI envelope that requires operator-supplied refs, allowed paths, patch source and isolated root, then records preflight/execution metadata through the core gate. v0.7 still does not run tests, restore checkpoints, create worktrees, run Git, expose trace-driven workflow automation, or execute shell/provider tool mutations.
+**Runtime Gate Assessment:** The v0.7 foundation now records mutation intent, required checkpoint/reviewer/policy/sandbox metadata, artifact body/redaction handles, checkpoint lifecycle records, non-executing worktree/sandbox plans, apply-patch preflight/dry-run readiness metadata, and a narrow executor result record. The first executor and CLI envelope are intentionally small: core-owned, in-process, limited to one UTF-8 text file create/modify operation, and writing only inside an explicitly supplied isolated non-primary mutation root after executor-ready preflight, policy, reviewer, sandbox, checkpoint and path/symlink checks pass. The implemented `tessera apply-patch` CLI requires operator-supplied refs, allowed paths, patch source and isolated root, then records preflight/execution metadata through the core gate. v0.7 still does not run tests, restore checkpoints, create worktrees, run Git, expose trace-driven workflow automation, or execute shell/provider tool mutations.
 
 **Remaining Planned Scope:**
 
 - Coding-agent workflow over a bounded workspace scope.
-- User-facing explicit apply-patch CLI tool over the narrow executor.
 - Trace-driven apply-patch workflow automation after explicit CLI semantics are verified.
 - Automatic isolated worktree lifecycle before mutation execution.
 - Diff preview and approval.

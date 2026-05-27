@@ -29,9 +29,9 @@
 
 当前 `main` 基线已完成 v0.1 release，并已将 v0.2-v0.5 收口为 foundation-stable 工作。必须明确区分：
 
-- **用户可用能力**：CLI/TUI/mock chat、trace/replay、session resume、chat-only paused task resume、opt-in project instructions、explicit read-only skill activation 等。
+- **用户可用能力**：CLI/TUI/mock chat、trace/replay、session resume、chat-only paused task resume、opt-in project instructions、explicit read-only skill activation、explicit `tessera apply-patch` isolated-root CLI envelope 等。
 - **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、runtime API / app-server DTO alignment、diagnostics event、memory proposal UI、trace-backed task ownership metadata/recorder/projection、no-tool chat/agent run owner attach/detach、structured handoff/reviewer gate、sub-agent session/runtime ownership/transcript lifecycle metadata projection、metadata-only coding-agent workflow protocol/core/client projection、v0.7 runtime gate assessment、runtime gate closure foundations、apply-patch execution record、explicit executor-ready gate、pure patch model 和 isolated-root single-file apply-patch executor 等。
-- **尚未支持能力**：真实 tool execution、executable/default/global skill runtime、tool-using/full coding-agent runtime、MCP runtime、background reattach、daemon/app-server listener、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、persistent sub-agent runtime、完整 coding-agent diff/test/checkpoint/Git execution workflow、user-facing apply-patch tool、自动 worktree lifecycle、swarm、learning apply。
+- **尚未支持能力**：真实 tool execution、executable/default/global skill runtime、tool-using/full coding-agent runtime、MCP runtime、background reattach、daemon/app-server listener、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、persistent sub-agent runtime、完整 coding-agent diff/test/checkpoint/Git execution workflow、trace-driven apply-patch automation、自动 worktree lifecycle、swarm、learning apply。
 
 ## 4. Version Status Matrix
 
@@ -43,7 +43,7 @@
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | [~] Foundation complete | RuntimeHttpApi shape, metadata-only MCP adapter, diagnostics event, memory proposal UI; no server/runtime/store. |
 | v0.5 | Single-agent and resumable task foundations | [~] Foundation stable | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server DTO alignment; runtime-complete gaps are staged into future gates. |
 | v0.6 | Persistent sub-agents and structured review | [x] Foundation complete | Structured handoff/reviewer gate, sub-agent session/runtime ownership, and transcript artifact lifecycle metadata events/projections exist; persistent child-agent execution is not implemented yet. |
-| v0.7 | Project coding-agent workflow | [~] Narrow executor slice complete | Provider-neutral workflow/scope/patch/test/review/restore metadata events, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planner, read-only client/GUI projection, apply-patch preflight/dry-run readiness projection, execution records, explicit executor-ready gate, pure patch model, and isolated-root single-file UTF-8 apply-patch executor exist; no test runner, checkpoint restore, worktree creation/lifecycle, Git mutation, user-facing apply-patch tool, or GUI/TUI diff workflow yet. |
+| v0.7 | Project coding-agent workflow | [~] Narrow CLI executor slice complete | Provider-neutral workflow/scope/patch/test/review/restore metadata events, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planner, read-only client/GUI projection, apply-patch preflight/dry-run readiness projection, execution records, explicit executor-ready gate, pure patch model, isolated-root single-file UTF-8 apply-patch executor, and explicit `tessera apply-patch` CLI envelope exist; no test runner, checkpoint restore, worktree creation/lifecycle, Git mutation, trace-driven apply-patch automation, or GUI/TUI diff workflow yet. |
 | v0.8 | Swarm scheduler | [!] Blocked | Requires v0.6 structured handoff and reviewer gate. |
 | v0.9 | Learning proposal system | [ ] Planned | No learning runtime; proposals only by design. |
 
@@ -150,6 +150,7 @@
 - [x] Isolated-root single-file apply-patch executor that writes through temp-file + rename only inside an explicit non-primary root and rejects unsafe paths or symlinks.
 - [x] Read-only client and GUI binding projection for apply-patch execution records without adding CLI/TUI/GUI mutation controls.
 - [x] Final narrow-executor verification confirms no shell/test execution, checkpoint restore, worktree creation/lifecycle, Git mutation, tool-dispatch executor, or GUI-owned mutation path was added.
+- [x] Explicit `tessera apply-patch` CLI envelope over the narrow executor with operator-supplied refs, isolated root, allowed paths, patch source, preflight trace event, execution trace event, and no automatic worktree/test/checkpoint/Git/UI behavior.
 
 ## 6. Current Gaps
 
@@ -192,8 +193,9 @@
 - [x] Explicit executor-ready gate while default preflight/dry-run records remain `executor_blocked`.
 - [x] Pure in-memory single-file patch model and isolated-root UTF-8 create/modify executor with path/symlink guardrails.
 - [x] v0.7 explicit apply-patch CLI tool design for a gated, operator-supplied isolated-root envelope over the narrow executor.
+- [x] User-facing explicit apply-patch CLI tool over the narrow executor.
 - [ ] Executable coding-agent diff/test/checkpoint/rollback workflow.
-- [ ] User-facing apply-patch tool over the narrow executor.
+- [ ] Trace-driven apply-patch workflow automation.
 - [ ] Automatic worktree-first mutation lifecycle and cleanup.
 - [ ] GUI/TUI diff and review surfaces.
 - [ ] Swarm scheduler.
@@ -239,9 +241,10 @@ The next implementation slices should stay conservative and preserve the current
 34. [x] Add a pure in-memory single-file patch application model before filesystem writes.
 35. [x] Add isolated-root single-file apply-patch execution only after protocol, readiness, policy, sandbox, checkpoint, reviewer and path/symlink checks are verified.
 36. [x] Design the explicit `tessera apply-patch` CLI envelope over the narrow executor: operator-supplied isolated root, allowed paths, gate refs, patch source, preflight trace event, execution trace event, and no automatic worktree/test/checkpoint/Git/UI behavior.
-37. [ ] Implement the explicit `tessera apply-patch` CLI envelope before trace-driven workflow automation.
-38. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-39. [!] Do not start test runner, checkpoint restore, Git mutation, worktree creation, GUI mutation controls, app-server mutation listener, swarm, or learning apply until their stated gates exist.
+37. [x] Implement the explicit `tessera apply-patch` CLI envelope before trace-driven workflow automation.
+38. [ ] Design trace-driven apply-patch workflow automation only after explicit CLI semantics and trace append behavior are verified.
+39. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+40. [!] Do not start test runner, checkpoint restore, Git mutation, worktree creation, GUI mutation controls, app-server mutation listener, swarm, or learning apply until their stated gates exist.
 
 ## 8. Mandatory Gates
 
