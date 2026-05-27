@@ -124,6 +124,31 @@ pub struct CliApplyPatchOptions {
     pub operator_label: String,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct CliApplyPatchEnvelope {
+    pub trace_id: String,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub request_id: MutationRequestId,
+    pub patch_id: PatchProposalId,
+    pub preflight_id: ApplyPatchPreflightId,
+    pub execution_id: ApplyPatchExecutionId,
+    pub mutation_request: MutationRequestProposal,
+    pub patch_proposal: PatchProposal,
+    pub mutation_scope: WorkspaceMutationScope,
+    pub enforcement_plan: MutationEnforcementPlan,
+    pub checkpoint_lifecycle: WorkspaceCheckpointLifecycleRecord,
+    pub reviewer_decision: ReviewerGateDecision,
+    pub policy_decision: ToolPolicyDecision,
+    pub sandbox_profile_label: Option<String>,
+    pub isolated_root: PathBuf,
+    pub root_label: String,
+    pub allowed_paths: Vec<String>,
+    pub patch_body: String,
+    pub dry_run: bool,
+    pub operator_label: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CliApplyPatchOutput {
     pub trace_id: String,
@@ -2033,21 +2058,29 @@ pub fn run_apply_patch_with_options(
     options: CliApplyPatchOptions,
 ) -> Result<CliApplyPatchOutput> {
     validate_apply_patch_options(&options)?;
-    let gate_request = build_apply_patch_gate_request(&options)?;
+    let envelope = build_explicit_apply_patch_envelope(options)?;
+    run_apply_patch_envelope(data_dir, envelope)
+}
+
+pub fn run_apply_patch_envelope(
+    data_dir: impl AsRef<Path>,
+    envelope: CliApplyPatchEnvelope,
+) -> Result<CliApplyPatchOutput> {
+    let gate_request = build_apply_patch_gate_request(&envelope);
     let gate_record = ApplyPatchGate.evaluate(gate_request);
-    let preflight = apply_patch_preflight_record_from_gate(&options, &gate_record);
+    let preflight = apply_patch_preflight_record_from_gate(&envelope, &gate_record);
 
     let mut store = TraceStore::open(data_dir)?;
-    let preflight_seq = next_trace_seq(&store, &options.trace_id)?;
+    let preflight_seq = next_trace_seq(&store, &envelope.trace_id)?;
     store.append(&EventFrame::new(
-        options.trace_id.clone(),
+        envelope.trace_id.clone(),
         preflight_seq,
         RunEvent::ApplyPatchPreflightRecorded {
             record: preflight.clone(),
         },
     ))?;
 
-    if options.dry_run {
+    if envelope.dry_run {
         if gate_record.status != ApplyPatchGateStatus::PreflightReady {
             anyhow::bail!(
                 "apply-patch dry-run blocked: {}",
@@ -2055,8 +2088,8 @@ pub fn run_apply_patch_with_options(
             );
         }
         return Ok(CliApplyPatchOutput::from_records(
-            options.trace_id,
-            options.root_label,
+            envelope.trace_id,
+            envelope.root_label,
             &preflight,
             None,
         ));
@@ -2071,28 +2104,28 @@ pub fn run_apply_patch_with_options(
 
     let execution = ApplyPatchExecutor
         .apply_to_isolated_root(ApplyPatchIsolatedFileRequest {
-            execution_id: ApplyPatchExecutionId::from(options.execution_id.clone()),
-            preflight_id: ApplyPatchPreflightId::from(options.preflight_id.clone()),
-            workflow_id: CodingWorkflowId::from(options.workflow_id.clone()),
-            task_id: TaskId::from(options.task_id.clone()),
-            request_id: MutationRequestId::from(options.request_id.clone()),
-            patch_id: PatchProposalId::from(options.patch_id.clone()),
-            checkpoint_id: Some(SnapshotId::from(options.checkpoint_id.clone())),
-            reviewer_gate_id: Some(ReviewerGateId::from(options.reviewer_gate_id.clone())),
-            policy_decision_id: Some(PolicyDecisionId::from(options.policy_decision_id.clone())),
-            sandbox_profile_label: Some(options.sandbox_profile_label.clone()),
-            isolated_root: options.isolated_root.clone(),
-            isolated_root_label: options.root_label.clone(),
+            execution_id: envelope.execution_id.clone(),
+            preflight_id: envelope.preflight_id.clone(),
+            workflow_id: envelope.workflow_id.clone(),
+            task_id: envelope.task_id.clone(),
+            request_id: envelope.request_id.clone(),
+            patch_id: envelope.patch_id.clone(),
+            checkpoint_id: Some(envelope.checkpoint_lifecycle.checkpoint_id.clone()),
+            reviewer_gate_id: Some(envelope.reviewer_decision.gate_id.clone()),
+            policy_decision_id: Some(envelope.policy_decision.decision_id.clone()),
+            sandbox_profile_label: envelope.sandbox_profile_label.clone(),
+            isolated_root: envelope.isolated_root.clone(),
+            isolated_root_label: envelope.root_label.clone(),
             root_kind: ApplyPatchExecutorRootKind::IsolatedWorktree,
             executor_label: APPLY_PATCH_EXECUTOR_LABEL.to_string(),
-            allowed_paths: options.allowed_paths.clone(),
-            patch_body: options.patch_body.clone(),
+            allowed_paths: envelope.allowed_paths.clone(),
+            patch_body: envelope.patch_body.clone(),
         })
         .record;
 
-    let execution_seq = next_trace_seq(&store, &options.trace_id)?;
+    let execution_seq = next_trace_seq(&store, &envelope.trace_id)?;
     store.append(&EventFrame::new(
-        options.trace_id.clone(),
+        envelope.trace_id.clone(),
         execution_seq,
         RunEvent::ApplyPatchExecutionRecorded {
             record: execution.clone(),
@@ -2107,8 +2140,8 @@ pub fn run_apply_patch_with_options(
     }
 
     Ok(CliApplyPatchOutput::from_records(
-        options.trace_id,
-        options.root_label,
+        envelope.trace_id,
+        envelope.root_label,
         &preflight,
         Some(&execution),
     ))
@@ -2161,7 +2194,9 @@ fn next_trace_seq(store: &TraceStore, trace_id: &str) -> Result<u64> {
         + 1)
 }
 
-fn build_apply_patch_gate_request(options: &CliApplyPatchOptions) -> Result<ApplyPatchGateRequest> {
+fn build_explicit_apply_patch_envelope(
+    options: CliApplyPatchOptions,
+) -> Result<CliApplyPatchEnvelope> {
     let workflow_id = CodingWorkflowId::from(options.workflow_id.clone());
     let task_id = TaskId::from(options.task_id.clone());
     let request_id = MutationRequestId::from(options.request_id.clone());
@@ -2212,71 +2247,102 @@ fn build_apply_patch_gate_request(options: &CliApplyPatchOptions) -> Result<Appl
         allowed_paths: options.allowed_paths.clone(),
         ..enforcement_plan.scope.clone()
     };
-    let patch_body = (!options.patch_body.trim().is_empty()).then(|| ApplyPatchDryRunInput {
-        body: options.patch_body.clone(),
-        max_bytes: 1024 * 1024,
-    });
-
-    Ok(ApplyPatchGateRequest {
-        workflow_id: workflow_id.clone(),
+    let checkpoint_lifecycle = WorkspaceCheckpointLifecycleRecord {
+        checkpoint_id,
         task_id: task_id.clone(),
+        status: WorkspaceCheckpointLifecycleStatus::Created,
+        reason: "explicit CLI checkpoint reference".to_string(),
+        restore_plan_id: None,
+        execution_blocked: true,
+        evidence: Vec::new(),
+        metadata: None,
+    };
+    let reviewer_decision = ReviewerGateDecision {
+        gate_id: reviewer_gate_id,
+        handoff_id: AgentHandoffId::from_static("handoff_cli_apply_patch"),
+        decision: ReviewerDecisionKind::Accept,
+        reviewer: options.operator_label.clone(),
+        reason_code: "explicit_cli_accept".to_string(),
+        comment: Some("operator supplied reviewer gate reference".to_string()),
+    };
+    let policy_decision = ToolPolicyDecision {
+        decision_id: policy_decision_id,
+        call_id: ToolCallId::from_static("tool_call_cli_apply_patch"),
+        tool_id: ToolId::from_static("tool_cli_apply_patch"),
+        outcome: PolicyOutcome::Allow,
+        reason: "operator supplied policy decision reference".to_string(),
+        required_permissions: vec![ToolPermission::FilesystemWrite],
+        side_effects: vec![ToolSideEffect::WritesWorkspace],
+        approval_id: None,
+    };
+    let enforcement_plan = MutationEnforcementPlan {
+        sandbox_profile_label: Some(options.sandbox_profile_label.clone()),
+        ..enforcement_plan
+    };
+
+    Ok(CliApplyPatchEnvelope {
+        trace_id: options.trace_id,
+        workflow_id,
+        task_id,
+        request_id,
+        patch_id,
+        preflight_id: ApplyPatchPreflightId::from(options.preflight_id),
+        execution_id: ApplyPatchExecutionId::from(options.execution_id),
         mutation_request,
         patch_proposal,
         mutation_scope,
-        enforcement_plan: MutationEnforcementPlan {
-            sandbox_profile_label: Some(options.sandbox_profile_label.clone()),
-            ..enforcement_plan
-        },
-        checkpoint_lifecycle: Some(WorkspaceCheckpointLifecycleRecord {
-            checkpoint_id,
-            task_id: task_id.clone(),
-            status: WorkspaceCheckpointLifecycleStatus::Created,
-            reason: "explicit CLI checkpoint reference".to_string(),
-            restore_plan_id: None,
-            execution_blocked: true,
-            evidence: Vec::new(),
-            metadata: None,
-        }),
-        reviewer_decision: Some(ReviewerGateDecision {
-            gate_id: reviewer_gate_id,
-            handoff_id: AgentHandoffId::from_static("handoff_cli_apply_patch"),
-            decision: ReviewerDecisionKind::Accept,
-            reviewer: options.operator_label.clone(),
-            reason_code: "explicit_cli_accept".to_string(),
-            comment: Some("operator supplied reviewer gate reference".to_string()),
-        }),
-        policy_decision: Some(ToolPolicyDecision {
-            decision_id: policy_decision_id,
-            call_id: ToolCallId::from_static("tool_call_cli_apply_patch"),
-            tool_id: ToolId::from_static("tool_cli_apply_patch"),
-            outcome: PolicyOutcome::Allow,
-            reason: "operator supplied policy decision reference".to_string(),
-            required_permissions: vec![ToolPermission::FilesystemWrite],
-            side_effects: vec![ToolSideEffect::WritesWorkspace],
-            approval_id: None,
-        }),
+        enforcement_plan,
+        checkpoint_lifecycle,
+        reviewer_decision,
+        policy_decision,
+        sandbox_profile_label: Some(options.sandbox_profile_label),
+        isolated_root: options.isolated_root,
+        root_label: options.root_label,
+        allowed_paths: options.allowed_paths,
+        patch_body: options.patch_body,
+        dry_run: options.dry_run,
+        operator_label: options.operator_label,
+    })
+}
+
+fn build_apply_patch_gate_request(envelope: &CliApplyPatchEnvelope) -> ApplyPatchGateRequest {
+    let patch_body = (!envelope.patch_body.trim().is_empty()).then(|| ApplyPatchDryRunInput {
+        body: envelope.patch_body.clone(),
+        max_bytes: 1024 * 1024,
+    });
+
+    ApplyPatchGateRequest {
+        workflow_id: envelope.workflow_id.clone(),
+        task_id: envelope.task_id.clone(),
+        mutation_request: envelope.mutation_request.clone(),
+        patch_proposal: envelope.patch_proposal.clone(),
+        mutation_scope: envelope.mutation_scope.clone(),
+        enforcement_plan: envelope.enforcement_plan.clone(),
+        checkpoint_lifecycle: Some(envelope.checkpoint_lifecycle.clone()),
+        reviewer_decision: Some(envelope.reviewer_decision.clone()),
+        policy_decision: Some(envelope.policy_decision.clone()),
         patch_body,
-        executor_context: (!options.dry_run).then(|| ApplyPatchExecutorContext {
-            isolated_root_label: options.root_label.clone(),
+        executor_context: (!envelope.dry_run).then(|| ApplyPatchExecutorContext {
+            isolated_root_label: envelope.root_label.clone(),
             root_kind: ApplyPatchExecutorRootKind::IsolatedWorktree,
             executor_label: APPLY_PATCH_EXECUTOR_LABEL.to_string(),
             executor_available: true,
             request_source_label: APPLY_PATCH_REQUEST_SOURCE_LABEL.to_string(),
         }),
-        operator_label: options.operator_label.clone(),
-    })
+        operator_label: envelope.operator_label.clone(),
+    }
 }
 
 fn apply_patch_preflight_record_from_gate(
-    options: &CliApplyPatchOptions,
+    envelope: &CliApplyPatchEnvelope,
     gate: &ApplyPatchGateRecord,
 ) -> ApplyPatchPreflightRecord {
     ApplyPatchPreflightRecord {
-        preflight_id: ApplyPatchPreflightId::from(options.preflight_id.clone()),
-        workflow_id: CodingWorkflowId::from(options.workflow_id.clone()),
-        task_id: TaskId::from(options.task_id.clone()),
-        request_id: MutationRequestId::from(options.request_id.clone()),
-        patch_id: PatchProposalId::from(options.patch_id.clone()),
+        preflight_id: envelope.preflight_id.clone(),
+        workflow_id: envelope.workflow_id.clone(),
+        task_id: envelope.task_id.clone(),
+        request_id: envelope.request_id.clone(),
+        patch_id: envelope.patch_id.clone(),
         status: match gate.status {
             ApplyPatchGateStatus::Blocked => ApplyPatchPreflightStatus::Blocked,
             ApplyPatchGateStatus::PreflightReady => ApplyPatchPreflightStatus::DryRunReady,

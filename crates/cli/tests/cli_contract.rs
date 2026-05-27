@@ -301,6 +301,7 @@ fn apply_patch_command_applies_single_file_inside_isolated_root_and_records_trac
     assert!(trace.contains("apply_patch_preflight_recorded"));
     assert!(trace.contains("apply_patch_execution_recorded"));
     assert!(!trace.contains("alpha\\nnew\\nomega"));
+    assert!(!trace.contains(&isolated_root.display().to_string()));
 }
 
 #[test]
