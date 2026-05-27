@@ -30,8 +30,8 @@
 当前 `main` 基线已完成 v0.1 release，并已将 v0.2-v0.5 收口为 foundation-stable 工作。必须明确区分：
 
 - **用户可用能力**：CLI/TUI/mock chat、trace/replay、session resume、chat-only paused task resume、opt-in project instructions、explicit read-only skill activation、explicit and trace-driven `tessera apply-patch` isolated-root CLI envelopes 等。
-- **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、runtime API / app-server DTO alignment、diagnostics event、memory proposal UI、trace-backed task ownership metadata/recorder/projection、no-tool chat/agent run owner attach/detach、structured handoff/reviewer gate、sub-agent session/runtime ownership/transcript lifecycle metadata projection、metadata-only coding-agent workflow protocol/core/client projection、v0.7 runtime gate assessment、runtime gate closure foundations、apply-patch execution record、explicit executor-ready gate、pure patch model 和 isolated-root single-file apply-patch executor 等。
-- **尚未支持能力**：真实 tool execution、executable/default/global skill runtime、tool-using/full coding-agent runtime、MCP runtime、background reattach、daemon/app-server listener、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、persistent sub-agent runtime、完整 coding-agent diff/test/checkpoint/Git execution workflow、自动 worktree lifecycle、swarm、learning apply。
+- **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、runtime API / app-server DTO alignment、diagnostics event、memory proposal UI、trace-backed task ownership metadata/recorder/projection、no-tool chat/agent run owner attach/detach、structured handoff/reviewer gate、sub-agent session/runtime ownership/transcript lifecycle metadata projection、metadata-only coding-agent workflow protocol/core/client projection、v0.7 runtime gate assessment、runtime gate closure foundations、apply-patch execution record、explicit executor-ready gate、pure patch model、isolated-root single-file apply-patch executor 和 automatic isolated worktree lifecycle design 等。
+- **尚未支持能力**：真实 tool execution、executable/default/global skill runtime、tool-using/full coding-agent runtime、MCP runtime、background reattach、daemon/app-server listener、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、persistent sub-agent runtime、完整 coding-agent diff/test/checkpoint/Git execution workflow、自动 worktree lifecycle implementation、swarm、learning apply。
 
 ## 4. Version Status Matrix
 
@@ -43,7 +43,7 @@
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | [~] Foundation complete | RuntimeHttpApi shape, metadata-only MCP adapter, diagnostics event, memory proposal UI; no server/runtime/store. |
 | v0.5 | Single-agent and resumable task foundations | [~] Foundation stable | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server DTO alignment; runtime-complete gaps are staged into future gates. |
 | v0.6 | Persistent sub-agents and structured review | [x] Foundation complete | Structured handoff/reviewer gate, sub-agent session/runtime ownership, and transcript artifact lifecycle metadata events/projections exist; persistent child-agent execution is not implemented yet. |
-| v0.7 | Project coding-agent workflow | [~] Trace-driven apply-patch automation implemented | Provider-neutral workflow/scope/patch/test/review/restore metadata events, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planner, read-only client/GUI projection, apply-patch preflight/dry-run readiness projection, execution records, explicit executor-ready gate, pure patch model, isolated-root single-file UTF-8 apply-patch executor, explicit `tessera apply-patch` CLI envelope, and trace-driven `tessera apply-patch --from-trace` envelope exist; no test runner, checkpoint restore, worktree creation/lifecycle, Git mutation, or GUI/TUI diff workflow yet. |
+| v0.7 | Project coding-agent workflow | [~] Automatic worktree lifecycle designed | Provider-neutral workflow/scope/patch/test/review/restore metadata events, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planner, read-only client/GUI projection, apply-patch preflight/dry-run readiness projection, execution records, explicit executor-ready gate, pure patch model, isolated-root single-file UTF-8 apply-patch executor, explicit `tessera apply-patch` CLI envelope, trace-driven `tessera apply-patch --from-trace` envelope, and automatic isolated worktree lifecycle design exist; no test runner, checkpoint restore, worktree creation/lifecycle implementation, branch/stage/commit/push/PR Git mutation, or GUI/TUI diff workflow yet. |
 | v0.8 | Swarm scheduler | [!] Blocked | Requires v0.6 structured handoff and reviewer gate. |
 | v0.9 | Learning proposal system | [ ] Planned | No learning runtime; proposals only by design. |
 
@@ -197,6 +197,7 @@
 - [x] User-facing explicit apply-patch CLI tool over the narrow executor.
 - [x] v0.7 trace-driven apply-patch workflow automation design for resolving reviewed mutation bundles from trace and patch artifacts.
 - [x] Trace-driven apply-patch workflow automation through `tessera apply-patch --from-trace`, with trace-backed selector resolution and artifact body loading before shared gate/executor execution.
+- [x] v0.7 automatic isolated worktree lifecycle design for future trace-driven apply-patch `--auto-worktree` mode.
 - [ ] Executable coding-agent diff/test/checkpoint/rollback workflow.
 - [ ] Automatic worktree-first mutation lifecycle and cleanup.
 - [ ] GUI/TUI diff and review surfaces.
@@ -246,9 +247,10 @@ The next implementation slices should stay conservative and preserve the current
 37. [x] Implement the explicit `tessera apply-patch` CLI envelope before trace-driven workflow automation.
 38. [x] Design trace-driven apply-patch workflow automation only after explicit CLI semantics and trace append behavior are verified.
 39. [x] Implement trace-driven apply-patch workflow automation from trace-backed workflow, approval and patch artifact records, reusing the existing explicit apply-patch gate/executor path.
-40. [ ] Design automatic isolated worktree lifecycle for trace-driven apply-patch before adding any worktree creation, cleanup, test execution, checkpoint restore, or Git mutation behavior.
-41. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
-42. [!] Do not start test runner, checkpoint restore, Git mutation, worktree creation, GUI mutation controls, app-server mutation listener, swarm, or learning apply until their stated gates exist.
+40. [x] Design automatic isolated worktree lifecycle for trace-driven apply-patch before adding any worktree creation, cleanup, test execution, checkpoint restore, or Git mutation behavior.
+41. [ ] Implement automatic isolated worktree lifecycle for trace-driven apply-patch with detached worktree creation only, no branch/stage/commit/push/PR mutation, no tests, and no checkpoint restore.
+42. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
+43. [!] Do not start test runner, checkpoint restore, branch/stage/commit/push/PR Git mutation, GUI mutation controls, app-server mutation listener, swarm, or learning apply until their stated gates exist.
 
 ## 8. Mandatory Gates
 
