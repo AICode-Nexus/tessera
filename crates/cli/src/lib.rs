@@ -20,14 +20,16 @@ use tessera_core::{
     RunPauseToken, RuntimeEventQuery, RuntimePauseCheckpointSummary, RuntimeReader,
     RuntimeSessionSummary, RuntimeTaskOwnerSummary, RuntimeTaskResumer, SkillActivationRequest,
     SkillDiscoveryOptions, SkillDiscoveryReport, SkillRuntimeOptions, SkillRuntimePlanner,
+    TraceApplyPatchResolveRequest, TraceApplyPatchResolver, TraceApplyPatchSelector,
 };
 use tessera_protocol::{
     AgentHandoffId, AgentProfile, AgentProfileId, AgentRunSummary, ApplyPatchDryRunOperationKind,
     ApplyPatchDryRunOperationSummary, ApplyPatchExecutionBlocker, ApplyPatchExecutionId,
     ApplyPatchExecutionRecord, ApplyPatchExecutionStatus, ApplyPatchPreflightBlocker,
-    ApplyPatchPreflightId, ApplyPatchPreflightRecord, ApplyPatchPreflightStatus, CodingWorkflowId,
-    ContextReference, EventFrame, HandoffEvidenceRef, InstructionSource, ModelProfileId,
-    MutationMode, MutationRequestId, MutationRequestOperationKind, MutationRequestProposal,
+    ApplyPatchPreflightId, ApplyPatchPreflightRecord, ApplyPatchPreflightStatus,
+    ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind, CodingWorkflowId, ContextReference,
+    EventFrame, HandoffEvidenceRef, InstructionSource, ModelProfileId, MutationMode,
+    MutationRequestId, MutationRequestOperationKind, MutationRequestProposal,
     MutationRequestStatus, PatchProposal, PatchProposalId, PolicyDecisionId, PolicyOutcome,
     ProviderId, ResumeMode, ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, RunEvent,
     SkillActivation, SkillManifest, SkillReferenceSource, SnapshotId, TaskId, TaskOwnerKind,
@@ -120,6 +122,23 @@ pub struct CliApplyPatchOptions {
     pub root_label: String,
     pub allowed_paths: Vec<String>,
     pub patch_body: String,
+    pub dry_run: bool,
+    pub operator_label: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CliTraceApplyPatchOptions {
+    pub trace_id: String,
+    pub workflow_id: Option<String>,
+    pub request_id: Option<String>,
+    pub patch_id: Option<String>,
+    pub patch_artifact_id: Option<String>,
+    pub preflight_id: Option<String>,
+    pub execution_id: Option<String>,
+    pub isolated_root: PathBuf,
+    pub root_label: String,
+    pub allowed_paths: Vec<String>,
+    pub patch_body_override: Option<String>,
     pub dry_run: bool,
     pub operator_label: String,
 }
@@ -438,6 +457,7 @@ pub const VERSION_TEXT: &str = concat!(
 
 const APPLY_PATCH_EXECUTOR_LABEL: &str = "core.apply_patch_executor.v1";
 const APPLY_PATCH_REQUEST_SOURCE_LABEL: &str = "cli.apply-patch";
+const APPLY_PATCH_MAX_BODY_BYTES: usize = 1024 * 1024;
 
 static TRACE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -2062,6 +2082,46 @@ pub fn run_apply_patch_with_options(
     run_apply_patch_envelope(data_dir, envelope)
 }
 
+pub fn run_apply_patch_from_trace_options(
+    data_dir: impl AsRef<Path>,
+    options: CliTraceApplyPatchOptions,
+) -> Result<CliApplyPatchOutput> {
+    validate_trace_apply_patch_options(&options)?;
+    let data_dir = data_dir.as_ref();
+    let store = TraceStore::open(data_dir)?;
+    let records = store.read_trace_records(&options.trace_id)?;
+    let resolved = TraceApplyPatchResolver::resolve(TraceApplyPatchResolveRequest {
+        trace_id: options.trace_id.clone(),
+        records,
+        selector: TraceApplyPatchSelector {
+            workflow_id: options.workflow_id.clone().map(CodingWorkflowId::from),
+            request_id: options.request_id.clone().map(MutationRequestId::from),
+            patch_id: options.patch_id.clone().map(PatchProposalId::from),
+            patch_artifact_id: options.patch_artifact_id.clone().map(ArtifactId::from),
+            allowed_paths: options.allowed_paths.clone(),
+        },
+    })?;
+    let patch_body = match options.patch_body_override.as_ref() {
+        Some(body) => body.clone(),
+        None => {
+            let artifact_id = resolved
+                .patch_artifact_id
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("trace apply-patch requires a patch artifact"))?;
+            let stored = store.read_artifact_body(artifact_id)?;
+            validate_trace_patch_artifact_body(&stored.record)?;
+            String::from_utf8(stored.body)?
+        }
+    };
+    if patch_body.len() > APPLY_PATCH_MAX_BODY_BYTES {
+        anyhow::bail!("patch artifact body is too large");
+    }
+    drop(store);
+
+    let envelope = build_trace_apply_patch_envelope(options, resolved, patch_body)?;
+    run_apply_patch_envelope(data_dir, envelope)
+}
+
 pub fn run_apply_patch_envelope(
     data_dir: impl AsRef<Path>,
     envelope: CliApplyPatchEnvelope,
@@ -2159,6 +2219,35 @@ fn validate_apply_patch_options(options: &CliApplyPatchOptions) -> Result<()> {
     }
     for path in &options.allowed_paths {
         validate_cli_relative_path(path)?;
+    }
+    Ok(())
+}
+
+fn validate_trace_apply_patch_options(options: &CliTraceApplyPatchOptions) -> Result<()> {
+    if options.trace_id.trim().is_empty() {
+        anyhow::bail!("--from-trace must not be empty");
+    }
+    if options.root_label.trim().is_empty() {
+        anyhow::bail!("--root-label must not be empty");
+    }
+    for path in &options.allowed_paths {
+        validate_cli_relative_path(path)?;
+    }
+    Ok(())
+}
+
+fn validate_trace_patch_artifact_body(record: &tessera_protocol::ArtifactBodyRecord) -> Result<()> {
+    if record.kind != ArtifactKind::Patch {
+        anyhow::bail!("patch artifact is not a patch");
+    }
+    if record.redaction_status != ArtifactBodyRedactionStatus::Clean {
+        anyhow::bail!("patch artifact is not clean");
+    }
+    if record.byte_len == 0 {
+        anyhow::bail!("patch artifact body is empty");
+    }
+    if record.byte_len > APPLY_PATCH_MAX_BODY_BYTES as u64 {
+        anyhow::bail!("patch artifact body is too large");
     }
     Ok(())
 }
@@ -2305,10 +2394,70 @@ fn build_explicit_apply_patch_envelope(
     })
 }
 
+fn build_trace_apply_patch_envelope(
+    options: CliTraceApplyPatchOptions,
+    resolved: tessera_core::TraceApplyPatchResolvedEnvelope,
+    patch_body: String,
+) -> Result<CliApplyPatchEnvelope> {
+    let allowed_paths = resolved.mutation_scope.allowed_paths.clone();
+    let enforcement_plan = MutationEnforcementPlanner::new(
+        options.isolated_root.display().to_string(),
+    )
+    .plan(MutationEnforcementPlanRequest {
+        workflow_id: resolved.workflow_id.clone(),
+        task_id: resolved.task_id.clone(),
+        requested_paths: allowed_paths.clone(),
+        mutation_mode: Some(resolved.mutation_scope.mutation_mode),
+        policy_decision_id: Some(resolved.policy_decision.decision_id.clone()),
+        reason: "trace-driven CLI apply-patch".to_string(),
+    })?;
+    let mutation_scope = WorkspaceMutationScope {
+        root_label: options.root_label.clone(),
+        allowed_paths: allowed_paths.clone(),
+        ..resolved.mutation_scope
+    };
+    let enforcement_plan = MutationEnforcementPlan {
+        scope: mutation_scope.clone(),
+        sandbox_profile_label: resolved.sandbox_profile_label.clone(),
+        policy_decision_id: Some(resolved.policy_decision.decision_id.clone()),
+        ..enforcement_plan
+    };
+
+    Ok(CliApplyPatchEnvelope {
+        trace_id: resolved.trace_id,
+        workflow_id: resolved.workflow_id,
+        task_id: resolved.task_id.clone(),
+        request_id: resolved.mutation_request.request_id.clone(),
+        patch_id: resolved.patch_proposal.patch_id.clone(),
+        preflight_id: options
+            .preflight_id
+            .map(ApplyPatchPreflightId::from)
+            .unwrap_or_default(),
+        execution_id: options
+            .execution_id
+            .map(ApplyPatchExecutionId::from)
+            .unwrap_or_default(),
+        mutation_request: resolved.mutation_request,
+        patch_proposal: resolved.patch_proposal,
+        mutation_scope,
+        enforcement_plan,
+        checkpoint_lifecycle: resolved.checkpoint_lifecycle,
+        reviewer_decision: resolved.reviewer_decision,
+        policy_decision: resolved.policy_decision,
+        sandbox_profile_label: resolved.sandbox_profile_label,
+        isolated_root: options.isolated_root,
+        root_label: options.root_label,
+        allowed_paths,
+        patch_body,
+        dry_run: options.dry_run,
+        operator_label: options.operator_label,
+    })
+}
+
 fn build_apply_patch_gate_request(envelope: &CliApplyPatchEnvelope) -> ApplyPatchGateRequest {
     let patch_body = (!envelope.patch_body.trim().is_empty()).then(|| ApplyPatchDryRunInput {
         body: envelope.patch_body.clone(),
-        max_bytes: 1024 * 1024,
+        max_bytes: APPLY_PATCH_MAX_BODY_BYTES,
     });
 
     ApplyPatchGateRequest {

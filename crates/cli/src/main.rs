@@ -202,25 +202,29 @@ struct ApplyPatchCommandOptions {
     #[arg(long)]
     trace_id: Option<String>,
     #[arg(long)]
-    workflow_id: String,
+    from_trace: Option<String>,
     #[arg(long)]
-    task_id: String,
+    workflow_id: Option<String>,
     #[arg(long)]
-    request_id: String,
+    task_id: Option<String>,
     #[arg(long)]
-    patch_id: String,
+    request_id: Option<String>,
     #[arg(long)]
-    preflight_id: String,
+    patch_id: Option<String>,
     #[arg(long)]
-    execution_id: String,
+    patch_artifact_id: Option<String>,
     #[arg(long)]
-    checkpoint_id: String,
+    preflight_id: Option<String>,
     #[arg(long)]
-    reviewer_gate_id: String,
+    execution_id: Option<String>,
     #[arg(long)]
-    policy_decision_id: String,
+    checkpoint_id: Option<String>,
     #[arg(long)]
-    sandbox_profile: String,
+    reviewer_gate_id: Option<String>,
+    #[arg(long)]
+    policy_decision_id: Option<String>,
+    #[arg(long)]
+    sandbox_profile: Option<String>,
     #[arg(long)]
     isolated_root: PathBuf,
     #[arg(long)]
@@ -511,10 +515,12 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::ApplyPatch(options)) => {
             let ApplyPatchCommandOptions {
                 trace_id,
+                from_trace,
                 workflow_id,
                 task_id,
                 request_id,
                 patch_id,
+                patch_artifact_id,
                 preflight_id,
                 execution_id,
                 checkpoint_id,
@@ -533,48 +539,104 @@ async fn main() -> anyhow::Result<()> {
             } = *options;
             let config = tessera_cli::resolve_config(config)?;
             let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
-            let patch_source_count = usize::from(patch_file.is_some()) + usize::from(stdin);
-            if patch_source_count != 1 {
-                anyhow::bail!("exactly one of --patch-file or --stdin is required");
-            }
-            let patch_body = if stdin {
+            let patch_source_count = usize::from(patch_file.is_some())
+                + usize::from(stdin)
+                + usize::from(patch_artifact_id.is_some());
+            let patch_body_override = if stdin {
                 let mut input = String::new();
                 std::io::stdin().read_to_string(&mut input)?;
-                input
+                Some(input)
+            } else if let Some(patch_file) = patch_file {
+                Some(std::fs::read_to_string(patch_file)?)
             } else {
-                std::fs::read_to_string(patch_file.expect("patch_file exists when stdin is false"))?
+                None
             };
-            let trace_id = trace_id.unwrap_or_else(|| {
-                format!(
-                    "trace_apply_patch_{}",
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|duration| duration.as_millis())
-                        .unwrap_or(0)
-                )
-            });
-            let output = tessera_cli::run_apply_patch_with_options(
-                data_dir,
-                tessera_cli::CliApplyPatchOptions {
-                    trace_id,
-                    workflow_id,
-                    task_id,
-                    request_id,
-                    patch_id,
-                    preflight_id,
-                    execution_id,
-                    checkpoint_id,
-                    reviewer_gate_id,
-                    policy_decision_id,
-                    sandbox_profile_label: sandbox_profile,
-                    isolated_root,
-                    root_label,
-                    allowed_paths,
-                    patch_body,
-                    dry_run,
-                    operator_label: "cli".to_string(),
-                },
-            )?;
+            let output = if let Some(from_trace) = from_trace {
+                if trace_id.is_some() {
+                    anyhow::bail!("--trace-id cannot be combined with --from-trace");
+                }
+                if task_id.is_some()
+                    || checkpoint_id.is_some()
+                    || reviewer_gate_id.is_some()
+                    || policy_decision_id.is_some()
+                    || sandbox_profile.is_some()
+                {
+                    anyhow::bail!(
+                        "--task-id, --checkpoint-id, --reviewer-gate-id, --policy-decision-id, and --sandbox-profile are explicit mode only"
+                    );
+                }
+                if patch_source_count > 1 {
+                    anyhow::bail!(
+                        "at most one of --patch-artifact-id, --patch-file, or --stdin is allowed with --from-trace"
+                    );
+                }
+                tessera_cli::run_apply_patch_from_trace_options(
+                    data_dir,
+                    tessera_cli::CliTraceApplyPatchOptions {
+                        trace_id: from_trace,
+                        workflow_id,
+                        request_id,
+                        patch_id,
+                        patch_artifact_id,
+                        preflight_id,
+                        execution_id,
+                        isolated_root,
+                        root_label,
+                        allowed_paths,
+                        patch_body_override,
+                        dry_run,
+                        operator_label: "cli".to_string(),
+                    },
+                )?
+            } else {
+                if patch_artifact_id.is_some() {
+                    anyhow::bail!("--patch-artifact-id requires --from-trace");
+                }
+                if patch_source_count != 1 {
+                    anyhow::bail!("exactly one of --patch-file or --stdin is required");
+                }
+                let trace_id = trace_id.unwrap_or_else(|| {
+                    format!(
+                        "trace_apply_patch_{}",
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|duration| duration.as_millis())
+                            .unwrap_or(0)
+                    )
+                });
+                tessera_cli::run_apply_patch_with_options(
+                    data_dir,
+                    tessera_cli::CliApplyPatchOptions {
+                        trace_id,
+                        workflow_id: required_apply_patch_arg(workflow_id, "--workflow-id")?,
+                        task_id: required_apply_patch_arg(task_id, "--task-id")?,
+                        request_id: required_apply_patch_arg(request_id, "--request-id")?,
+                        patch_id: required_apply_patch_arg(patch_id, "--patch-id")?,
+                        preflight_id: required_apply_patch_arg(preflight_id, "--preflight-id")?,
+                        execution_id: required_apply_patch_arg(execution_id, "--execution-id")?,
+                        checkpoint_id: required_apply_patch_arg(checkpoint_id, "--checkpoint-id")?,
+                        reviewer_gate_id: required_apply_patch_arg(
+                            reviewer_gate_id,
+                            "--reviewer-gate-id",
+                        )?,
+                        policy_decision_id: required_apply_patch_arg(
+                            policy_decision_id,
+                            "--policy-decision-id",
+                        )?,
+                        sandbox_profile_label: required_apply_patch_arg(
+                            sandbox_profile,
+                            "--sandbox-profile",
+                        )?,
+                        isolated_root,
+                        root_label,
+                        allowed_paths,
+                        patch_body: patch_body_override
+                            .expect("patch body exists when explicit patch source count is one"),
+                        dry_run,
+                        operator_label: "cli".to_string(),
+                    },
+                )?
+            };
             if json {
                 println!("{}", serde_json::to_string_pretty(&output)?);
             } else if let Some(status) = &output.execution_status {
@@ -649,6 +711,10 @@ struct ChatCommandOptions {
     resume_task: Option<String>,
     config: Option<PathBuf>,
     data_dir: Option<PathBuf>,
+}
+
+fn required_apply_patch_arg(value: Option<String>, name: &str) -> anyhow::Result<String> {
+    value.ok_or_else(|| anyhow::anyhow!("{name} is required unless --from-trace is used"))
 }
 
 impl ChatCommandOptions {

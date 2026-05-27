@@ -18,10 +18,16 @@ use tessera_core::{
     EventSinkAction, RunCancellationToken, RunControls, RunPauseToken, RuntimeReader,
 };
 use tessera_protocol::{
-    ClientInstanceId, EventFrame, RunEvent, RuntimeInstanceId, TaskId, TaskOwnerKind,
-    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskStatus, Timestamp,
+    AgentHandoffId, ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind, ClientInstanceId,
+    CodingWorkflowId, EventFrame, EventRange, HandoffEvidenceKind, HandoffEvidenceRef,
+    MutationMode, MutationRequestId, MutationRequestOperationKind, MutationRequestProposal,
+    MutationRequestStatus, PatchProposal, PatchProposalId, PolicyDecisionId, PolicyOutcome,
+    ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, RunEvent, RuntimeInstanceId,
+    SnapshotId, TaskId, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
+    TaskStatus, Timestamp, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect,
+    WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus, WorkspaceMutationScope,
 };
-use tessera_storage::TraceStore;
+use tessera_storage::{ArtifactBodyWrite, TraceStore};
 
 struct DelayedLineReader {
     lines: VecDeque<DelayedLine>,
@@ -210,6 +216,202 @@ fn apply_patch_args(
     ]
 }
 
+fn trace_apply_patch_args(
+    data_dir: &std::path::Path,
+    isolated_root: &std::path::Path,
+) -> Vec<String> {
+    vec![
+        "apply-patch".to_string(),
+        "--data-dir".to_string(),
+        data_dir.display().to_string(),
+        "--from-trace".to_string(),
+        "trace_cli_trace_apply_patch".to_string(),
+        "--isolated-root".to_string(),
+        isolated_root.display().to_string(),
+        "--root-label".to_string(),
+        "worktree:cli-trace-apply-patch".to_string(),
+        "--json".to_string(),
+    ]
+}
+
+fn trace_workflow_id() -> CodingWorkflowId {
+    CodingWorkflowId::from_static("coding_workflow_cli_trace_apply_patch")
+}
+
+fn trace_task_id() -> TaskId {
+    TaskId::from_static("task_cli_trace_apply_patch")
+}
+
+fn trace_request_id() -> MutationRequestId {
+    MutationRequestId::from_static("mutation_request_cli_trace_apply_patch")
+}
+
+fn trace_patch_id() -> PatchProposalId {
+    PatchProposalId::from_static("patch_proposal_cli_trace_apply_patch")
+}
+
+fn trace_checkpoint_id() -> SnapshotId {
+    SnapshotId::from_static("snapshot_cli_trace_apply_patch")
+}
+
+fn trace_reviewer_gate_id() -> ReviewerGateId {
+    ReviewerGateId::from_static("reviewer_gate_cli_trace_apply_patch")
+}
+
+fn trace_policy_decision_id() -> PolicyDecisionId {
+    PolicyDecisionId::from_static("policy_cli_trace_apply_patch")
+}
+
+fn trace_patch_artifact_id() -> ArtifactId {
+    ArtifactId::from_static("artifact_cli_trace_apply_patch")
+}
+
+fn trace_patch_evidence() -> HandoffEvidenceRef {
+    HandoffEvidenceRef {
+        kind: HandoffEvidenceKind::DiffArtifact,
+        artifact_id: Some(trace_patch_artifact_id()),
+        trace_id: Some("trace_cli_trace_apply_patch".to_string()),
+        event_range: Some(EventRange {
+            start_seq: 4,
+            end_seq: 5,
+        }),
+        label: Some("reviewed patch artifact".to_string()),
+        summary: Some("patch body stored out of trace".to_string()),
+    }
+}
+
+fn write_trace_apply_patch_bundle(
+    data_dir: &Path,
+    include_artifact_body: bool,
+    redaction_status: ArtifactBodyRedactionStatus,
+) {
+    write_trace_apply_patch_bundle_with_body(
+        data_dir,
+        include_artifact_body,
+        redaction_status,
+        apply_patch_modify_body(),
+    );
+}
+
+fn write_trace_apply_patch_bundle_with_body(
+    data_dir: &Path,
+    include_artifact_body: bool,
+    redaction_status: ArtifactBodyRedactionStatus,
+    patch_body: String,
+) {
+    let mut store = TraceStore::open(data_dir).unwrap();
+    let trace_id = "trace_cli_trace_apply_patch";
+    let artifact_record = if include_artifact_body {
+        Some(
+            store
+                .write_artifact_body(ArtifactBodyWrite {
+                    artifact_id: trace_patch_artifact_id(),
+                    kind: ArtifactKind::Patch,
+                    task_id: Some(trace_task_id()),
+                    media_type: "text/x-diff".to_string(),
+                    redaction_status,
+                    summary: Some("clean reviewed patch body".to_string()),
+                    body: patch_body.into_bytes(),
+                })
+                .unwrap(),
+        )
+    } else {
+        None
+    };
+
+    let mut seq = 1;
+    let mut append = |event: RunEvent| {
+        store
+            .append(&EventFrame::new(trace_id, seq, event))
+            .unwrap();
+        seq += 1;
+    };
+    append(RunEvent::CodingWorkflowStarted {
+        workflow_id: trace_workflow_id(),
+        task_id: trace_task_id(),
+        objective: "trace-backed CLI apply-patch".to_string(),
+    });
+    append(RunEvent::WorkspaceMutationScopeRecorded {
+        scope: WorkspaceMutationScope {
+            workflow_id: trace_workflow_id(),
+            task_id: trace_task_id(),
+            root_label: "project".to_string(),
+            allowed_paths: vec!["docs/README.md".to_string()],
+            denied_paths: Vec::new(),
+            mutation_mode: MutationMode::WorktreeFirst,
+            worktree_required: true,
+            reason: Some("reviewed trace mutation scope".to_string()),
+        },
+    });
+    append(RunEvent::MutationRequestProposalRecorded {
+        proposal: MutationRequestProposal {
+            request_id: trace_request_id(),
+            workflow_id: trace_workflow_id(),
+            task_id: trace_task_id(),
+            operation: MutationRequestOperationKind::PatchApplication,
+            status: MutationRequestStatus::Approved,
+            summary: "apply reviewed trace patch".to_string(),
+            requested_paths: vec!["docs/README.md".to_string()],
+            required_checkpoint_id: Some(trace_checkpoint_id()),
+            reviewer_gate_id: Some(trace_reviewer_gate_id()),
+            policy_decision_id: Some(trace_policy_decision_id()),
+            sandbox_profile_label: Some("workspace_write_isolated".to_string()),
+            worktree_required: true,
+            evidence: vec![trace_patch_evidence()],
+        },
+    });
+    append(RunEvent::PatchProposalRecorded {
+        proposal: PatchProposal {
+            patch_id: trace_patch_id(),
+            workflow_id: trace_workflow_id(),
+            task_id: trace_task_id(),
+            summary: "update docs from trace artifact".to_string(),
+            touched_paths: vec!["docs/README.md".to_string()],
+            diff_artifacts: vec![trace_patch_evidence()],
+            risk_labels: vec!["docs_only".to_string()],
+            required_checkpoint_id: Some(trace_checkpoint_id()),
+            reviewer_gate_id: Some(trace_reviewer_gate_id()),
+        },
+    });
+    if let Some(record) = artifact_record {
+        append(RunEvent::ArtifactBodyRecorded { record });
+    }
+    append(RunEvent::SnapshotLifecycleRecorded {
+        lifecycle: WorkspaceCheckpointLifecycleRecord {
+            checkpoint_id: trace_checkpoint_id(),
+            task_id: trace_task_id(),
+            status: WorkspaceCheckpointLifecycleStatus::Created,
+            reason: "checkpoint created before trace apply".to_string(),
+            restore_plan_id: None,
+            execution_blocked: true,
+            evidence: Vec::new(),
+            metadata: None,
+        },
+    });
+    append(RunEvent::ReviewerGateResolved {
+        decision: ReviewerGateDecision {
+            gate_id: trace_reviewer_gate_id(),
+            handoff_id: AgentHandoffId::from_static("handoff_cli_trace_apply_patch"),
+            decision: ReviewerDecisionKind::Accept,
+            reviewer: "human-reviewer".to_string(),
+            reason_code: "accepted_for_trace_apply".to_string(),
+            comment: Some("reviewed for trace apply".to_string()),
+        },
+    });
+    append(RunEvent::ToolPolicyDecisionRecorded {
+        decision: ToolPolicyDecision {
+            decision_id: trace_policy_decision_id(),
+            call_id: ToolCallId::from_static("tool_call_cli_trace_apply_patch"),
+            tool_id: ToolId::from_static("tool_cli_trace_apply_patch"),
+            outcome: PolicyOutcome::Allow,
+            reason: "policy allows trace apply".to_string(),
+            required_permissions: vec![ToolPermission::FilesystemWrite],
+            side_effects: vec![ToolSideEffect::WritesWorkspace],
+            approval_id: None,
+        },
+    });
+}
+
 #[test]
 fn version_output_reports_crate_version_and_git_sha() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
@@ -263,6 +465,22 @@ fn apply_patch_command_help_lists_explicit_isolated_root_options() {
     assert!(stdout.contains("--patch-file"));
     assert!(stdout.contains("--stdin"));
     assert!(stdout.contains("--dry-run"));
+}
+
+#[test]
+fn apply_patch_command_help_lists_trace_driven_options() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["apply-patch", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--from-trace"));
+    assert!(stdout.contains("--patch-artifact-id"));
+    assert!(stdout.contains("--workflow-id"));
+    assert!(stdout.contains("--request-id"));
+    assert!(stdout.contains("--patch-id"));
 }
 
 #[test]
@@ -354,6 +572,225 @@ fn apply_patch_command_rejects_primary_root_label_without_writing_file() {
     std::fs::write(&patch_file, apply_patch_modify_body()).unwrap();
 
     let mut args = apply_patch_args(&data_dir, &isolated_root, &patch_file);
+    let root_label_index = args.iter().position(|arg| arg == "--root-label").unwrap() + 1;
+    args[root_label_index] = "project".to_string();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(args)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(
+        std::fs::read_to_string(docs_dir.join("README.md")).unwrap(),
+        "alpha\nold\nomega\n"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("primary_root_rejected") || stderr.contains("PrimaryRootRejected"));
+}
+
+#[test]
+fn apply_patch_command_from_trace_applies_patch_artifact_and_records_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let isolated_root = temp.path().join("isolated");
+    let docs_dir = isolated_root.join("docs");
+    std::fs::create_dir_all(&docs_dir).unwrap();
+    std::fs::write(docs_dir.join("README.md"), "alpha\nold\nomega\n").unwrap();
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(trace_apply_patch_args(&data_dir, &isolated_root))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(docs_dir.join("README.md")).unwrap(),
+        "alpha\nnew\nomega\n"
+    );
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["trace_id"], "trace_cli_trace_apply_patch");
+    assert_eq!(stdout["preflight_status"], "executor_ready");
+    assert_eq!(stdout["execution_status"], "applied");
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(trace.contains("apply_patch_preflight_recorded"));
+    assert!(trace.contains("apply_patch_execution_recorded"));
+    assert!(!trace.contains("alpha\\nnew\\nomega"));
+    assert!(!trace.contains(&isolated_root.display().to_string()));
+}
+
+#[test]
+fn apply_patch_command_from_trace_dry_run_records_preflight_without_writing_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let isolated_root = temp.path().join("isolated");
+    let docs_dir = isolated_root.join("docs");
+    std::fs::create_dir_all(&docs_dir).unwrap();
+    std::fs::write(docs_dir.join("README.md"), "alpha\nold\nomega\n").unwrap();
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let mut args = trace_apply_patch_args(&data_dir, &isolated_root);
+    args.push("--dry-run".to_string());
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(args)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(docs_dir.join("README.md")).unwrap(),
+        "alpha\nold\nomega\n"
+    );
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["preflight_status"], "dry_run_ready");
+    assert_eq!(stdout["executor_blocked"], true);
+    assert!(stdout.get("execution_status").is_none());
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(trace.contains("apply_patch_preflight_recorded"));
+    assert!(!trace.contains("apply_patch_execution_recorded"));
+}
+
+#[test]
+fn apply_patch_command_from_trace_missing_artifact_metadata_fails_before_preflight() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let isolated_root = temp.path().join("isolated");
+    let docs_dir = isolated_root.join("docs");
+    std::fs::create_dir_all(&docs_dir).unwrap();
+    std::fs::write(docs_dir.join("README.md"), "alpha\nold\nomega\n").unwrap();
+    write_trace_apply_patch_bundle(&data_dir, false, ArtifactBodyRedactionStatus::Clean);
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(trace_apply_patch_args(&data_dir, &isolated_root))
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(
+        std::fs::read_to_string(docs_dir.join("README.md")).unwrap(),
+        "alpha\nold\nomega\n"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("missing patch artifact metadata"));
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(!trace.contains("apply_patch_preflight_recorded"));
+}
+
+#[test]
+fn apply_patch_command_from_trace_redacted_artifact_fails_before_preflight() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let isolated_root = temp.path().join("isolated");
+    let docs_dir = isolated_root.join("docs");
+    std::fs::create_dir_all(&docs_dir).unwrap();
+    std::fs::write(docs_dir.join("README.md"), "alpha\nold\nomega\n").unwrap();
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Redacted);
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(trace_apply_patch_args(&data_dir, &isolated_root))
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(
+        std::fs::read_to_string(docs_dir.join("README.md")).unwrap(),
+        "alpha\nold\nomega\n"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("patch artifact is not clean"));
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(!trace.contains("apply_patch_preflight_recorded"));
+}
+
+#[test]
+fn apply_patch_command_from_trace_oversized_artifact_fails_before_preflight() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let isolated_root = temp.path().join("isolated");
+    let docs_dir = isolated_root.join("docs");
+    std::fs::create_dir_all(&docs_dir).unwrap();
+    std::fs::write(docs_dir.join("README.md"), "alpha\nold\nomega\n").unwrap();
+    write_trace_apply_patch_bundle_with_body(
+        &data_dir,
+        true,
+        ArtifactBodyRedactionStatus::Clean,
+        "x".repeat(1024 * 1024 + 1),
+    );
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(trace_apply_patch_args(&data_dir, &isolated_root))
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(
+        std::fs::read_to_string(docs_dir.join("README.md")).unwrap(),
+        "alpha\nold\nomega\n"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("patch artifact body is too large"));
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(!trace.contains("apply_patch_preflight_recorded"));
+}
+
+#[test]
+fn apply_patch_command_from_trace_rejects_patch_artifact_id_with_patch_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let isolated_root = temp.path().join("isolated");
+    let docs_dir = isolated_root.join("docs");
+    std::fs::create_dir_all(&docs_dir).unwrap();
+    std::fs::write(docs_dir.join("README.md"), "alpha\nold\nomega\n").unwrap();
+    let patch_file = temp.path().join("patch.diff");
+    std::fs::write(&patch_file, apply_patch_modify_body()).unwrap();
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let mut args = trace_apply_patch_args(&data_dir, &isolated_root);
+    args.push("--patch-artifact-id".to_string());
+    args.push(trace_patch_artifact_id().to_string());
+    args.push("--patch-file".to_string());
+    args.push(patch_file.display().to_string());
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(args)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(
+        std::fs::read_to_string(docs_dir.join("README.md")).unwrap(),
+        "alpha\nold\nomega\n"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("at most one of --patch-artifact-id, --patch-file, or --stdin"));
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(!trace.contains("apply_patch_preflight_recorded"));
+}
+
+#[test]
+fn apply_patch_command_from_trace_rejects_primary_root_label_before_writing_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let isolated_root = temp.path().join("isolated");
+    let docs_dir = isolated_root.join("docs");
+    std::fs::create_dir_all(&docs_dir).unwrap();
+    std::fs::write(docs_dir.join("README.md"), "alpha\nold\nomega\n").unwrap();
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let mut args = trace_apply_patch_args(&data_dir, &isolated_root);
     let root_label_index = args.iter().position(|arg| arg == "--root-label").unwrap() + 1;
     args[root_label_index] = "project".to_string();
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
