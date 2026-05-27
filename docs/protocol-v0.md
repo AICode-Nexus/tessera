@@ -599,6 +599,8 @@ pub enum RunEvent {
 
 `tessera apply-patch` 是 explicit CLI envelope over isolated single-file executor。它可以 append `ApplyPatchPreflightRecorded` 和 `ApplyPatchExecutionRecorded`，但不得 inline patch body 或 file contents。该 CLI 不创建 worktree，不运行测试，不恢复 checkpoint，不 stage/commit/push Git，不让 UI state 拥有 execution，也不通过 shell、`git apply` 或 provider tool execution 应用 patch。
 
+Trace-driven apply-patch automation uses the same protocol events. A future `tessera apply-patch --from-trace` mode may resolve workflow, scope, mutation request, patch proposal, checkpoint lifecycle, reviewer decision, policy decision, sandbox label and clean patch artifact metadata from trace records, but it must still append ordinary `ApplyPatchPreflightRecorded` / `ApplyPatchExecutionRecorded` records and must not introduce patch body, file content, absolute isolated-root path, shell command, checkpoint restore or Git mutation payloads.
+
 仍只预留、不执行的事件：
 
 ```rust

@@ -91,6 +91,8 @@ Apply-patch execution metadata is distinct from patch application workflow summa
 
 The explicit `tessera apply-patch` CLI tool records preflight metadata for every dry-run or apply attempt that reaches the core gate, and execution metadata only when the core executor is invoked. Trace records contain IDs, labels, affected paths, blockers and evidence references; they do not contain patch bodies, old file contents, new file contents or absolute isolated-root filesystem paths.
 
+Trace-driven apply-patch automation must resolve prior approval evidence from existing workflow, scope, mutation request, patch proposal, checkpoint lifecycle, reviewer, policy, sandbox and artifact body metadata events. It may load patch text only from clean artifact body storage or one explicit patch source; the trace still stores only artifact metadata, evidence refs, preflight summaries and execution summaries. The trace-driven command must append the same `apply_patch_preflight_recorded` and `apply_patch_execution_recorded` event kinds as the explicit CLI, not a parallel mutation truth.
+
 ## 4. Event Kind
 
 当前必须支持（v0.1 基线 + v0.2-v0.5 foundation/runtime signals）：
