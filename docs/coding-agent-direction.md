@@ -154,7 +154,7 @@ v0.6 should start with structured handoff and reviewer gate foundations. Persist
 
 ### v0.7 Must Be Coding-Workflow Complete
 
-v0.7 should be the first version that can honestly claim coding-agent workflow. The current foundation can represent and replay workflow scope, patch proposals, patch application records, test plans/runs, review bundles and restore plans through protocol/core/client/GUI bindings. It also has narrow explicit and trace-driven `tessera apply-patch` CLI envelopes for one gated isolated-root file mutation plus opt-in automatic detached worktree creation for trace-driven apply-patch, but it still is not a full coding-agent diff/test/checkpoint/Git workflow.
+v0.7 should be the first version that can honestly claim coding-agent workflow. The current foundation can represent and replay workflow scope, patch proposals, patch application records, test plans/runs, metadata-only test evidence summaries, review bundles and restore plans through protocol/core/client/GUI bindings. It also has narrow explicit and trace-driven `tessera apply-patch` CLI envelopes for one gated isolated-root file mutation plus opt-in automatic detached worktree creation for trace-driven apply-patch, but it still is not a full coding-agent diff/test/checkpoint/Git workflow.
 
 Remaining runtime-complete work:
 

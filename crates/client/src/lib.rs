@@ -17,9 +17,9 @@ use tessera_protocol::{
     SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
     SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskKind,
     TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
-    TaskReattachMode, TaskReattachRecord, TaskStatus, TestPlanRecord, TestRunRecord, ThreadId,
-    Timestamp, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
-    ToolSideEffect, TraceRecord, TurnId, WorkspaceMutationScope,
+    TaskReattachMode, TaskReattachRecord, TaskStatus, TestEvidenceSummaryRecord, TestPlanRecord,
+    TestRunRecord, ThreadId, Timestamp, ToolApproval, ToolCallId, ToolId, ToolPermission,
+    ToolPolicyDecision, ToolSideEffect, TraceRecord, TurnId, WorkspaceMutationScope,
 };
 
 /// User intent shared by CLI/TUI/GUI surfaces before it reaches runtime code.
@@ -990,6 +990,7 @@ pub struct ClientCodingWorkflow {
     pub patch_applications: Vec<PatchApplicationRecord>,
     pub test_plans: Vec<TestPlanRecord>,
     pub test_runs: Vec<TestRunRecord>,
+    pub test_evidence_summaries: Vec<TestEvidenceSummaryRecord>,
     pub review_bundles: Vec<ReviewBundle>,
     pub restore_plans: Vec<RestorePlanRecord>,
 }
@@ -1009,6 +1010,7 @@ impl ClientCodingWorkflow {
             patch_applications: Vec::new(),
             test_plans: Vec::new(),
             test_runs: Vec::new(),
+            test_evidence_summaries: Vec::new(),
             review_bundles: Vec::new(),
             restore_plans: Vec::new(),
         }
@@ -1113,6 +1115,19 @@ impl ClientCodingWorkflow {
             *existing = record.clone();
         } else {
             self.test_runs.push(record.clone());
+        }
+    }
+
+    fn record_test_evidence_summary(&mut self, record: &TestEvidenceSummaryRecord) {
+        self.task_id = record.task_id.clone();
+        if let Some(existing) = self
+            .test_evidence_summaries
+            .iter_mut()
+            .find(|existing| existing.summary_id == record.summary_id)
+        {
+            *existing = record.clone();
+        } else {
+            self.test_evidence_summaries.push(record.clone());
         }
     }
 
@@ -1470,6 +1485,10 @@ impl ClientStatus {
             .iter()
             .map(|workflow| workflow.test_runs.len())
             .sum::<usize>();
+        let test_evidence_summaries = workflows
+            .iter()
+            .map(|workflow| workflow.test_evidence_summaries.len())
+            .sum::<usize>();
         let reviews = workflows
             .iter()
             .map(|workflow| workflow.review_bundles.len())
@@ -1492,7 +1511,7 @@ impl ClientStatus {
             .filter(|plan| plan.execution_blocked)
             .count();
         self.coding_workflow_summary = format!(
-            "coding workflows {} / patches {patches} / tests {tests} / reviews {reviews} / mutation requests {mutation_requests} / apply-patch preflights {apply_patch_preflights} / apply-patch executions {apply_patch_executions} / blocked restores {blocked_restores}",
+            "coding workflows {} / patches {patches} / tests {tests} / test evidence summaries {test_evidence_summaries} / reviews {reviews} / mutation requests {mutation_requests} / apply-patch preflights {apply_patch_preflights} / apply-patch executions {apply_patch_executions} / blocked restores {blocked_restores}",
             workflows.len()
         );
     }
@@ -1998,6 +2017,9 @@ impl ClientSnapshot {
             RunEvent::TestRunRecorded { record } => {
                 self.record_coding_workflow_test_run(record);
             }
+            RunEvent::TestEvidenceSummaryRecorded { record } => {
+                self.record_coding_workflow_test_evidence_summary(record);
+            }
             RunEvent::ReviewBundleRecorded { bundle } => {
                 self.record_coding_workflow_review_bundle(bundle);
             }
@@ -2412,6 +2434,14 @@ impl ClientSnapshot {
                     return;
                 };
                 self.record_coding_workflow_test_run(&record);
+            }
+            "test_evidence_summary_recorded" => {
+                let Some(record) =
+                    trace_payload::<TestEvidenceSummaryRecord>(record.payload.get("record"))
+                else {
+                    return;
+                };
+                self.record_coding_workflow_test_evidence_summary(&record);
             }
             "review_bundle_recorded" => {
                 let Some(bundle) = trace_payload::<ReviewBundle>(record.payload.get("bundle"))
@@ -2978,6 +3008,25 @@ impl ClientSnapshot {
             &record.diagnostics,
             ArtifactKind::TestReport,
             "test_run_recorded",
+        );
+        self.status.update_artifact_summary(&self.artifacts);
+        self.refresh_coding_workflow_summary();
+    }
+
+    fn record_coding_workflow_test_evidence_summary(&mut self, record: &TestEvidenceSummaryRecord) {
+        {
+            let workflow = self.coding_workflow_mut_or_insert(&record.workflow_id, &record.task_id);
+            workflow.record_test_evidence_summary(record);
+        }
+        for artifact_id in &record.artifact_refs {
+            let artifact = self.artifact_mut_or_insert(artifact_id);
+            artifact.kind = Some(ArtifactKind::TestReport);
+            artifact.record_reference("test_evidence_summary_recorded");
+        }
+        self.record_evidence_artifacts(
+            &record.diagnostics,
+            ArtifactKind::TestReport,
+            "test_evidence_summary_recorded",
         );
         self.status.update_artifact_summary(&self.artifacts);
         self.refresh_coding_workflow_summary();

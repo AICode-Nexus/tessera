@@ -23,7 +23,8 @@ pub use coding_workflow::{
     CodingWorkflowArtifactBodyRequest, CodingWorkflowCheckpointLifecycleRequest,
     CodingWorkflowCoordinator, CodingWorkflowError, CodingWorkflowPatchApplicationRequest,
     CodingWorkflowPatchProposalRequest, CodingWorkflowReviewBundleRequest,
-    CodingWorkflowStartRequest, CodingWorkflowTestPlanRequest, CodingWorkflowTestRunRequest,
+    CodingWorkflowStartRequest, CodingWorkflowTestEvidenceSummaryRequest,
+    CodingWorkflowTestPlanRequest, CodingWorkflowTestRunRequest,
     CodingWorkflowWorkspaceScopeRequest,
 };
 pub use isolated_worktree_lifecycle::{

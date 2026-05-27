@@ -32,13 +32,14 @@ use tessera_protocol::{
     SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
     SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskOwnerKind,
     TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint, TaskPauseCheckpointId,
-    TaskStatus, TestPlanId, TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus, Timestamp,
-    ToolApproval, ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId,
-    ToolId, ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport,
-    ToolResult, ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess,
-    WorkspaceCheckpoint, WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus,
-    WorkspaceGuardrail, WorkspaceMutationScope, WorkspaceScope, WorkspaceWorktreeId,
-    WorkspaceWorktreeLifecycleRecord, WorkspaceWorktreeLifecycleStatus,
+    TaskStatus, TestEvidenceSummaryId, TestEvidenceSummaryRecord, TestEvidenceSummaryStatus,
+    TestPlanId, TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus, Timestamp, ToolApproval,
+    ToolCallId, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolDispatchId, ToolId,
+    ToolPermission, ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult,
+    ToolResultId, ToolResultStatus, ToolSideEffect, WorkspaceAccess, WorkspaceCheckpoint,
+    WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus, WorkspaceGuardrail,
+    WorkspaceMutationScope, WorkspaceScope, WorkspaceWorktreeId, WorkspaceWorktreeLifecycleRecord,
+    WorkspaceWorktreeLifecycleStatus,
 };
 
 #[test]
@@ -1586,6 +1587,78 @@ fn coding_workflow_events_are_traceable_without_mutation_execution() {
     assert!(!encoded.contains("authorization"));
     assert!(!encoded.contains("api_key"));
     assert!(!encoded.contains("cookie"));
+}
+
+#[test]
+fn test_evidence_summary_record_is_metadata_only() {
+    let task_id = TaskId::from_static("task_test_evidence_summary");
+    let workflow_id = CodingWorkflowId::from_static("coding_workflow_test_evidence");
+    let stdout_artifact_id = ArtifactId::from_static("artifact_test_stdout_summary");
+    let stderr_artifact_id = ArtifactId::from_static("artifact_test_stderr_summary");
+    let diagnostic_ref = HandoffEvidenceRef {
+        kind: HandoffEvidenceKind::TestOutputArtifact,
+        artifact_id: Some(stderr_artifact_id.clone()),
+        trace_id: Some("trace_test_evidence_summary".to_string()),
+        event_range: Some(EventRange {
+            start_seq: 10,
+            end_seq: 12,
+        }),
+        label: Some("focused failing test".to_string()),
+        summary: Some("compiler diagnostics stored as redacted artifact".to_string()),
+    };
+    let summary = TestEvidenceSummaryRecord {
+        summary_id: TestEvidenceSummaryId::from_static("test_evidence_summary_client"),
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        test_plan_ids: vec![TestPlanId::from_static("test_plan_client")],
+        test_run_ids: vec![
+            TestRunId::from_static("test_run_client_red"),
+            TestRunId::from_static("test_run_client_green"),
+        ],
+        status: TestEvidenceSummaryStatus::Failed,
+        total_runs: 2,
+        passed_runs: 1,
+        failed_runs: 1,
+        cancelled_runs: 0,
+        error_runs: 0,
+        required_artifact_kinds: vec![ArtifactKind::TestReport],
+        artifact_refs: vec![stdout_artifact_id.clone(), stderr_artifact_id.clone()],
+        diagnostics: vec![diagnostic_ref],
+        redaction_status: CodingWorkflowEvidenceRedactionStatus::Redacted,
+        summary: "Focused client projection test has red and green evidence.".to_string(),
+        execution_blocked: true,
+    };
+    let event = RunEvent::TestEvidenceSummaryRecorded {
+        record: summary.clone(),
+    };
+
+    assert_eq!(event.kind(), "test_evidence_summary_recorded");
+    assert_eq!(event.task_id(), Some(task_id));
+
+    let payload = event.payload();
+    assert_eq!(payload["record"]["summary_id"], summary.summary_id.as_str());
+    assert_eq!(payload["record"]["workflow_id"], workflow_id.as_str());
+    assert_eq!(payload["record"]["status"], "failed");
+    assert_eq!(payload["record"]["total_runs"], 2);
+    assert_eq!(payload["record"]["passed_runs"], 1);
+    assert_eq!(payload["record"]["failed_runs"], 1);
+    assert_eq!(
+        payload["record"]["artifact_refs"][0],
+        stdout_artifact_id.as_str()
+    );
+    assert_eq!(payload["record"]["redaction_status"], "redacted");
+    assert_eq!(payload["record"]["execution_blocked"], true);
+    assert!(payload.get("stdout").is_none());
+    assert!(payload.get("stderr").is_none());
+    assert!(payload.get("command").is_none());
+
+    let encoded = serde_json::to_string(&payload).unwrap();
+    assert!(!encoded.contains("BEGIN PATCH"));
+    assert!(!encoded.contains("authorization"));
+    assert!(!encoded.contains("api_key"));
+    assert!(!encoded.contains("cookie"));
+    assert!(!encoded.contains("/Users/admin/work/tessera"));
+    assert!(!encoded.contains("cargo test output body"));
 }
 
 #[test]

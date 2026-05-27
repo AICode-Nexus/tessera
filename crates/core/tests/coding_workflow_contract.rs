@@ -1,13 +1,15 @@
 use tessera_core::{
     CodingWorkflowArtifactBodyRequest, CodingWorkflowCheckpointLifecycleRequest,
     CodingWorkflowCoordinator, CodingWorkflowPatchProposalRequest, CodingWorkflowStartRequest,
-    CodingWorkflowTestRunRequest, CodingWorkflowWorkspaceScopeRequest,
+    CodingWorkflowTestEvidenceSummaryRequest, CodingWorkflowTestRunRequest,
+    CodingWorkflowWorkspaceScopeRequest,
 };
 use tessera_protocol::{
     ArtifactBodyRecord, ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind,
     CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, HandoffEvidenceKind,
     HandoffEvidenceRef, MutationMode, PatchProposal, PatchProposalId, RestorePlanId,
-    RestorePlanRecord, ReviewerGateId, RunEvent, SnapshotId, TaskId, TestRunId, TestRunRecord,
+    RestorePlanRecord, ReviewerGateId, RunEvent, SnapshotId, TaskId, TestEvidenceSummaryId,
+    TestEvidenceSummaryRecord, TestEvidenceSummaryStatus, TestPlanId, TestRunId, TestRunRecord,
     TestRunStatus, WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus,
 };
 
@@ -27,6 +29,17 @@ fn diff_artifact() -> HandoffEvidenceRef {
         event_range: None,
         label: Some("patch diff".to_string()),
         summary: Some("diff artifact metadata".to_string()),
+    }
+}
+
+fn test_output_evidence() -> HandoffEvidenceRef {
+    HandoffEvidenceRef {
+        kind: HandoffEvidenceKind::TestOutputArtifact,
+        artifact_id: Some(ArtifactId::from_static("artifact_test_stderr_summary")),
+        trace_id: Some("trace_test_evidence_summary".to_string()),
+        event_range: None,
+        label: Some("redacted test diagnostics".to_string()),
+        summary: Some("diagnostics artifact metadata".to_string()),
     }
 }
 
@@ -150,6 +163,79 @@ fn coding_workflow_test_run_requires_output_artifact_refs() {
     assert!(error
         .to_string()
         .contains("test run output must use artifact references"));
+}
+
+#[test]
+fn coding_workflow_test_evidence_summary_validates_counts_and_remains_metadata_only() {
+    let coordinator = CodingWorkflowCoordinator;
+    let valid = TestEvidenceSummaryRecord {
+        summary_id: TestEvidenceSummaryId::from_static("test_evidence_summary_core"),
+        workflow_id: workflow_id(),
+        task_id: task_id(),
+        test_plan_ids: vec![TestPlanId::from_static("test_plan_core")],
+        test_run_ids: vec![
+            TestRunId::from_static("test_run_core_red"),
+            TestRunId::from_static("test_run_core_green"),
+        ],
+        status: TestEvidenceSummaryStatus::Failed,
+        total_runs: 2,
+        passed_runs: 1,
+        failed_runs: 1,
+        cancelled_runs: 0,
+        error_runs: 0,
+        required_artifact_kinds: vec![ArtifactKind::TestReport],
+        artifact_refs: vec![ArtifactId::from_static("artifact_test_stdout_summary")],
+        diagnostics: vec![test_output_evidence()],
+        redaction_status: CodingWorkflowEvidenceRedactionStatus::Redacted,
+        summary: "red and green evidence recorded for focused contract test".to_string(),
+        execution_blocked: true,
+    };
+
+    let event = coordinator
+        .test_evidence_summary_event(CodingWorkflowTestEvidenceSummaryRequest {
+            record: valid.clone(),
+        })
+        .expect("valid test evidence summary should become a trace event");
+
+    assert_eq!(event.kind(), "test_evidence_summary_recorded");
+    assert_eq!(event.task_id(), Some(task_id()));
+    let payload = event.payload();
+    assert_eq!(payload["record"]["total_runs"], 2);
+    assert_eq!(payload["record"]["execution_blocked"], true);
+    assert!(payload.get("stdout").is_none());
+    assert!(payload.get("stderr").is_none());
+    assert!(payload.get("command").is_none());
+
+    let mut bad_counts = valid.clone();
+    bad_counts.total_runs = 3;
+    let error = coordinator
+        .test_evidence_summary_event(CodingWorkflowTestEvidenceSummaryRequest {
+            record: bad_counts,
+        })
+        .expect_err("summary counts must be internally consistent");
+    assert!(error.to_string().contains("test evidence run counts"));
+
+    let mut executable = valid.clone();
+    executable.execution_blocked = false;
+    let error = coordinator
+        .test_evidence_summary_event(CodingWorkflowTestEvidenceSummaryRequest {
+            record: executable,
+        })
+        .expect_err("summary cannot imply executable test runner support");
+    assert!(error
+        .to_string()
+        .contains("test execution must remain blocked"));
+
+    let mut empty_summary = valid;
+    empty_summary.summary.clear();
+    let error = coordinator
+        .test_evidence_summary_event(CodingWorkflowTestEvidenceSummaryRequest {
+            record: empty_summary,
+        })
+        .expect_err("summary text is required for review");
+    assert!(error
+        .to_string()
+        .contains("test evidence summary is required"));
 }
 
 #[test]

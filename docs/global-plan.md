@@ -134,10 +134,11 @@
 
 ### v0.7 Metadata And Runtime Gate Foundation Work
 
-- [x] Provider-neutral coding workflow metadata events for workflow start, workspace mutation scope, patch proposals, patch application records, test plans/runs, review bundles, and restore plans.
+- [x] Provider-neutral coding workflow metadata events for workflow start, workspace mutation scope, patch proposals, patch application records, test plans/runs, test evidence summaries, review bundles, and restore plans.
 - [x] Non-executing core `CodingWorkflowCoordinator` that validates scope/path/evidence/checkpoint/reviewer requirements and returns `RunEvent` values only.
 - [x] Read-only `tessera-client` and GUI binding projection for coding workflow metadata from live events and replayed trace records.
 - [x] Generated GUI TypeScript bindings for coding workflow projection and related DTOs, including snapshot IDs referenced by patch/checkpoint metadata.
+- [x] Metadata-only test evidence summary contract for aggregating test plan/run artifact refs, diagnostics and redaction state without running tests or reading stdout/stderr bodies.
 - [x] Mutation request proposal contracts with operation kind, requested paths, required checkpoint, reviewer gate, policy decision, sandbox profile and worktree requirement metadata.
 - [x] Artifact body/redaction storage contracts and checkpoint lifecycle records without workspace restore or executor behavior.
 - [x] Non-executing mutation enforcement planner for worktree-first/default-local policy gates, sandbox selection metadata and unsafe-path rejection.
@@ -256,6 +257,7 @@ The next implementation slices should stay conservative and preserve the current
 42. [x] Design and implement a conservative worktree cleanup command before adding broad cleanup, test execution, checkpoint restore, or Git workflow completion.
 43. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
 44. [!] Do not start test runner, checkpoint restore, branch/stage/commit/push/PR Git mutation, GUI mutation controls, app-server mutation listener, swarm, or learning apply until their stated gates exist.
+45. [x] Add a metadata-only test evidence summary contract before executable test runner integration.
 
 ## 8. Mandatory Gates
 

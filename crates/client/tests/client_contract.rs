@@ -28,8 +28,9 @@ use tessera_protocol::{
     SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
     SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskKind,
     TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
-    TaskReattachMode, TaskStatus, TestPlanId, TestPlanRecord, TestRunId, TestRunRecord,
-    TestRunStatus, Timestamp, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
+    TaskReattachMode, TaskStatus, TestEvidenceSummaryId, TestEvidenceSummaryRecord,
+    TestEvidenceSummaryStatus, TestPlanId, TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus,
+    Timestamp, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
     ToolSideEffect, WorkspaceMutationScope,
 };
 
@@ -609,6 +610,47 @@ fn coding_test_run(status: TestRunStatus) -> TestRunRecord {
     }
 }
 
+fn coding_test_evidence_summary(status: TestEvidenceSummaryStatus) -> TestEvidenceSummaryRecord {
+    TestEvidenceSummaryRecord {
+        summary_id: TestEvidenceSummaryId::from_static("test_evidence_summary_client_projection"),
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        test_plan_ids: vec![TestPlanId::from_static("test_plan_client_projection")],
+        test_run_ids: vec![TestRunId::from_static("test_run_client_projection")],
+        status,
+        total_runs: 1,
+        passed_runs: if status == TestEvidenceSummaryStatus::Passed {
+            1
+        } else {
+            0
+        },
+        failed_runs: if status == TestEvidenceSummaryStatus::Failed {
+            1
+        } else {
+            0
+        },
+        cancelled_runs: if status == TestEvidenceSummaryStatus::Cancelled {
+            1
+        } else {
+            0
+        },
+        error_runs: if status == TestEvidenceSummaryStatus::Error {
+            1
+        } else {
+            0
+        },
+        required_artifact_kinds: vec![ArtifactKind::TestReport],
+        artifact_refs: vec![
+            ArtifactId::from_static("artifact_test_stdout"),
+            ArtifactId::from_static("artifact_test_stderr"),
+        ],
+        diagnostics: vec![coding_test_evidence()],
+        redaction_status: CodingWorkflowEvidenceRedactionStatus::Redacted,
+        summary: "Focused client projection test evidence is ready for review.".to_string(),
+        execution_blocked: true,
+    }
+}
+
 fn coding_review_bundle() -> ReviewBundle {
     ReviewBundle {
         review_bundle_id: ReviewBundleId::from_static("review_bundle_client_projection"),
@@ -827,7 +869,64 @@ fn client_snapshot_projects_coding_workflow_metadata_from_live_events() {
     assert!(workflow.restore_plans[0].execution_blocked);
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / apply-patch preflights 0 / apply-patch executions 0 / blocked restores 1"
+        "coding workflows 1 / patches 1 / tests 1 / test evidence summaries 0 / reviews 1 / mutation requests 0 / apply-patch preflights 0 / apply-patch executions 0 / blocked restores 1"
+    );
+}
+
+#[test]
+fn client_snapshot_projects_test_evidence_summary_from_live_and_replayed_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    snapshot.apply_event(&EventFrame::new(
+        "trace_test_evidence_summary_live",
+        1,
+        RunEvent::TestEvidenceSummaryRecorded {
+            record: coding_test_evidence_summary(TestEvidenceSummaryStatus::Failed),
+        },
+    ));
+
+    assert_eq!(snapshot.coding_workflows.len(), 1);
+    let workflow = &snapshot.coding_workflows[0];
+    assert_eq!(workflow.test_evidence_summaries.len(), 1);
+    assert_eq!(
+        workflow.test_evidence_summaries[0].summary_id,
+        TestEvidenceSummaryId::from_static("test_evidence_summary_client_projection")
+    );
+    assert_eq!(
+        workflow.test_evidence_summaries[0].status,
+        TestEvidenceSummaryStatus::Failed
+    );
+    assert_eq!(workflow.test_evidence_summaries[0].total_runs, 1);
+    assert!(workflow.test_evidence_summaries[0].execution_blocked);
+    assert!(snapshot.artifacts.iter().any(|artifact| artifact
+        .referenced_by_event_kinds
+        .contains(&"test_evidence_summary_recorded".to_string())));
+    assert_eq!(
+        snapshot.status.coding_workflow_summary,
+        "coding workflows 1 / patches 0 / tests 0 / test evidence summaries 1 / reviews 0 / mutation requests 0 / apply-patch preflights 0 / apply-patch executions 0 / blocked restores 0"
+    );
+
+    let mut replayed = ClientSnapshot::new("mock-default");
+    let record = EventFrame::new(
+        "trace_test_evidence_summary_replay",
+        1,
+        RunEvent::TestEvidenceSummaryRecorded {
+            record: coding_test_evidence_summary(TestEvidenceSummaryStatus::Passed),
+        },
+    )
+    .to_trace_record();
+    replayed.apply_trace_record(&record);
+
+    assert_eq!(replayed.coding_workflows.len(), 1);
+    assert_eq!(
+        replayed.coding_workflows[0].test_evidence_summaries[0].status,
+        TestEvidenceSummaryStatus::Passed
+    );
+    assert_eq!(
+        replayed.coding_workflows[0].test_evidence_summaries[0].artifact_refs,
+        vec![
+            ArtifactId::from_static("artifact_test_stdout"),
+            ArtifactId::from_static("artifact_test_stderr")
+        ]
     );
 }
 
@@ -886,7 +985,7 @@ fn client_snapshot_projects_mutation_request_proposals_from_live_and_replayed_ev
     );
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 1 / apply-patch preflights 0 / apply-patch executions 0 / blocked restores 0"
+        "coding workflows 1 / patches 0 / tests 0 / test evidence summaries 0 / reviews 0 / mutation requests 1 / apply-patch preflights 0 / apply-patch executions 0 / blocked restores 0"
     );
 
     let mut replayed = ClientSnapshot::new("mock-default");
@@ -944,7 +1043,7 @@ fn client_snapshot_projects_apply_patch_preflight_from_live_and_replayed_events(
     assert!(workflow.apply_patch_preflights[0].executor_blocked);
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 0 / apply-patch preflights 1 / apply-patch executions 0 / blocked restores 0"
+        "coding workflows 1 / patches 0 / tests 0 / test evidence summaries 0 / reviews 0 / mutation requests 0 / apply-patch preflights 1 / apply-patch executions 0 / blocked restores 0"
     );
 
     let mut replayed = ClientSnapshot::new("mock-default");
@@ -1000,7 +1099,7 @@ fn client_snapshot_projects_apply_patch_execution_from_live_and_replayed_events(
         .contains(&"apply_patch_execution_recorded".to_string())));
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 0 / tests 0 / reviews 0 / mutation requests 0 / apply-patch preflights 0 / apply-patch executions 1 / blocked restores 0"
+        "coding workflows 1 / patches 0 / tests 0 / test evidence summaries 0 / reviews 0 / mutation requests 0 / apply-patch preflights 0 / apply-patch executions 1 / blocked restores 0"
     );
 
     let mut replayed = ClientSnapshot::new("mock-default");
@@ -1061,7 +1160,7 @@ fn client_snapshot_projects_coding_workflow_metadata_from_replayed_records() {
     );
     assert_eq!(
         snapshot.status.coding_workflow_summary,
-        "coding workflows 1 / patches 1 / tests 1 / reviews 1 / mutation requests 0 / apply-patch preflights 0 / apply-patch executions 0 / blocked restores 1"
+        "coding workflows 1 / patches 1 / tests 1 / test evidence summaries 0 / reviews 1 / mutation requests 0 / apply-patch preflights 0 / apply-patch executions 0 / blocked restores 1"
     );
 }
 

@@ -97,6 +97,7 @@ id_type!(ApplyPatchPreflightId, "apply_patch_preflight");
 id_type!(ApplyPatchExecutionId, "apply_patch_execution");
 id_type!(TestPlanId, "test_plan");
 id_type!(TestRunId, "test_run");
+id_type!(TestEvidenceSummaryId, "test_evidence_summary");
 id_type!(ReviewBundleId, "review_bundle");
 id_type!(RestorePlanId, "restore_plan");
 
@@ -1026,6 +1027,17 @@ pub enum CodingWorkflowEvidenceRedactionStatus {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+pub enum TestEvidenceSummaryStatus {
+    Passed,
+    Failed,
+    Cancelled,
+    Error,
+    Incomplete,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
 pub enum MutationRequestOperationKind {
     PatchApplication,
     TestRun,
@@ -1313,6 +1325,33 @@ pub struct TestRunRecord {
     #[serde(default)]
     pub diagnostics: Vec<HandoffEvidenceRef>,
     pub redaction_status: CodingWorkflowEvidenceRedactionStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct TestEvidenceSummaryRecord {
+    pub summary_id: TestEvidenceSummaryId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    #[serde(default)]
+    pub test_plan_ids: Vec<TestPlanId>,
+    #[serde(default)]
+    pub test_run_ids: Vec<TestRunId>,
+    pub status: TestEvidenceSummaryStatus,
+    pub total_runs: u32,
+    pub passed_runs: u32,
+    pub failed_runs: u32,
+    pub cancelled_runs: u32,
+    pub error_runs: u32,
+    #[serde(default)]
+    pub required_artifact_kinds: Vec<ArtifactKind>,
+    #[serde(default)]
+    pub artifact_refs: Vec<ArtifactId>,
+    #[serde(default)]
+    pub diagnostics: Vec<HandoffEvidenceRef>,
+    pub redaction_status: CodingWorkflowEvidenceRedactionStatus,
+    pub summary: String,
+    pub execution_blocked: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -2062,6 +2101,9 @@ pub enum RunEvent {
     TestRunRecorded {
         record: TestRunRecord,
     },
+    TestEvidenceSummaryRecorded {
+        record: TestEvidenceSummaryRecord,
+    },
     ReviewBundleRecorded {
         bundle: ReviewBundle,
     },
@@ -2217,6 +2259,7 @@ impl RunEvent {
             Self::PatchApplicationRecorded { .. } => "patch_application_recorded",
             Self::TestPlanRecorded { .. } => "test_plan_recorded",
             Self::TestRunRecorded { .. } => "test_run_recorded",
+            Self::TestEvidenceSummaryRecorded { .. } => "test_evidence_summary_recorded",
             Self::ReviewBundleRecorded { .. } => "review_bundle_recorded",
             Self::RestorePlanRecorded { .. } => "restore_plan_recorded",
             Self::SubagentSessionPlanned { .. } => "subagent_session_planned",
@@ -2309,6 +2352,7 @@ impl RunEvent {
             Self::PatchApplicationRecorded { record } => Some(record.task_id.clone()),
             Self::TestPlanRecorded { plan } => Some(plan.task_id.clone()),
             Self::TestRunRecorded { record } => Some(record.task_id.clone()),
+            Self::TestEvidenceSummaryRecorded { record } => Some(record.task_id.clone()),
             Self::ReviewBundleRecorded { bundle } => Some(bundle.task_id.clone()),
             Self::RestorePlanRecorded { plan } => Some(plan.task_id.clone()),
             Self::SubagentSessionPlanned { session }
@@ -2497,6 +2541,7 @@ impl RunEvent {
             Self::PatchApplicationRecorded { record } => json!({ "record": record }),
             Self::TestPlanRecorded { plan } => json!({ "plan": plan }),
             Self::TestRunRecorded { record } => json!({ "record": record }),
+            Self::TestEvidenceSummaryRecorded { record } => json!({ "record": record }),
             Self::ReviewBundleRecorded { bundle } => json!({ "bundle": bundle }),
             Self::RestorePlanRecorded { plan } => json!({ "plan": plan }),
             Self::SubagentSessionPlanned { session }

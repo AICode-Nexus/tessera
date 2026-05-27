@@ -31,7 +31,7 @@ export type ClientApprovalStatus = "pending" | "approved" | "denied";
 
 export type ClientArtifact = { artifact_id: ArtifactId, kind: ArtifactKind | null, thread_id: ThreadId | null, turn_id: TurnId | null, task_id: TaskId | null, item_id: ItemId | null, created_at: Timestamp | null, referenced_by_event_kinds: Array<string>, };
 
-export type ClientCodingWorkflow = { workflow_id: CodingWorkflowId, task_id: TaskId, objective: string | null, active: boolean, workspace_scope: WorkspaceMutationScope | null, mutation_requests: Array<MutationRequestProposal>, apply_patch_preflights: Array<ApplyPatchPreflightRecord>, apply_patch_executions: Array<ApplyPatchExecutionRecord>, patch_proposals: Array<PatchProposal>, patch_applications: Array<PatchApplicationRecord>, test_plans: Array<TestPlanRecord>, test_runs: Array<TestRunRecord>, review_bundles: Array<ReviewBundle>, restore_plans: Array<RestorePlanRecord>, };
+export type ClientCodingWorkflow = { workflow_id: CodingWorkflowId, task_id: TaskId, objective: string | null, active: boolean, workspace_scope: WorkspaceMutationScope | null, mutation_requests: Array<MutationRequestProposal>, apply_patch_preflights: Array<ApplyPatchPreflightRecord>, apply_patch_executions: Array<ApplyPatchExecutionRecord>, patch_proposals: Array<PatchProposal>, patch_applications: Array<PatchApplicationRecord>, test_plans: Array<TestPlanRecord>, test_runs: Array<TestRunRecord>, test_evidence_summaries: Array<TestEvidenceSummaryRecord>, review_bundles: Array<ReviewBundle>, restore_plans: Array<RestorePlanRecord>, };
 
 export type ClientInstanceId = string;
 

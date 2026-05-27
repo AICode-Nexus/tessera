@@ -262,13 +262,14 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 
 **Goal:** Support codebase modification workflows through explicit diff, test, checkpoint, and rollback contracts.
 
-**Status:** Runtime gate foundations complete; first narrow apply-patch executor, explicit CLI envelope, trace-driven `tessera apply-patch --from-trace` envelope, opt-in trace-driven `--auto-worktree` detached worktree lifecycle, and conservative trace-backed `tessera worktree cleanup` are implemented.
+**Status:** Runtime gate foundations complete; first narrow apply-patch executor, explicit CLI envelope, trace-driven `tessera apply-patch --from-trace` envelope, opt-in trace-driven `--auto-worktree` detached worktree lifecycle, conservative trace-backed `tessera worktree cleanup`, and metadata-only test evidence summaries are implemented.
 
 **Completed Foundation Scope:**
 
-- Provider-neutral coding workflow metadata events for workflow start, workspace mutation scope, patch proposals, patch application records, test plans/runs, review bundles, and restore plans.
+- Provider-neutral coding workflow metadata events for workflow start, workspace mutation scope, patch proposals, patch application records, test plans/runs, test evidence summaries, review bundles, and restore plans.
 - Non-executing core coordinator that validates relative workspace paths, required diff/test artifact references, checkpoint references, reviewer gates, and restore-plan blocking while returning `RunEvent` values only.
 - Read-only client and GUI binding projection from live events and replayed trace records.
+- Metadata-only test evidence summary records that aggregate test plan ids, test run ids, artifact refs, diagnostics, redaction state and run counts without executing tests or reading stdout/stderr bodies.
 - Runtime gate assessment documenting that executable apply-patch, test execution, checkpoint restore, worktree mutation, Git mutation, hooks, automations, app-server mutation listener, swarm, and learning apply remain blocked until enforcement gates are complete.
 - Mutation request proposal contracts that record operation kind, requested paths, required checkpoint, reviewer gate, policy decision, sandbox profile and worktree requirement metadata before any executor.
 - Artifact body/redaction storage contracts and checkpoint lifecycle records, including blocked restore lifecycle status, without mutating a workspace.
@@ -297,7 +298,7 @@ Detailed product-direction rules live in `docs/coding-agent-direction.md`.
 - Test runner integration through policy gates.
 - Checkpoint creation before mutating operations.
 - Rollback/restore trace events.
-- Run summary and evidence bundle.
+- Run summary beyond metadata-only test evidence aggregation.
 - Worktree-first mutation mode.
 - Code review command shape and reviewer evidence bundle.
 - TUI/GUI diff, approval, and artifact inspection surfaces.

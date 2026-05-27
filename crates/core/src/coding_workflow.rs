@@ -2,8 +2,9 @@ use std::path::{Component, Path};
 
 use tessera_protocol::{
     ArtifactBodyRecord, CodingWorkflowId, MutationMode, PatchApplicationRecord, PatchProposal,
-    RestorePlanRecord, ReviewBundle, RunEvent, TaskId, TestPlanRecord, TestRunRecord,
-    WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus, WorkspaceMutationScope,
+    RestorePlanRecord, ReviewBundle, RunEvent, TaskId, TestEvidenceSummaryRecord, TestPlanRecord,
+    TestRunRecord, WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus,
+    WorkspaceMutationScope,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,6 +45,11 @@ pub struct CodingWorkflowTestPlanRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CodingWorkflowTestRunRequest {
     pub record: TestRunRecord,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CodingWorkflowTestEvidenceSummaryRequest {
+    pub record: TestEvidenceSummaryRecord,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -179,6 +185,16 @@ impl CodingWorkflowCoordinator {
         })
     }
 
+    pub fn test_evidence_summary_event(
+        &self,
+        request: CodingWorkflowTestEvidenceSummaryRequest,
+    ) -> Result<RunEvent, CodingWorkflowError> {
+        validate_test_evidence_summary(&request.record)?;
+        Ok(RunEvent::TestEvidenceSummaryRecorded {
+            record: request.record,
+        })
+    }
+
     pub fn artifact_body_event(
         &self,
         request: CodingWorkflowArtifactBodyRequest,
@@ -273,6 +289,38 @@ fn validate_artifact_body_record(record: &ArtifactBodyRecord) -> Result<(), Codi
     if record.storage_uri.chars().any(char::is_whitespace) {
         return Err(CodingWorkflowError::new(
             "artifact body storage_uri must not contain whitespace",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_test_evidence_summary(
+    record: &TestEvidenceSummaryRecord,
+) -> Result<(), CodingWorkflowError> {
+    if record.summary.trim().is_empty() {
+        return Err(CodingWorkflowError::new(
+            "test evidence summary is required",
+        ));
+    }
+    if record.total_runs
+        != record.passed_runs + record.failed_runs + record.cancelled_runs + record.error_runs
+    {
+        return Err(CodingWorkflowError::new(
+            "test evidence run counts must match total_runs",
+        ));
+    }
+    if record.test_plan_ids.is_empty()
+        && record.test_run_ids.is_empty()
+        && record.artifact_refs.is_empty()
+        && record.diagnostics.is_empty()
+    {
+        return Err(CodingWorkflowError::new(
+            "test evidence summary requires evidence references",
+        ));
+    }
+    if !record.execution_blocked {
+        return Err(CodingWorkflowError::new(
+            "test execution must remain blocked",
         ));
     }
     Ok(())

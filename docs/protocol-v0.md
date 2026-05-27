@@ -67,6 +67,7 @@ pub struct MutationRequestId(String);
 pub struct WorkspaceWorktreeId(String);
 pub struct TestPlanId(String);
 pub struct TestRunId(String);
+pub struct TestEvidenceSummaryId(String);
 pub struct ReviewBundleId(String);
 pub struct RestorePlanId(String);
 ```
@@ -551,6 +552,7 @@ pub enum RunEvent {
     PatchApplicationRecorded { record: PatchApplicationRecord },
     TestPlanRecorded { plan: TestPlanRecord },
     TestRunRecorded { record: TestRunRecord },
+    TestEvidenceSummaryRecorded { record: TestEvidenceSummaryRecord },
     ReviewBundleRecorded { bundle: ReviewBundle },
     RestorePlanRecorded { plan: RestorePlanRecord },
 
@@ -593,7 +595,7 @@ pub enum RunEvent {
 
 `AgentHandoffRecorded` / `ReviewerGateRequested` / `ReviewerGateResolved` 是 v0.6 structured handoff and reviewer gate foundation。它们只记录 compact summary、bounded evidence refs 和 reviewer decision metadata，供 replay、client projection、CLI/TUI/GUI 和 future runtime API 检查。它们不启动 persistent child-agent runtime，不执行工具，不修改 workspace，不批准 file diff，也不创建 swarm scheduler。
 
-`CodingWorkflowStarted` / `WorkspaceMutationScopeRecorded` / `MutationRequestProposalRecorded` / `ApplyPatchPreflightRecorded` / `ApplyPatchExecutionRecorded` / `WorkspaceWorktreeLifecycleRecorded` / `PatchProposalRecorded` / `PatchApplicationRecorded` / `TestPlanRecorded` / `TestRunRecorded` / `ReviewBundleRecorded` / `RestorePlanRecorded` 是 v0.7 coding-agent workflow foundation。它们只记录 workflow id、task id、worktree-first mutation scope、policy-controlled mutation request proposals、apply-patch preflight readiness summaries、apply-patch execution intent/result metadata、detached worktree lifecycle metadata、patch proposal summary、diff artifact refs、checkpoint/reviewer/policy references、sandbox profile labels、test plan/test result artifact refs、review bundle metadata and restore plan metadata。Mutation request operation kind 使用 `patch_application`、`test_run`、`checkpoint_restore`、`version_control_*` 等中性标签，不暴露 GUI/runtime command 字符串。它们不得 inline patch body、file contents、stdout/stderr bodies、provider-private responses、hidden reasoning、API keys、cookies、authorization headers 或 filesystem handles。`MutationRequestProposalRecorded`、`ApplyPatchPreflightRecorded`、`ApplyPatchExecutionRecorded`、`WorkspaceWorktreeLifecycleRecorded`、`PatchApplicationRecorded` 和 `RestorePlanRecorded` 当前仍不提供完整 coding-agent runtime：除 isolated apply-patch executor slice 明确实现的单文件 patch 写入和 opt-in detached worktree lifecycle 外，不运行测试，不 restore/revert checkpoint，不 stage/commit/push Git，也不让 UI 拥有执行状态。
+`CodingWorkflowStarted` / `WorkspaceMutationScopeRecorded` / `MutationRequestProposalRecorded` / `ApplyPatchPreflightRecorded` / `ApplyPatchExecutionRecorded` / `WorkspaceWorktreeLifecycleRecorded` / `PatchProposalRecorded` / `PatchApplicationRecorded` / `TestPlanRecorded` / `TestRunRecorded` / `TestEvidenceSummaryRecorded` / `ReviewBundleRecorded` / `RestorePlanRecorded` 是 v0.7 coding-agent workflow foundation。它们只记录 workflow id、task id、worktree-first mutation scope、policy-controlled mutation request proposals、apply-patch preflight readiness summaries、apply-patch execution intent/result metadata、detached worktree lifecycle metadata、patch proposal summary、diff artifact refs、checkpoint/reviewer/policy references、sandbox profile labels、test plan/test result artifact refs、test evidence aggregate summaries、review bundle metadata and restore plan metadata。Mutation request operation kind 使用 `patch_application`、`test_run`、`checkpoint_restore`、`version_control_*` 等中性标签，不暴露 GUI/runtime command 字符串。它们不得 inline patch body、file contents、stdout/stderr bodies、provider-private responses、hidden reasoning、API keys、cookies、authorization headers 或 filesystem handles。`MutationRequestProposalRecorded`、`ApplyPatchPreflightRecorded`、`ApplyPatchExecutionRecorded`、`WorkspaceWorktreeLifecycleRecorded`、`PatchApplicationRecorded`、`TestEvidenceSummaryRecorded` 和 `RestorePlanRecorded` 当前仍不提供完整 coding-agent runtime：除 isolated apply-patch executor slice 明确实现的单文件 patch 写入和 opt-in detached worktree lifecycle 外，不运行测试，不读取测试输出正文，不 restore/revert checkpoint，不 stage/commit/push Git，也不让 UI 拥有执行状态。
 
 `ApplyPatchGate` 是 core-owned preflight helper，不是 executor。它可从已经加载到内存的 patch artifact body 文本中做 bounded dry-run parsing，输出 affected path、operation summary 和 blocker metadata；`ApplyPatchPreflightRecorded` 只允许记录这些 summary 字段、request/patch refs、evidence refs 和 `executor_blocked` reason，不得把 patch body、文件内容、外部 patch command、workspace file handle、executor handle 或 applied-path claim 放进 protocol。
 
