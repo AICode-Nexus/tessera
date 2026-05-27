@@ -14,13 +14,16 @@ use tessera_core::{
     ApplyPatchExecutor, ApplyPatchExecutorContext, ApplyPatchExecutorRootKind, ApplyPatchGate,
     ApplyPatchGateBlocker, ApplyPatchGateRecord, ApplyPatchGateRequest, ApplyPatchGateStatus,
     ApplyPatchIsolatedFileRequest, ConversationEngine, ConversationOutcome, ConversationRequest,
-    EventSinkAction, InstructionDiscoveryOptions, InstructionDiscoveryPlanner,
-    LoadedInstructionSet, LoadedSkillSet, MutationEnforcementPlan, MutationEnforcementPlanRequest,
-    MutationEnforcementPlanner, ReplayRunner, ReplaySummary, RunCancellationToken, RunControls,
-    RunPauseToken, RuntimeEventQuery, RuntimePauseCheckpointSummary, RuntimeReader,
-    RuntimeSessionSummary, RuntimeTaskOwnerSummary, RuntimeTaskResumer, SkillActivationRequest,
-    SkillDiscoveryOptions, SkillDiscoveryReport, SkillRuntimeOptions, SkillRuntimePlanner,
-    TraceApplyPatchResolveRequest, TraceApplyPatchResolver, TraceApplyPatchSelector,
+    EventSinkAction, GitWorktreeCommandRunner, InstructionDiscoveryOptions,
+    InstructionDiscoveryPlanner, IsolatedWorktreeLifecycleRunRequest,
+    IsolatedWorktreeLifecycleRunner, LoadedInstructionSet, LoadedSkillSet, MutationEnforcementPlan,
+    MutationEnforcementPlanRequest, MutationEnforcementPlanner, ReplayRunner, ReplaySummary,
+    RunCancellationToken, RunControls, RunPauseToken, RuntimeEventQuery,
+    RuntimePauseCheckpointSummary, RuntimeReader, RuntimeSessionSummary, RuntimeTaskOwnerSummary,
+    RuntimeTaskResumer, SkillActivationRequest, SkillDiscoveryOptions, SkillDiscoveryReport,
+    SkillRuntimeOptions, SkillRuntimePlanner, TraceApplyPatchResolveRequest,
+    TraceApplyPatchResolvedEnvelope, TraceApplyPatchResolver, TraceApplyPatchSelector,
+    WorktreeRetentionPolicy,
 };
 use tessera_protocol::{
     AgentHandoffId, AgentProfile, AgentProfileId, AgentRunSummary, ApplyPatchDryRunOperationKind,
@@ -35,7 +38,7 @@ use tessera_protocol::{
     SkillActivation, SkillManifest, SkillReferenceSource, SnapshotId, TaskId, TaskOwnerKind,
     TaskOwnerStatus, TaskReattachMode, TaskStatus, ToolCallId, ToolId, ToolPermission,
     ToolPolicyDecision, ToolSideEffect, TraceRecord, WorkspaceCheckpointLifecycleRecord,
-    WorkspaceCheckpointLifecycleStatus, WorkspaceMutationScope,
+    WorkspaceCheckpointLifecycleStatus, WorkspaceMutationScope, WorkspaceWorktreeLifecycleStatus,
 };
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
@@ -143,6 +146,24 @@ pub struct CliTraceApplyPatchOptions {
     pub operator_label: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CliAutoWorktreeApplyPatchOptions {
+    pub trace_id: String,
+    pub workflow_id: Option<String>,
+    pub request_id: Option<String>,
+    pub patch_id: Option<String>,
+    pub patch_artifact_id: Option<String>,
+    pub preflight_id: Option<String>,
+    pub execution_id: Option<String>,
+    pub allowed_paths: Vec<String>,
+    pub patch_body_override: Option<String>,
+    pub dry_run: bool,
+    pub operator_label: String,
+    pub source_root: Option<PathBuf>,
+    pub worktree_base: Option<PathBuf>,
+    pub retention_policy: WorktreeRetentionPolicy,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct CliApplyPatchEnvelope {
     pub trace_id: String,
@@ -180,6 +201,14 @@ pub struct CliApplyPatchOutput {
     pub blockers: Vec<String>,
     pub executor_label: String,
     pub isolated_root_label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree_lifecycle_status: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -2088,21 +2117,183 @@ pub fn run_apply_patch_from_trace_options(
 ) -> Result<CliApplyPatchOutput> {
     validate_trace_apply_patch_options(&options)?;
     let data_dir = data_dir.as_ref();
-    let store = TraceStore::open(data_dir)?;
-    let records = store.read_trace_records(&options.trace_id)?;
-    let resolved = TraceApplyPatchResolver::resolve(TraceApplyPatchResolveRequest {
-        trace_id: options.trace_id.clone(),
-        records,
-        selector: TraceApplyPatchSelector {
-            workflow_id: options.workflow_id.clone().map(CodingWorkflowId::from),
-            request_id: options.request_id.clone().map(MutationRequestId::from),
-            patch_id: options.patch_id.clone().map(PatchProposalId::from),
-            patch_artifact_id: options.patch_artifact_id.clone().map(ArtifactId::from),
-            allowed_paths: options.allowed_paths.clone(),
+    let ResolvedTraceApplyPatchInput {
+        resolved,
+        patch_body,
+    } = resolve_trace_apply_patch_input(
+        data_dir,
+        &options.trace_id,
+        trace_apply_patch_selector(
+            options.workflow_id.clone(),
+            options.request_id.clone(),
+            options.patch_id.clone(),
+            options.patch_artifact_id.clone(),
+            options.allowed_paths.clone(),
+        ),
+        options.patch_body_override.as_deref(),
+    )?;
+
+    let envelope = build_trace_apply_patch_envelope(options, resolved, patch_body)?;
+    run_apply_patch_envelope(data_dir, envelope)
+}
+
+pub fn run_apply_patch_auto_worktree_options(
+    data_dir: impl AsRef<Path>,
+    options: CliAutoWorktreeApplyPatchOptions,
+) -> Result<CliApplyPatchOutput> {
+    validate_auto_worktree_apply_patch_options(&options)?;
+    let data_dir = data_dir.as_ref();
+    let ResolvedTraceApplyPatchInput {
+        resolved,
+        patch_body,
+    } = resolve_trace_apply_patch_input(
+        data_dir,
+        &options.trace_id,
+        trace_apply_patch_selector(
+            options.workflow_id.clone(),
+            options.request_id.clone(),
+            options.patch_id.clone(),
+            options.patch_artifact_id.clone(),
+            options.allowed_paths.clone(),
+        ),
+        options.patch_body_override.as_deref(),
+    )?;
+
+    if options.dry_run {
+        let envelope = build_trace_apply_patch_envelope(
+            CliTraceApplyPatchOptions {
+                trace_id: options.trace_id,
+                workflow_id: options.workflow_id,
+                request_id: options.request_id,
+                patch_id: options.patch_id,
+                patch_artifact_id: options.patch_artifact_id,
+                preflight_id: options.preflight_id,
+                execution_id: options.execution_id,
+                isolated_root: data_dir
+                    .join("worktrees")
+                    .join("dry-run-auto-worktree-not-created"),
+                root_label: generated_cli_worktree_root_label(
+                    &resolved.workflow_id,
+                    &resolved.patch_proposal.patch_id,
+                ),
+                allowed_paths: options.allowed_paths,
+                patch_body_override: None,
+                dry_run: true,
+                operator_label: options.operator_label,
+            },
+            resolved,
+            patch_body,
+        )?;
+        return run_apply_patch_envelope(data_dir, envelope);
+    }
+
+    let source_root = resolve_auto_worktree_source_root(options.source_root.as_deref())?;
+    let repo_key = repo_key_from_source_root(&source_root);
+    let (worktree_base, worktree_base_key) =
+        resolve_auto_worktree_base(data_dir, &repo_key, options.worktree_base.as_deref());
+    fs::create_dir_all(&worktree_base)?;
+    let existing_worktree_leaf_names = existing_worktree_leaf_names(&worktree_base)?;
+
+    let lifecycle_runner = IsolatedWorktreeLifecycleRunner::default();
+    let mut command_runner = GitWorktreeCommandRunner;
+    let created = lifecycle_runner.create_detached_worktree(
+        &mut command_runner,
+        IsolatedWorktreeLifecycleRunRequest {
+            workflow_id: resolved.workflow_id.clone(),
+            task_id: resolved.task_id.clone(),
+            trace_id: resolved.trace_id.clone(),
+            request_id: resolved.mutation_request.request_id.clone(),
+            patch_id: resolved.patch_proposal.patch_id.clone(),
+            repo_key,
+            data_dir: data_dir.to_path_buf(),
+            worktree_base: Some(worktree_base),
+            worktree_base_key: Some(worktree_base_key),
+            requested_root_label: None,
+            source_root,
+            existing_worktree_leaf_names,
+            retention_policy: options.retention_policy,
+            reason: "trace-driven apply-patch requested an isolated worktree".to_string(),
+            evidence: lifecycle_evidence_from_trace(&resolved),
         },
+    )?;
+    append_lifecycle_events(data_dir, &resolved.trace_id, &created.lifecycle_events)?;
+
+    let envelope = build_trace_apply_patch_envelope(
+        CliTraceApplyPatchOptions {
+            trace_id: options.trace_id,
+            workflow_id: options.workflow_id,
+            request_id: options.request_id,
+            patch_id: options.patch_id,
+            patch_artifact_id: options.patch_artifact_id,
+            preflight_id: options.preflight_id,
+            execution_id: options.execution_id,
+            isolated_root: created.plan.worktree_path.clone(),
+            root_label: created.plan.worktree_root_label.clone(),
+            allowed_paths: options.allowed_paths,
+            patch_body_override: None,
+            dry_run: false,
+            operator_label: options.operator_label,
+        },
+        resolved,
+        patch_body,
+    )?;
+
+    match run_apply_patch_envelope(data_dir, envelope) {
+        Ok(output) => {
+            let retained = lifecycle_runner.retained_lifecycle_event(&created);
+            append_lifecycle_events(data_dir, &created.plan.trace_id, &[retained])?;
+            Ok(output.with_auto_worktree(&created, WorkspaceWorktreeLifecycleStatus::Retained))
+        }
+        Err(error) => {
+            if options.retention_policy == WorktreeRetentionPolicy::CleanupOnFailure {
+                let cleanup =
+                    lifecycle_runner.cleanup_created_worktree(&mut command_runner, &created);
+                append_lifecycle_events(data_dir, &created.plan.trace_id, &[cleanup])?;
+            } else {
+                let retained = lifecycle_runner.retained_lifecycle_event(&created);
+                append_lifecycle_events(data_dir, &created.plan.trace_id, &[retained])?;
+            }
+            Err(error)
+        }
+    }
+}
+
+struct ResolvedTraceApplyPatchInput {
+    resolved: TraceApplyPatchResolvedEnvelope,
+    patch_body: String,
+}
+
+fn trace_apply_patch_selector(
+    workflow_id: Option<String>,
+    request_id: Option<String>,
+    patch_id: Option<String>,
+    patch_artifact_id: Option<String>,
+    allowed_paths: Vec<String>,
+) -> TraceApplyPatchSelector {
+    TraceApplyPatchSelector {
+        workflow_id: workflow_id.map(CodingWorkflowId::from),
+        request_id: request_id.map(MutationRequestId::from),
+        patch_id: patch_id.map(PatchProposalId::from),
+        patch_artifact_id: patch_artifact_id.map(ArtifactId::from),
+        allowed_paths,
+    }
+}
+
+fn resolve_trace_apply_patch_input(
+    data_dir: &Path,
+    trace_id: &str,
+    selector: TraceApplyPatchSelector,
+    patch_body_override: Option<&str>,
+) -> Result<ResolvedTraceApplyPatchInput> {
+    let store = TraceStore::open(data_dir)?;
+    let records = store.read_trace_records(trace_id)?;
+    let resolved = TraceApplyPatchResolver::resolve(TraceApplyPatchResolveRequest {
+        trace_id: trace_id.to_string(),
+        records,
+        selector,
     })?;
-    let patch_body = match options.patch_body_override.as_ref() {
-        Some(body) => body.clone(),
+    let patch_body = match patch_body_override {
+        Some(body) => body.to_string(),
         None => {
             let artifact_id = resolved
                 .patch_artifact_id
@@ -2116,10 +2307,131 @@ pub fn run_apply_patch_from_trace_options(
     if patch_body.len() > APPLY_PATCH_MAX_BODY_BYTES {
         anyhow::bail!("patch artifact body is too large");
     }
-    drop(store);
 
-    let envelope = build_trace_apply_patch_envelope(options, resolved, patch_body)?;
-    run_apply_patch_envelope(data_dir, envelope)
+    Ok(ResolvedTraceApplyPatchInput {
+        resolved,
+        patch_body,
+    })
+}
+
+fn resolve_auto_worktree_source_root(source_root: Option<&Path>) -> Result<PathBuf> {
+    if let Some(source_root) = source_root {
+        return Ok(source_root.to_path_buf());
+    }
+    let current_dir = std::env::current_dir()?;
+    find_git_root(&current_dir)
+        .ok_or_else(|| anyhow::anyhow!("--source-root is required outside a Git checkout"))
+}
+
+fn find_git_root(start: &Path) -> Option<PathBuf> {
+    let mut current = start.to_path_buf();
+    loop {
+        if current.join(".git").exists() {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
+fn repo_key_from_source_root(source_root: &Path) -> String {
+    let label = source_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("repo");
+    format!("{}-auto", sanitize_cli_key_fragment(label))
+}
+
+fn resolve_auto_worktree_base(
+    data_dir: &Path,
+    repo_key: &str,
+    worktree_base: Option<&Path>,
+) -> (PathBuf, String) {
+    match worktree_base {
+        Some(base) => {
+            let base_key = base
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(sanitize_cli_key_fragment)
+                .unwrap_or_else(|| "custom-worktree-base".to_string());
+            (base.to_path_buf(), format!("cli:{base_key}"))
+        }
+        None => (
+            data_dir.join("worktrees").join(repo_key),
+            format!("data_dir:worktrees/{repo_key}"),
+        ),
+    }
+}
+
+fn existing_worktree_leaf_names(worktree_base: &Path) -> Result<Vec<String>> {
+    if !worktree_base.exists() {
+        return Ok(Vec::new());
+    }
+    let mut names = Vec::new();
+    for entry in fs::read_dir(worktree_base)? {
+        let entry = entry?;
+        if let Some(name) = entry.file_name().to_str() {
+            names.push(name.to_string());
+        }
+    }
+    Ok(names)
+}
+
+fn generated_cli_worktree_root_label(
+    workflow_id: &CodingWorkflowId,
+    patch_id: &PatchProposalId,
+) -> String {
+    format!(
+        "worktree:{}-{}",
+        sanitize_cli_key_fragment(strip_cli_known_prefix(
+            workflow_id.as_str(),
+            "coding_workflow_"
+        )),
+        sanitize_cli_key_fragment(strip_cli_known_prefix(patch_id.as_str(), "patch_proposal_"))
+    )
+}
+
+fn strip_cli_known_prefix<'a>(value: &'a str, prefix: &str) -> &'a str {
+    value.strip_prefix(prefix).unwrap_or(value)
+}
+
+fn sanitize_cli_key_fragment(value: &str) -> String {
+    let mut output = String::new();
+    let mut last_was_dash = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            output.push(ch.to_ascii_lowercase());
+            last_was_dash = false;
+        } else if !last_was_dash {
+            output.push('-');
+            last_was_dash = true;
+        }
+    }
+    let output = output.trim_matches('-');
+    if output.is_empty() {
+        "item".to_string()
+    } else {
+        output.chars().take(32).collect()
+    }
+}
+
+fn lifecycle_evidence_from_trace(
+    resolved: &TraceApplyPatchResolvedEnvelope,
+) -> Vec<HandoffEvidenceRef> {
+    let mut evidence = resolved.mutation_request.evidence.clone();
+    evidence.extend(resolved.patch_proposal.diff_artifacts.clone());
+    evidence.truncate(8);
+    evidence
+}
+
+fn append_lifecycle_events(data_dir: &Path, trace_id: &str, events: &[RunEvent]) -> Result<()> {
+    let mut store = TraceStore::open(data_dir)?;
+    for event in events {
+        let seq = next_trace_seq(&store, trace_id)?;
+        store.append(&EventFrame::new(trace_id.to_string(), seq, event.clone()))?;
+    }
+    Ok(())
 }
 
 pub fn run_apply_patch_envelope(
@@ -2234,6 +2546,29 @@ fn validate_trace_apply_patch_options(options: &CliTraceApplyPatchOptions) -> Re
         validate_cli_relative_path(path)?;
     }
     Ok(())
+}
+
+fn validate_auto_worktree_apply_patch_options(
+    options: &CliAutoWorktreeApplyPatchOptions,
+) -> Result<()> {
+    if options.trace_id.trim().is_empty() {
+        anyhow::bail!("--from-trace must not be empty");
+    }
+    for path in &options.allowed_paths {
+        validate_cli_relative_path(path)?;
+    }
+    Ok(())
+}
+
+pub fn parse_worktree_retention_policy(value: Option<&str>) -> Result<WorktreeRetentionPolicy> {
+    match value.unwrap_or("retain-on-success") {
+        "retain-on-success" => Ok(WorktreeRetentionPolicy::RetainOnSuccess),
+        "retain-always" => Ok(WorktreeRetentionPolicy::RetainAlways),
+        "cleanup-on-failure" => Ok(WorktreeRetentionPolicy::CleanupOnFailure),
+        other => anyhow::bail!(
+            "invalid --worktree-retention `{other}`; expected retain-on-success, retain-always, or cleanup-on-failure"
+        ),
+    }
 }
 
 fn validate_trace_patch_artifact_body(record: &tessera_protocol::ArtifactBodyRecord) -> Result<()> {
@@ -2725,7 +3060,35 @@ impl CliApplyPatchOutput {
             isolated_root_label: execution
                 .map(|record| record.isolated_root_label.clone())
                 .unwrap_or(isolated_root_label),
+            worktree_id: None,
+            source_commit: None,
+            worktree_path: None,
+            worktree_lifecycle_status: None,
         }
+    }
+
+    fn with_auto_worktree(
+        mut self,
+        created: &tessera_core::IsolatedWorktreeCreated,
+        status: WorkspaceWorktreeLifecycleStatus,
+    ) -> Self {
+        self.worktree_id = Some(created.plan.worktree_id.to_string());
+        self.source_commit = Some(created.plan.source_commit.clone());
+        self.worktree_path = Some(created.plan.worktree_path.display().to_string());
+        self.worktree_lifecycle_status = Some(worktree_lifecycle_status_label(status).to_string());
+        self
+    }
+}
+
+fn worktree_lifecycle_status_label(status: WorkspaceWorktreeLifecycleStatus) -> &'static str {
+    match status {
+        WorkspaceWorktreeLifecycleStatus::Planned => "planned",
+        WorkspaceWorktreeLifecycleStatus::Created => "created",
+        WorkspaceWorktreeLifecycleStatus::CreationFailed => "creation_failed",
+        WorkspaceWorktreeLifecycleStatus::Retained => "retained",
+        WorkspaceWorktreeLifecycleStatus::CleanupStarted => "cleanup_started",
+        WorkspaceWorktreeLifecycleStatus::CleanupCompleted => "cleanup_completed",
+        WorkspaceWorktreeLifecycleStatus::CleanupFailed => "cleanup_failed",
     }
 }
 

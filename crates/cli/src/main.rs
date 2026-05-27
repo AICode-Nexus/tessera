@@ -226,11 +226,19 @@ struct ApplyPatchCommandOptions {
     #[arg(long)]
     sandbox_profile: Option<String>,
     #[arg(long)]
-    isolated_root: PathBuf,
+    isolated_root: Option<PathBuf>,
     #[arg(long)]
-    root_label: String,
+    root_label: Option<String>,
     #[arg(long = "allowed-path")]
     allowed_paths: Vec<String>,
+    #[arg(long)]
+    auto_worktree: bool,
+    #[arg(long)]
+    worktree_base: Option<PathBuf>,
+    #[arg(long)]
+    worktree_retention: Option<String>,
+    #[arg(long)]
+    source_root: Option<PathBuf>,
     #[arg(long)]
     patch_file: Option<PathBuf>,
     #[arg(long)]
@@ -530,6 +538,10 @@ async fn main() -> anyhow::Result<()> {
                 isolated_root,
                 root_label,
                 allowed_paths,
+                auto_worktree,
+                worktree_base,
+                worktree_retention,
+                source_root,
                 patch_file,
                 stdin,
                 dry_run,
@@ -542,16 +554,26 @@ async fn main() -> anyhow::Result<()> {
             let patch_source_count = usize::from(patch_file.is_some())
                 + usize::from(stdin)
                 + usize::from(patch_artifact_id.is_some());
-            let patch_body_override = if stdin {
-                let mut input = String::new();
-                std::io::stdin().read_to_string(&mut input)?;
-                Some(input)
-            } else if let Some(patch_file) = patch_file {
-                Some(std::fs::read_to_string(patch_file)?)
-            } else {
-                None
-            };
-            let output = if let Some(from_trace) = from_trace {
+
+            if auto_worktree {
+                if from_trace.is_none() {
+                    anyhow::bail!("--auto-worktree requires --from-trace");
+                }
+                if isolated_root.is_some() || root_label.is_some() {
+                    anyhow::bail!(
+                        "--auto-worktree cannot be combined with --isolated-root or --root-label"
+                    );
+                }
+            } else if worktree_base.is_some()
+                || worktree_retention.is_some()
+                || source_root.is_some()
+            {
+                anyhow::bail!(
+                    "--worktree-base, --worktree-retention, and --source-root require --auto-worktree"
+                );
+            }
+
+            if let Some(_from_trace) = &from_trace {
                 if trace_id.is_some() {
                     anyhow::bail!("--trace-id cannot be combined with --from-trace");
                 }
@@ -570,24 +592,6 @@ async fn main() -> anyhow::Result<()> {
                         "at most one of --patch-artifact-id, --patch-file, or --stdin is allowed with --from-trace"
                     );
                 }
-                tessera_cli::run_apply_patch_from_trace_options(
-                    data_dir,
-                    tessera_cli::CliTraceApplyPatchOptions {
-                        trace_id: from_trace,
-                        workflow_id,
-                        request_id,
-                        patch_id,
-                        patch_artifact_id,
-                        preflight_id,
-                        execution_id,
-                        isolated_root,
-                        root_label,
-                        allowed_paths,
-                        patch_body_override,
-                        dry_run,
-                        operator_label: "cli".to_string(),
-                    },
-                )?
             } else {
                 if patch_artifact_id.is_some() {
                     anyhow::bail!("--patch-artifact-id requires --from-trace");
@@ -595,6 +599,65 @@ async fn main() -> anyhow::Result<()> {
                 if patch_source_count != 1 {
                     anyhow::bail!("exactly one of --patch-file or --stdin is required");
                 }
+            }
+
+            let patch_body_override = if stdin {
+                let mut input = String::new();
+                std::io::stdin().read_to_string(&mut input)?;
+                Some(input)
+            } else if let Some(patch_file) = patch_file {
+                Some(std::fs::read_to_string(patch_file)?)
+            } else {
+                None
+            };
+
+            let output = if let Some(from_trace) = from_trace {
+                if auto_worktree {
+                    tessera_cli::run_apply_patch_auto_worktree_options(
+                        data_dir,
+                        tessera_cli::CliAutoWorktreeApplyPatchOptions {
+                            trace_id: from_trace,
+                            workflow_id,
+                            request_id,
+                            patch_id,
+                            patch_artifact_id,
+                            preflight_id,
+                            execution_id,
+                            allowed_paths,
+                            patch_body_override,
+                            dry_run,
+                            operator_label: "cli".to_string(),
+                            source_root,
+                            worktree_base,
+                            retention_policy: tessera_cli::parse_worktree_retention_policy(
+                                worktree_retention.as_deref(),
+                            )?,
+                        },
+                    )?
+                } else {
+                    tessera_cli::run_apply_patch_from_trace_options(
+                        data_dir,
+                        tessera_cli::CliTraceApplyPatchOptions {
+                            trace_id: from_trace,
+                            workflow_id,
+                            request_id,
+                            patch_id,
+                            patch_artifact_id,
+                            preflight_id,
+                            execution_id,
+                            isolated_root: required_apply_patch_path_arg(
+                                isolated_root,
+                                "--isolated-root",
+                            )?,
+                            root_label: required_apply_patch_arg(root_label, "--root-label")?,
+                            allowed_paths,
+                            patch_body_override,
+                            dry_run,
+                            operator_label: "cli".to_string(),
+                        },
+                    )?
+                }
+            } else {
                 let trace_id = trace_id.unwrap_or_else(|| {
                     format!(
                         "trace_apply_patch_{}",
@@ -627,8 +690,11 @@ async fn main() -> anyhow::Result<()> {
                             sandbox_profile,
                             "--sandbox-profile",
                         )?,
-                        isolated_root,
-                        root_label,
+                        isolated_root: required_apply_patch_path_arg(
+                            isolated_root,
+                            "--isolated-root",
+                        )?,
+                        root_label: required_apply_patch_arg(root_label, "--root-label")?,
                         allowed_paths,
                         patch_body: patch_body_override
                             .expect("patch body exists when explicit patch source count is one"),
@@ -640,17 +706,29 @@ async fn main() -> anyhow::Result<()> {
             if json {
                 println!("{}", serde_json::to_string_pretty(&output)?);
             } else if let Some(status) = &output.execution_status {
+                let worktree = output
+                    .worktree_path
+                    .as_ref()
+                    .map(|path| format!(" worktree={path}"))
+                    .unwrap_or_default();
                 println!(
-                    "apply-patch execution {status} affected={} trace={}",
+                    "apply-patch execution {status} affected={} trace={}{}",
                     output.affected_paths.join(","),
-                    output.trace_id
+                    output.trace_id,
+                    worktree
                 );
             } else {
+                let worktree = output
+                    .worktree_path
+                    .as_ref()
+                    .map(|path| format!(" worktree={path}"))
+                    .unwrap_or_default();
                 println!(
-                    "apply-patch preflight {} affected={} trace={}",
+                    "apply-patch preflight {} affected={} trace={}{}",
                     output.preflight_status,
                     output.affected_paths.join(","),
-                    output.trace_id
+                    output.trace_id,
+                    worktree
                 );
             }
         }
@@ -715,6 +793,10 @@ struct ChatCommandOptions {
 
 fn required_apply_patch_arg(value: Option<String>, name: &str) -> anyhow::Result<String> {
     value.ok_or_else(|| anyhow::anyhow!("{name} is required unless --from-trace is used"))
+}
+
+fn required_apply_patch_path_arg(value: Option<PathBuf>, name: &str) -> anyhow::Result<PathBuf> {
+    value.ok_or_else(|| anyhow::anyhow!("{name} is required unless --auto-worktree is used"))
 }
 
 impl ChatCommandOptions {

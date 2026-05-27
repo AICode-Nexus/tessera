@@ -234,6 +234,26 @@ fn trace_apply_patch_args(
     ]
 }
 
+fn trace_auto_worktree_apply_patch_args(
+    data_dir: &std::path::Path,
+    source_root: &std::path::Path,
+    worktree_base: &std::path::Path,
+) -> Vec<String> {
+    vec![
+        "apply-patch".to_string(),
+        "--data-dir".to_string(),
+        data_dir.display().to_string(),
+        "--from-trace".to_string(),
+        "trace_cli_trace_apply_patch".to_string(),
+        "--auto-worktree".to_string(),
+        "--source-root".to_string(),
+        source_root.display().to_string(),
+        "--worktree-base".to_string(),
+        worktree_base.display().to_string(),
+        "--json".to_string(),
+    ]
+}
+
 fn trace_workflow_id() -> CodingWorkflowId {
     CodingWorkflowId::from_static("coding_workflow_cli_trace_apply_patch")
 }
@@ -412,6 +432,41 @@ fn write_trace_apply_patch_bundle_with_body(
     });
 }
 
+fn git(root: &Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {:?} failed\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn init_apply_patch_source_repo(root: &Path) {
+    std::fs::create_dir_all(root.join("docs")).unwrap();
+    std::fs::write(root.join("docs/README.md"), "alpha\nold\nomega\n").unwrap();
+    git(root, &["init"]);
+    git(root, &["config", "user.email", "tessera@example.invalid"]);
+    git(root, &["config", "user.name", "Tessera CLI Test"]);
+    git(root, &["add", "docs/README.md"]);
+    git(root, &["commit", "-m", "initial"]);
+}
+
+fn worktree_base_entries(worktree_base: &Path) -> Vec<std::path::PathBuf> {
+    if !worktree_base.exists() {
+        return Vec::new();
+    }
+    std::fs::read_dir(worktree_base)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect()
+}
+
 #[test]
 fn version_output_reports_crate_version_and_git_sha() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
@@ -481,6 +536,60 @@ fn apply_patch_command_help_lists_trace_driven_options() {
     assert!(stdout.contains("--workflow-id"));
     assert!(stdout.contains("--request-id"));
     assert!(stdout.contains("--patch-id"));
+}
+
+#[test]
+fn apply_patch_command_help_lists_auto_worktree_options() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["apply-patch", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--auto-worktree"));
+    assert!(stdout.contains("--worktree-base"));
+    assert!(stdout.contains("--worktree-retention"));
+    assert!(stdout.contains("--source-root"));
+}
+
+#[test]
+fn apply_patch_command_auto_worktree_requires_from_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["apply-patch", "--data-dir"])
+        .arg(temp.path().join("data"))
+        .args(["--auto-worktree", "--patch-file"])
+        .arg(temp.path().join("missing.diff"))
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--auto-worktree requires --from-trace"));
+}
+
+#[test]
+fn apply_patch_command_auto_worktree_rejects_manual_isolated_root_options() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["apply-patch", "--data-dir"])
+        .arg(temp.path().join("data"))
+        .args([
+            "--from-trace",
+            "trace_cli_trace_apply_patch",
+            "--auto-worktree",
+            "--isolated-root",
+        ])
+        .arg(temp.path().join("manual"))
+        .args(["--root-label", "worktree:manual"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--auto-worktree cannot be combined with --isolated-root"));
+    assert!(stderr.contains("--root-label"));
 }
 
 #[test]
@@ -805,6 +914,127 @@ fn apply_patch_command_from_trace_rejects_primary_root_label_before_writing_file
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("primary_root_rejected") || stderr.contains("PrimaryRootRejected"));
+}
+
+#[test]
+fn apply_patch_command_auto_worktree_dry_run_does_not_create_worktree() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let worktree_base = temp.path().join("worktrees");
+    init_apply_patch_source_repo(&source_root);
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let mut args = trace_auto_worktree_apply_patch_args(&data_dir, &source_root, &worktree_base);
+    args.push("--dry-run".to_string());
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(args)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(source_root.join("docs/README.md")).unwrap(),
+        "alpha\nold\nomega\n"
+    );
+    assert!(worktree_base_entries(&worktree_base).is_empty());
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["preflight_status"], "dry_run_ready");
+    assert!(stdout.get("worktree_path").is_none());
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(trace.contains("apply_patch_preflight_recorded"));
+    assert!(!trace.contains("workspace_worktree_lifecycle_recorded"));
+    assert!(!trace.contains("apply_patch_execution_recorded"));
+}
+
+#[test]
+fn apply_patch_command_auto_worktree_creates_detached_worktree_and_records_redacted_lifecycle() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let worktree_base = temp.path().join("worktrees");
+    init_apply_patch_source_repo(&source_root);
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(trace_auto_worktree_apply_patch_args(
+            &data_dir,
+            &source_root,
+            &worktree_base,
+        ))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(source_root.join("docs/README.md")).unwrap(),
+        "alpha\nold\nomega\n"
+    );
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["trace_id"], "trace_cli_trace_apply_patch");
+    assert_eq!(stdout["preflight_status"], "executor_ready");
+    assert_eq!(stdout["execution_status"], "applied");
+    assert_eq!(stdout["worktree_lifecycle_status"], "retained");
+    let worktree_path = std::path::PathBuf::from(stdout["worktree_path"].as_str().unwrap());
+    assert!(worktree_path.exists());
+    assert_eq!(
+        std::fs::read_to_string(worktree_path.join("docs/README.md")).unwrap(),
+        "alpha\nnew\nomega\n"
+    );
+
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    let planned = trace.find("\"lifecycle_status\":\"planned\"").unwrap();
+    let created = trace.find("\"lifecycle_status\":\"created\"").unwrap();
+    let preflight = trace.find("apply_patch_preflight_recorded").unwrap();
+    let execution = trace.find("apply_patch_execution_recorded").unwrap();
+    let retained = trace.find("\"lifecycle_status\":\"retained\"").unwrap();
+    assert!(planned < created);
+    assert!(created < preflight);
+    assert!(preflight < execution);
+    assert!(execution < retained);
+    assert!(!trace.contains(&source_root.display().to_string()));
+    assert!(!trace.contains(&worktree_base.display().to_string()));
+    assert!(!trace.contains(&worktree_path.display().to_string()));
+}
+
+#[test]
+fn apply_patch_command_auto_worktree_rejects_dirty_source_before_preflight() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let worktree_base = temp.path().join("worktrees");
+    init_apply_patch_source_repo(&source_root);
+    std::fs::write(source_root.join("docs/README.md"), "alpha\ndirty\nomega\n").unwrap();
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(trace_auto_worktree_apply_patch_args(
+            &data_dir,
+            &source_root,
+            &worktree_base,
+        ))
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(worktree_base_entries(&worktree_base).is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("source checkout has tracked changes"));
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(!trace.contains("workspace_worktree_lifecycle_recorded"));
+    assert!(!trace.contains("apply_patch_preflight_recorded"));
+    assert!(!trace.contains("apply_patch_execution_recorded"));
 }
 
 #[test]
