@@ -254,6 +254,29 @@ fn trace_auto_worktree_apply_patch_args(
     ]
 }
 
+fn worktree_cleanup_args(
+    data_dir: &std::path::Path,
+    source_root: &std::path::Path,
+    worktree_id: &str,
+    worktree_path: &std::path::Path,
+) -> Vec<String> {
+    vec![
+        "worktree".to_string(),
+        "cleanup".to_string(),
+        "--data-dir".to_string(),
+        data_dir.display().to_string(),
+        "--from-trace".to_string(),
+        "trace_cli_trace_apply_patch".to_string(),
+        "--worktree-id".to_string(),
+        worktree_id.to_string(),
+        "--worktree-path".to_string(),
+        worktree_path.display().to_string(),
+        "--source-root".to_string(),
+        source_root.display().to_string(),
+        "--json".to_string(),
+    ]
+}
+
 fn trace_workflow_id() -> CodingWorkflowId {
     CodingWorkflowId::from_static("coding_workflow_cli_trace_apply_patch")
 }
@@ -1035,6 +1058,253 @@ fn apply_patch_command_auto_worktree_rejects_dirty_source_before_preflight() {
     assert!(!trace.contains("workspace_worktree_lifecycle_recorded"));
     assert!(!trace.contains("apply_patch_preflight_recorded"));
     assert!(!trace.contains("apply_patch_execution_recorded"));
+}
+
+#[test]
+fn worktree_cleanup_command_help_lists_trace_and_path_options() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["worktree", "cleanup", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--from-trace"));
+    assert!(stdout.contains("--worktree-id"));
+    assert!(stdout.contains("--worktree-path"));
+    assert!(stdout.contains("--source-root"));
+    assert!(stdout.contains("--dry-run"));
+}
+
+#[test]
+fn worktree_cleanup_command_dry_run_validates_without_removing_or_appending_lifecycle() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let worktree_base = temp.path().join("worktrees");
+    init_apply_patch_source_repo(&source_root);
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let create_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(trace_auto_worktree_apply_patch_args(
+            &data_dir,
+            &source_root,
+            &worktree_base,
+        ))
+        .output()
+        .unwrap();
+    assert!(
+        create_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&create_output.stderr)
+    );
+    let create_stdout: serde_json::Value = serde_json::from_slice(&create_output.stdout).unwrap();
+    let worktree_id = create_stdout["worktree_id"].as_str().unwrap();
+    let worktree_path = std::path::PathBuf::from(create_stdout["worktree_path"].as_str().unwrap());
+
+    let mut args = worktree_cleanup_args(&data_dir, &source_root, worktree_id, &worktree_path);
+    args.push("--dry-run".to_string());
+    let cleanup_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(args)
+        .output()
+        .unwrap();
+
+    assert!(
+        cleanup_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cleanup_output.stderr)
+    );
+    assert!(worktree_path.exists());
+    let stdout: serde_json::Value = serde_json::from_slice(&cleanup_output.stdout).unwrap();
+    assert_eq!(stdout["trace_id"], "trace_cli_trace_apply_patch");
+    assert_eq!(stdout["worktree_id"], worktree_id);
+    assert_eq!(stdout["worktree_lifecycle_status"], "dry_run_ready");
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(!trace.contains("\"lifecycle_status\":\"cleanup_started\""));
+    assert!(!trace.contains("\"lifecycle_status\":\"cleanup_completed\""));
+}
+
+#[test]
+fn worktree_cleanup_command_removes_retained_worktree_and_records_redacted_lifecycle() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let worktree_base = temp.path().join("worktrees");
+    init_apply_patch_source_repo(&source_root);
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let create_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(trace_auto_worktree_apply_patch_args(
+            &data_dir,
+            &source_root,
+            &worktree_base,
+        ))
+        .output()
+        .unwrap();
+    assert!(
+        create_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&create_output.stderr)
+    );
+    let create_stdout: serde_json::Value = serde_json::from_slice(&create_output.stdout).unwrap();
+    let worktree_id = create_stdout["worktree_id"].as_str().unwrap();
+    let worktree_path = std::path::PathBuf::from(create_stdout["worktree_path"].as_str().unwrap());
+    git(&worktree_path, &["restore", "docs/README.md"]);
+
+    let cleanup_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_cleanup_args(
+            &data_dir,
+            &source_root,
+            worktree_id,
+            &worktree_path,
+        ))
+        .output()
+        .unwrap();
+
+    assert!(
+        cleanup_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cleanup_output.stderr)
+    );
+    assert!(!worktree_path.exists());
+    let stdout: serde_json::Value = serde_json::from_slice(&cleanup_output.stdout).unwrap();
+    assert_eq!(stdout["worktree_lifecycle_status"], "cleanup_completed");
+    assert_eq!(stdout["worktree_path"], worktree_path.display().to_string());
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    let retained = trace.find("\"lifecycle_status\":\"retained\"").unwrap();
+    let cleanup_started = trace
+        .find("\"lifecycle_status\":\"cleanup_started\"")
+        .unwrap();
+    let cleanup_completed = trace
+        .find("\"lifecycle_status\":\"cleanup_completed\"")
+        .unwrap();
+    assert!(retained < cleanup_started);
+    assert!(cleanup_started < cleanup_completed);
+    assert!(!trace.contains(&source_root.display().to_string()));
+    assert!(!trace.contains(&worktree_base.display().to_string()));
+    assert!(!trace.contains(&worktree_path.display().to_string()));
+    assert!(!trace.contains("git worktree remove"));
+}
+
+#[test]
+fn worktree_cleanup_command_dirty_worktree_failure_records_redacted_lifecycle() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let worktree_base = temp.path().join("worktrees");
+    init_apply_patch_source_repo(&source_root);
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let create_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(trace_auto_worktree_apply_patch_args(
+            &data_dir,
+            &source_root,
+            &worktree_base,
+        ))
+        .output()
+        .unwrap();
+    assert!(
+        create_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&create_output.stderr)
+    );
+    let create_stdout: serde_json::Value = serde_json::from_slice(&create_output.stdout).unwrap();
+    let worktree_id = create_stdout["worktree_id"].as_str().unwrap();
+    let worktree_path = std::path::PathBuf::from(create_stdout["worktree_path"].as_str().unwrap());
+
+    let cleanup_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_cleanup_args(
+            &data_dir,
+            &source_root,
+            worktree_id,
+            &worktree_path,
+        ))
+        .output()
+        .unwrap();
+
+    assert!(!cleanup_output.status.success());
+    assert!(worktree_path.exists());
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(trace.contains("\"lifecycle_status\":\"cleanup_started\""));
+    assert!(trace.contains("\"lifecycle_status\":\"cleanup_failed\""));
+    assert!(!trace.contains(&source_root.display().to_string()));
+    assert!(!trace.contains(&worktree_base.display().to_string()));
+    assert!(!trace.contains(&worktree_path.display().to_string()));
+    assert!(!trace.contains("git worktree remove"));
+}
+
+#[test]
+fn worktree_cleanup_command_rejects_missing_lifecycle_evidence_before_git() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let arbitrary_path = temp.path().join("not-a-tessera-worktree");
+    init_apply_patch_source_repo(&source_root);
+    std::fs::create_dir_all(&arbitrary_path).unwrap();
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_cleanup_args(
+            &data_dir,
+            &source_root,
+            "workspace_worktree_missing",
+            &arbitrary_path,
+        ))
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(arbitrary_path.exists());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("retained worktree lifecycle evidence not found"));
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(!trace.contains("\"lifecycle_status\":\"cleanup_started\""));
+}
+
+#[test]
+fn worktree_cleanup_command_rejects_path_mismatch_before_removing_worktree() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let worktree_base = temp.path().join("worktrees");
+    init_apply_patch_source_repo(&source_root);
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+
+    let create_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(trace_auto_worktree_apply_patch_args(
+            &data_dir,
+            &source_root,
+            &worktree_base,
+        ))
+        .output()
+        .unwrap();
+    assert!(
+        create_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&create_output.stderr)
+    );
+    let create_stdout: serde_json::Value = serde_json::from_slice(&create_output.stdout).unwrap();
+    let worktree_id = create_stdout["worktree_id"].as_str().unwrap();
+    let worktree_path = std::path::PathBuf::from(create_stdout["worktree_path"].as_str().unwrap());
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_cleanup_args(
+            &data_dir,
+            &source_root,
+            worktree_id,
+            &source_root,
+        ))
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(worktree_path.exists());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("worktree path must not target source root"));
 }
 
 #[test]

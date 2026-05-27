@@ -29,9 +29,9 @@
 
 当前 `main` 基线已完成 v0.1 release，并已将 v0.2-v0.5 收口为 foundation-stable 工作。必须明确区分：
 
-- **用户可用能力**：CLI/TUI/mock chat、trace/replay、session resume、chat-only paused task resume、opt-in project instructions、explicit read-only skill activation、explicit and trace-driven `tessera apply-patch` isolated-root CLI envelopes、trace-driven `--auto-worktree` detached worktree apply-patch 等。
+- **用户可用能力**：CLI/TUI/mock chat、trace/replay、session resume、chat-only paused task resume、opt-in project instructions、explicit read-only skill activation、explicit and trace-driven `tessera apply-patch` isolated-root CLI envelopes、trace-driven `--auto-worktree` detached worktree apply-patch、trace-backed `tessera worktree cleanup` 等。
 - **foundation 能力**：tool schema、policy gate draft、sandbox planner、MCP metadata adapter、runtime HTTP/SSE shape、runtime API / app-server DTO alignment、diagnostics event、memory proposal UI、trace-backed task ownership metadata/recorder/projection、no-tool chat/agent run owner attach/detach、structured handoff/reviewer gate、sub-agent session/runtime ownership/transcript lifecycle metadata projection、metadata-only coding-agent workflow protocol/core/client projection、v0.7 runtime gate assessment、runtime gate closure foundations、apply-patch execution record、explicit executor-ready gate、pure patch model、isolated-root single-file apply-patch executor 和 automatic isolated worktree lifecycle metadata/runner boundary 等。
-- **尚未支持能力**：真实 tool execution、executable/default/global skill runtime、tool-using/full coding-agent runtime、MCP runtime、background reattach、daemon/app-server listener、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、persistent sub-agent runtime、完整 coding-agent diff/test/checkpoint/Git execution workflow、test runner、checkpoint restore、branch/stage/commit/push/PR Git mutation、automatic worktree cleanup command、swarm、learning apply。
+- **尚未支持能力**：真实 tool execution、executable/default/global skill runtime、tool-using/full coding-agent runtime、MCP runtime、background reattach、daemon/app-server listener、default-on/global project instruction ingestion、hook runtime、automation runtime、workspace restore、persistent sub-agent runtime、完整 coding-agent diff/test/checkpoint/Git execution workflow、test runner、checkpoint restore、branch/stage/commit/push/PR Git mutation、broader worktree-first mutation lifecycle、swarm、learning apply。
 
 ## 4. Version Status Matrix
 
@@ -43,7 +43,7 @@
 | v0.4 | Runtime API, MCP, diagnostics, memory foundations | [~] Foundation complete | RuntimeHttpApi shape, metadata-only MCP adapter, diagnostics event, memory proposal UI; no server/runtime/store. |
 | v0.5 | Single-agent and resumable task foundations | [~] Foundation stable | Agent profile registry, context handles, cooperative pause, chat-only task resume, top-level paused task CLI, no-tool `AgentLoop`, `tessera agent run`, opt-in project instruction discovery/source reporting, explicit read-only Skill Runtime v1, trace-backed task ownership foundation, automatic no-tool chat/agent owner attach/detach, and runtime API / app-server DTO alignment; runtime-complete gaps are staged into future gates. |
 | v0.6 | Persistent sub-agents and structured review | [x] Foundation complete | Structured handoff/reviewer gate, sub-agent session/runtime ownership, and transcript artifact lifecycle metadata events/projections exist; persistent child-agent execution is not implemented yet. |
-| v0.7 | Project coding-agent workflow | [~] Automatic worktree lifecycle implemented | Provider-neutral workflow/scope/patch/test/review/restore metadata events, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planner, read-only client/GUI projection, apply-patch preflight/dry-run readiness projection, execution records, explicit executor-ready gate, pure patch model, isolated-root single-file UTF-8 apply-patch executor, explicit `tessera apply-patch` CLI envelope, trace-driven `tessera apply-patch --from-trace` envelope, and opt-in `--auto-worktree` detached worktree lifecycle for trace-driven apply-patch exist; no test runner, checkpoint restore, branch/stage/commit/push/PR Git mutation, GUI/TUI diff workflow, or standalone cleanup command yet. |
+| v0.7 | Project coding-agent workflow | [~] Worktree cleanup command implemented | Provider-neutral workflow/scope/patch/test/review/restore metadata events, mutation request proposals, artifact body/redaction contracts, checkpoint lifecycle records, non-executing enforcement planner, read-only client/GUI projection, apply-patch preflight/dry-run readiness projection, execution records, explicit executor-ready gate, pure patch model, isolated-root single-file UTF-8 apply-patch executor, explicit `tessera apply-patch` CLI envelope, trace-driven `tessera apply-patch --from-trace` envelope, opt-in `--auto-worktree` detached worktree lifecycle for trace-driven apply-patch, and trace-backed `tessera worktree cleanup` exist; no test runner, checkpoint restore, branch/stage/commit/push/PR Git mutation, GUI/TUI diff workflow, or broader worktree-first mutation lifecycle yet. |
 | v0.8 | Swarm scheduler | [!] Blocked | Requires v0.6 structured handoff and reviewer gate. |
 | v0.9 | Learning proposal system | [ ] Planned | No learning runtime; proposals only by design. |
 
@@ -153,6 +153,7 @@
 - [x] Explicit `tessera apply-patch` CLI envelope over the narrow executor with operator-supplied refs, isolated root, allowed paths, patch source, preflight trace event, execution trace event, and no automatic worktree/test/checkpoint/Git/UI behavior.
 - [x] Trace-driven `tessera apply-patch --from-trace` CLI envelope that resolves reviewed mutation metadata and clean patch artifacts from trace records before reusing the same gate/executor path, still requiring a caller-supplied non-primary isolated root.
 - [x] Automatic isolated worktree lifecycle for trace-driven `tessera apply-patch --from-trace --auto-worktree`, with detached worktree creation from source `HEAD`, path-redacted lifecycle trace records, dry-run without worktree creation, and retained worktree output for operator inspection.
+- [x] Conservative `tessera worktree cleanup` command for retained Tessera-generated detached worktrees, requiring trace lifecycle evidence and an explicit local path while forbidding force removal and broader Git/test/checkpoint execution.
 
 ## 6. Current Gaps
 
@@ -201,7 +202,8 @@
 - [x] v0.7 automatic isolated worktree lifecycle design for future trace-driven apply-patch `--auto-worktree` mode.
 - [x] Trace-driven apply-patch automatic isolated worktree lifecycle through `tessera apply-patch --from-trace --auto-worktree`, with detached generated worktree creation only and no test/checkpoint/Git mutation expansion.
 - [ ] Executable coding-agent diff/test/checkpoint/rollback workflow.
-- [ ] Automatic worktree cleanup command and broader worktree-first mutation lifecycle.
+- [x] Automatic worktree cleanup command for retained Tessera-generated detached worktrees.
+- [ ] Broader worktree-first mutation lifecycle.
 - [ ] GUI/TUI diff and review surfaces.
 - [ ] Swarm scheduler.
 - [ ] Learning proposal system.
@@ -251,7 +253,7 @@ The next implementation slices should stay conservative and preserve the current
 39. [x] Implement trace-driven apply-patch workflow automation from trace-backed workflow, approval and patch artifact records, reusing the existing explicit apply-patch gate/executor path.
 40. [x] Design automatic isolated worktree lifecycle for trace-driven apply-patch before adding any worktree creation, cleanup, test execution, checkpoint restore, or Git mutation behavior.
 41. [x] Implement automatic isolated worktree lifecycle for trace-driven apply-patch with detached worktree creation only, no branch/stage/commit/push/PR mutation, no tests, and no checkpoint restore.
-42. [ ] Design a conservative worktree cleanup command before adding broad cleanup, test execution, checkpoint restore, or Git workflow completion.
+42. [x] Design and implement a conservative worktree cleanup command before adding broad cleanup, test execution, checkpoint restore, or Git workflow completion.
 43. [!] Do not start hook or automation runtime until tool/policy/sandbox/checkpoint/task ownership gates exist.
 44. [!] Do not start test runner, checkpoint restore, branch/stage/commit/push/PR Git mutation, GUI mutation controls, app-server mutation listener, swarm, or learning apply until their stated gates exist.
 

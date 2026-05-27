@@ -320,7 +320,7 @@ fn worktree_runner_records_cleanup_failed_without_force() {
         command_output("17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1\n"),
         command_output(""),
         command_output(""),
-        command_failure("worktree contains local changes"),
+        command_failure("worktree /repo/tessera-worktree contains local changes"),
     ]);
     let created = runner
         .create_detached_worktree(&mut commands, run_request())
@@ -336,7 +336,8 @@ fn worktree_runner_records_cleanup_failed_without_force() {
         .iter()
         .any(|arg| arg == "--force"));
     let payload = cleanup.payload().to_string();
-    assert!(payload.contains("worktree contains local changes"));
+    assert!(payload.contains("worktree removal failed without force"));
+    assert!(!payload.contains("local changes"));
     assert!(!payload.contains("/repo/tessera"));
 }
 

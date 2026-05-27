@@ -100,6 +100,10 @@ enum Commands {
         #[command(subcommand)]
         command: SkillsCommands,
     },
+    Worktree {
+        #[command(subcommand)]
+        command: WorktreeCommands,
+    },
     ApplyPatch(Box<ApplyPatchCommandOptions>),
     Chat {
         #[arg(long, default_value = "mock")]
@@ -195,6 +199,31 @@ enum SkillsCommands {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum WorktreeCommands {
+    Cleanup(WorktreeCleanupCommandOptions),
+}
+
+#[derive(Args)]
+struct WorktreeCleanupCommandOptions {
+    #[arg(long)]
+    from_trace: String,
+    #[arg(long)]
+    worktree_id: String,
+    #[arg(long)]
+    worktree_path: PathBuf,
+    #[arg(long)]
+    source_root: Option<PathBuf>,
+    #[arg(long)]
+    dry_run: bool,
+    #[arg(long)]
+    json: bool,
+    #[arg(long)]
+    config: Option<PathBuf>,
+    #[arg(long)]
+    data_dir: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -517,6 +546,34 @@ async fn main() -> anyhow::Result<()> {
                     for line in tessera_cli::format_skill_discovery_lines(&report) {
                         println!("{line}");
                     }
+                }
+            }
+        },
+        Some(Commands::Worktree { command }) => match command {
+            WorktreeCommands::Cleanup(options) => {
+                let config = tessera_cli::resolve_config(options.config)?;
+                let data_dir =
+                    tessera_cli::resolve_data_dir_with_config(options.data_dir, &config)?;
+                let output = tessera_cli::run_worktree_cleanup_options(
+                    data_dir,
+                    tessera_cli::CliWorktreeCleanupOptions {
+                        trace_id: options.from_trace,
+                        worktree_id: options.worktree_id,
+                        worktree_path: options.worktree_path,
+                        source_root: options.source_root,
+                        dry_run: options.dry_run,
+                    },
+                )?;
+                if options.json {
+                    println!("{}", serde_json::to_string_pretty(&output)?);
+                } else {
+                    println!(
+                        "worktree cleanup {} trace={} worktree={} path={}",
+                        output.worktree_lifecycle_status,
+                        output.trace_id,
+                        output.worktree_id,
+                        output.worktree_path
+                    );
                 }
             }
         },

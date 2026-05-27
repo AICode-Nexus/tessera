@@ -22,6 +22,8 @@ Tessera 只吸收长期结构：
 - Skills、hooks、subagents、automations 都必须进入 policy、scope 和 trace，而不是成为旁路插件。
 - GUI 的价值不只是漂亮界面，而是并行任务、worktree、diff/review、approval、artifact 和 terminal 的统一控制面。
 
+当前 v0.7 coding-agent runtime 已包含 conservative `tessera worktree cleanup`：只能清理 trace 证明由 Tessera 生成并 retained 的 detached worktree，并要求调用者提供本地路径；它不是 test runner、checkpoint restore、branch/stage/commit/push/PR、GUI Git mutation 或通用 `git worktree prune`。
+
 ## 2. Directional Compatibility Targets
 
 这些目标用于指导路线图，不要求早期版本完全兼容外部工具。
@@ -41,7 +43,7 @@ Tessera 处理方式：
 - v0.5 已收口为 foundation-stable：chat/resume/tasks、no-tool single-agent loop、opt-in project instructions、explicit read-only skills、task ownership metadata 和 runtime API DTOs 可用，但不声称完整 coding-agent CLI。
 - v0.5 的 non-interactive agent run 只提供无工具、无文件修改的输入/输出 envelope。
 - v0.5 的 project instruction discovery 只支持 opt-in `AGENTS.md` / `CLAUDE.md` source report；default/global/user loading、Claude imports 和 `.claude/` 兼容性继续等待 precedence、byte limit、redaction 和 trace-reference gate。
-- v0.7 已具备 metadata-only coding workflow foundation、窄的 explicit `tessera apply-patch` CLI envelope、trace-driven `tessera apply-patch --from-trace` CLI envelope，以及 opt-in `--auto-worktree` detached worktree lifecycle；diff/test execution、checkpoint restore/rollback、standalone cleanup command 和 code review command 仍按后续 runtime gate 推进。
+- v0.7 已具备 metadata-only coding workflow foundation、窄的 explicit `tessera apply-patch` CLI envelope、trace-driven `tessera apply-patch --from-trace` CLI envelope、opt-in `--auto-worktree` detached worktree lifecycle，以及 trace-backed `tessera worktree cleanup`；diff/test execution、checkpoint restore/rollback、broader worktree lifecycle 和 code review command 仍按后续 runtime gate 推进。
 - runtime API / app-server 必须是 core 的薄协议壳，不能成为第二套 runtime。
 
 ### Codex App / GUI Direction
@@ -59,7 +61,7 @@ Tessera 处理方式：
 
 - v0.2 的 GUI shell 只做 mock/replay 和 read-only projection 是正确的。
 - v0.5-v0.6 应先让 GUI 展示真实 task lifecycle、approvals、artifacts、task ownership metadata、handoff evidence 和 runtime events；background reattach 仍等待 app-server/listener/daemon owner gate。
-- v0.7 metadata foundation 让 GUI 可以只读展示 coding workflow、scope、patch/test/review/restore 证据；当前 apply-patch mutation 只允许通过 explicit 或 trace-driven CLI envelope，automatic worktree lifecycle 也只通过 `--from-trace --auto-worktree` CLI path 暴露本地 worktree path，Git/diff/review/patch controls 仍必须等待对应 typed client intent、policy、checkpoint 和 trace event。
+- v0.7 metadata foundation 让 GUI 可以只读展示 coding workflow、scope、patch/test/review/restore 证据；当前 apply-patch mutation 只允许通过 explicit 或 trace-driven CLI envelope，automatic worktree lifecycle 也只通过 `--from-trace --auto-worktree` / `worktree cleanup` CLI paths 暴露本地 worktree path 和清理入口，Git/diff/review/patch controls 仍必须等待对应 typed client intent、policy、checkpoint 和 trace event。
 - Worktree mode 应成为 coding-agent workflow 的首选写入模式；local mode 只能在明确 scope 下启用。
 - Automations 后置到 task runtime、skills、worktree、sandbox、notifications 和 failure reporting 稳定之后。
 

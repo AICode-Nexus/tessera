@@ -371,6 +371,14 @@ impl IsolatedWorktreeLifecycleRunner {
         )
     }
 
+    pub fn cleanup_started_lifecycle_event(&self, created: &IsolatedWorktreeCreated) -> RunEvent {
+        lifecycle_event(
+            &created.plan,
+            WorkspaceWorktreeLifecycleStatus::CleanupStarted,
+            "worktree cleanup requested by operator",
+        )
+    }
+
     pub fn cleanup_created_worktree<R>(
         &self,
         command_runner: &mut R,
@@ -411,6 +419,58 @@ impl IsolatedWorktreeLifecycleRunner {
                 path_to_string(&created.plan.worktree_path),
             ],
         );
+        self.run_worktree_remove(command_runner, created, invocation)
+    }
+
+    pub fn cleanup_trace_confirmed_worktree<R>(
+        &self,
+        command_runner: &mut R,
+        created: &IsolatedWorktreeCreated,
+    ) -> RunEvent
+    where
+        R: WorktreeCommandRunner,
+    {
+        validate_nonempty_path(&created.source_root, "source root")
+            .and_then(|_| validate_nonempty_path(&created.plan.worktree_path, "worktree path"))
+            .and_then(|_| validate_worktree_root_label(&created.plan.worktree_root_label))
+            .and_then(|_| {
+                if created.plan.worktree_root_label.starts_with("worktree:") {
+                    Ok(())
+                } else {
+                    Err(IsolatedWorktreeLifecycleError::new(
+                        "trace-confirmed cleanup requires generated worktree root label",
+                    ))
+                }
+            })
+            .and_then(|_| {
+                let invocation = git_invocation(
+                    &created.source_root,
+                    [
+                        "worktree".to_string(),
+                        "remove".to_string(),
+                        path_to_string(&created.plan.worktree_path),
+                    ],
+                );
+                self.run_worktree_remove(command_runner, created, invocation)
+            })
+            .unwrap_or_else(|error| {
+                lifecycle_event(
+                    &created.plan,
+                    WorkspaceWorktreeLifecycleStatus::CleanupFailed,
+                    error.to_string(),
+                )
+            })
+    }
+
+    fn run_worktree_remove<R>(
+        &self,
+        command_runner: &mut R,
+        created: &IsolatedWorktreeCreated,
+        invocation: WorktreeCommandInvocation,
+    ) -> Result<RunEvent, IsolatedWorktreeLifecycleError>
+    where
+        R: WorktreeCommandRunner,
+    {
         let output = command_runner
             .run(invocation)
             .map_err(|error| IsolatedWorktreeLifecycleError::new(format!("git failed: {error}")))?;
@@ -424,7 +484,7 @@ impl IsolatedWorktreeLifecycleRunner {
             Ok(lifecycle_event(
                 &created.plan,
                 WorkspaceWorktreeLifecycleStatus::CleanupFailed,
-                command_error_summary("git worktree remove", &output),
+                worktree_remove_error_summary(&output),
             ))
         }
     }
@@ -533,6 +593,11 @@ fn command_error_summary(label: &str, output: &WorktreeCommandOutput) -> String 
     } else {
         format!("{label} failed: {stderr}")
     }
+}
+
+fn worktree_remove_error_summary(_output: &WorktreeCommandOutput) -> String {
+    "worktree removal failed without force; inspect local worktree before retrying cleanup"
+        .to_string()
 }
 
 fn git_invocation<I, S>(cwd: &Path, args: I) -> WorktreeCommandInvocation
