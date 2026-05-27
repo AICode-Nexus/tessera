@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
 use tessera_core::{
-    IsolatedWorktreeLifecyclePlanner, IsolatedWorktreePlanRequest, SourceCheckoutStatus,
-    WorktreeRetentionPolicy,
+    GitWorktreeCommandRunner, IsolatedWorktreeLifecyclePlanner,
+    IsolatedWorktreeLifecycleRunRequest, IsolatedWorktreeLifecycleRunner,
+    IsolatedWorktreePlanRequest, SourceCheckoutStatus, WorktreeCommandInvocation,
+    WorktreeCommandOutput, WorktreeCommandRunner, WorktreeRetentionPolicy,
 };
 use tessera_protocol::{
     CodingWorkflowId, EventRange, HandoffEvidenceKind, HandoffEvidenceRef, MutationRequestId,
@@ -69,6 +71,76 @@ fn plan_request() -> IsolatedWorktreePlanRequest {
     }
 }
 
+fn run_request() -> IsolatedWorktreeLifecycleRunRequest {
+    IsolatedWorktreeLifecycleRunRequest {
+        workflow_id: workflow_id(),
+        task_id: task_id(),
+        trace_id: "trace_apply_patch_review".to_string(),
+        request_id: mutation_request_id(),
+        patch_id: patch_id(),
+        repo_key: "tessera-abcd1234".to_string(),
+        data_dir: PathBuf::from("/var/tmp/tessera-data"),
+        worktree_base: None,
+        worktree_base_key: None,
+        requested_root_label: None,
+        source_root: PathBuf::from("/repo/tessera"),
+        existing_worktree_leaf_names: Vec::new(),
+        retention_policy: WorktreeRetentionPolicy::RetainOnSuccess,
+        reason: "trace-driven apply-patch requested an isolated worktree".to_string(),
+        evidence: vec![trace_evidence()],
+    }
+}
+
+#[derive(Default)]
+struct FakeCommandRunner {
+    outputs: std::collections::VecDeque<WorktreeCommandOutput>,
+    invocations: Vec<WorktreeCommandInvocation>,
+}
+
+impl FakeCommandRunner {
+    fn with_outputs(outputs: impl IntoIterator<Item = WorktreeCommandOutput>) -> Self {
+        Self {
+            outputs: outputs.into_iter().collect(),
+            invocations: Vec::new(),
+        }
+    }
+}
+
+impl WorktreeCommandRunner for FakeCommandRunner {
+    fn run(
+        &mut self,
+        invocation: WorktreeCommandInvocation,
+    ) -> Result<WorktreeCommandOutput, String> {
+        self.invocations.push(invocation);
+        self.outputs
+            .pop_front()
+            .ok_or_else(|| "missing fake command output".to_string())
+    }
+}
+
+fn command_output(stdout: &str) -> WorktreeCommandOutput {
+    WorktreeCommandOutput {
+        status_success: true,
+        stdout: stdout.to_string(),
+        stderr: String::new(),
+    }
+}
+
+fn command_failure(stderr: &str) -> WorktreeCommandOutput {
+    WorktreeCommandOutput {
+        status_success: false,
+        stdout: String::new(),
+        stderr: stderr.to_string(),
+    }
+}
+
+fn lifecycle_status(event: &RunEvent) -> WorkspaceWorktreeLifecycleStatus {
+    match event {
+        RunEvent::WorkspaceWorktreeLifecycleRecorded { record } => record.lifecycle_status,
+        other => panic!("unexpected lifecycle event: {other:?}"),
+    }
+}
+
 #[test]
 fn isolated_worktree_planner_generates_redacted_labels_and_default_base() {
     let planner = IsolatedWorktreeLifecyclePlanner;
@@ -112,6 +184,174 @@ fn isolated_worktree_planner_generates_redacted_labels_and_default_base() {
     assert!(plan.source_has_untracked_changes);
     assert_eq!(plan.created_for_request_id, mutation_request_id());
     assert_eq!(plan.created_for_patch_id, patch_id());
+}
+
+#[test]
+fn worktree_runner_uses_fixed_git_args_and_records_created_lifecycle() {
+    let mut commands = FakeCommandRunner::with_outputs([
+        command_output("17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1\n"),
+        command_output(""),
+        command_output(""),
+    ]);
+    let runner = IsolatedWorktreeLifecycleRunner::default();
+
+    let created = runner
+        .create_detached_worktree(&mut commands, run_request())
+        .expect("clean source should create a detached worktree");
+
+    assert_eq!(created.plan.source_commit, clean_source().source_commit);
+    assert_eq!(
+        created
+            .lifecycle_events
+            .iter()
+            .map(lifecycle_status)
+            .collect::<Vec<_>>(),
+        vec![
+            WorkspaceWorktreeLifecycleStatus::Planned,
+            WorkspaceWorktreeLifecycleStatus::Created
+        ]
+    );
+
+    assert_eq!(commands.invocations.len(), 3);
+    assert_eq!(commands.invocations[0].program, "git");
+    assert_eq!(commands.invocations[0].cwd, PathBuf::from("/repo/tessera"));
+    assert_eq!(commands.invocations[0].args, vec!["rev-parse", "HEAD"]);
+    assert_eq!(
+        commands.invocations[1].args,
+        vec!["status", "--porcelain", "--untracked-files=no"]
+    );
+    assert_eq!(
+        commands.invocations[2].args,
+        vec![
+            "worktree",
+            "add",
+            "--detach",
+            "/var/tmp/tessera-data/worktrees/tessera-abcd1234/auto-patch-review-docs-readme-17bd0f1c0ffe",
+            "17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1"
+        ]
+    );
+}
+
+#[test]
+fn worktree_runner_aborts_dirty_status_before_worktree_add() {
+    let runner = IsolatedWorktreeLifecycleRunner::default();
+    let mut commands = FakeCommandRunner::with_outputs([
+        command_output("17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1\n"),
+        command_output(" M crates/core/src/lib.rs\n"),
+    ]);
+
+    let error = runner
+        .create_detached_worktree(&mut commands, run_request())
+        .expect_err("tracked source changes should abort before worktree add");
+
+    assert!(error
+        .to_string()
+        .contains("source checkout has tracked changes"));
+    assert_eq!(commands.invocations.len(), 2);
+
+    let mut commands = FakeCommandRunner::with_outputs([
+        command_output("17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1\n"),
+        command_output("M  crates/core/src/lib.rs\n"),
+    ]);
+    let error = runner
+        .create_detached_worktree(&mut commands, run_request())
+        .expect_err("staged source changes should abort before worktree add");
+
+    assert!(error
+        .to_string()
+        .contains("source checkout has staged changes"));
+    assert_eq!(commands.invocations.len(), 2);
+}
+
+#[test]
+fn worktree_runner_retains_and_cleans_only_current_invocation_without_force() {
+    let runner = IsolatedWorktreeLifecycleRunner::default();
+    let mut commands = FakeCommandRunner::with_outputs([
+        command_output("17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1\n"),
+        command_output(""),
+        command_output(""),
+        command_output(""),
+    ]);
+
+    let created = runner
+        .create_detached_worktree(&mut commands, run_request())
+        .expect("clean source should create a detached worktree");
+    let retained = runner.retained_lifecycle_event(&created);
+    assert_eq!(
+        lifecycle_status(&retained),
+        WorkspaceWorktreeLifecycleStatus::Retained
+    );
+    assert_eq!(commands.invocations.len(), 3);
+
+    let cleanup = runner.cleanup_created_worktree(&mut commands, &created);
+    assert_eq!(
+        lifecycle_status(&cleanup),
+        WorkspaceWorktreeLifecycleStatus::CleanupCompleted
+    );
+    assert_eq!(
+        commands.invocations[3].args,
+        vec![
+            "worktree",
+            "remove",
+            "/var/tmp/tessera-data/worktrees/tessera-abcd1234/auto-patch-review-docs-readme-17bd0f1c0ffe"
+        ]
+    );
+    assert!(!commands.invocations[3]
+        .args
+        .iter()
+        .any(|arg| arg == "--force"));
+
+    let mut not_created = created.clone();
+    not_created.created_by_current_invocation = false;
+    let before = commands.invocations.len();
+    let error = runner
+        .try_cleanup_created_worktree(&mut commands, &not_created)
+        .expect_err("cleanup must reject worktrees not created by this invocation");
+    assert!(error
+        .to_string()
+        .contains("worktree was not created by this invocation"));
+    assert_eq!(commands.invocations.len(), before);
+}
+
+#[test]
+fn worktree_runner_records_cleanup_failed_without_force() {
+    let runner = IsolatedWorktreeLifecycleRunner::default();
+    let mut commands = FakeCommandRunner::with_outputs([
+        command_output("17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1\n"),
+        command_output(""),
+        command_output(""),
+        command_failure("worktree contains local changes"),
+    ]);
+    let created = runner
+        .create_detached_worktree(&mut commands, run_request())
+        .expect("clean source should create a detached worktree");
+
+    let cleanup = runner.cleanup_created_worktree(&mut commands, &created);
+    assert_eq!(
+        lifecycle_status(&cleanup),
+        WorkspaceWorktreeLifecycleStatus::CleanupFailed
+    );
+    assert!(!commands.invocations[3]
+        .args
+        .iter()
+        .any(|arg| arg == "--force"));
+    let payload = cleanup.payload().to_string();
+    assert!(payload.contains("worktree contains local changes"));
+    assert!(!payload.contains("/repo/tessera"));
+}
+
+#[test]
+fn worktree_runner_default_rejects_non_fixed_invocations_before_process_spawn() {
+    let mut runner = GitWorktreeCommandRunner;
+    let error = runner
+        .run(WorktreeCommandInvocation {
+            program: "definitely-not-git".to_string(),
+            args: vec!["commit".to_string()],
+            cwd: PathBuf::from("/repo/tessera"),
+        })
+        .expect_err("default runner must not accept arbitrary programs");
+
+    assert!(error.contains("unsupported git worktree command"));
 }
 
 #[test]

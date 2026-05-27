@@ -27,8 +27,11 @@ pub use coding_workflow::{
     CodingWorkflowWorkspaceScopeRequest,
 };
 pub use isolated_worktree_lifecycle::{
-    IsolatedWorktreeLifecycleError, IsolatedWorktreeLifecyclePlanner, IsolatedWorktreePlan,
-    IsolatedWorktreePlanRequest, SourceCheckoutStatus, WorktreeRetentionPolicy,
+    GitWorktreeCommandRunner, IsolatedWorktreeCreated, IsolatedWorktreeLifecycleError,
+    IsolatedWorktreeLifecyclePlanner, IsolatedWorktreeLifecycleRunRequest,
+    IsolatedWorktreeLifecycleRunner, IsolatedWorktreePlan, IsolatedWorktreePlanRequest,
+    SourceCheckoutStatus, WorktreeCommandInvocation, WorktreeCommandOutput, WorktreeCommandRunner,
+    WorktreeRetentionPolicy,
 };
 pub use mutation_enforcement::{
     MutationEnforcementError, MutationEnforcementPlan, MutationEnforcementPlanRequest,
