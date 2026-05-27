@@ -1,5 +1,6 @@
 mod apply_patch_executor;
 mod apply_patch_gate;
+mod apply_patch_trace_resolver;
 mod coding_workflow;
 mod mutation_enforcement;
 mod subagent_runtime;
@@ -12,6 +13,10 @@ pub use apply_patch_gate::{
     ApplyPatchDryRunInput, ApplyPatchDryRunOperation, ApplyPatchDryRunOperationSummary,
     ApplyPatchDryRunSummary, ApplyPatchExecutorContext, ApplyPatchExecutorRootKind, ApplyPatchGate,
     ApplyPatchGateBlocker, ApplyPatchGateRecord, ApplyPatchGateRequest, ApplyPatchGateStatus,
+};
+pub use apply_patch_trace_resolver::{
+    TraceApplyPatchResolutionError, TraceApplyPatchResolveRequest, TraceApplyPatchResolvedEnvelope,
+    TraceApplyPatchResolver, TraceApplyPatchSelector,
 };
 pub use coding_workflow::{
     CodingWorkflowArtifactBodyRequest, CodingWorkflowCheckpointLifecycleRequest,

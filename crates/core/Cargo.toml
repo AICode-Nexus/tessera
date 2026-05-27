@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 futures.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
 tessera-protocol = { path = "../protocol" }
