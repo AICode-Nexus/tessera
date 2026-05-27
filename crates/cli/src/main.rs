@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -100,6 +100,7 @@ enum Commands {
         #[command(subcommand)]
         command: SkillsCommands,
     },
+    ApplyPatch(Box<ApplyPatchCommandOptions>),
     Chat {
         #[arg(long, default_value = "mock")]
         provider: String,
@@ -194,6 +195,50 @@ enum SkillsCommands {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Args)]
+struct ApplyPatchCommandOptions {
+    #[arg(long)]
+    trace_id: Option<String>,
+    #[arg(long)]
+    workflow_id: String,
+    #[arg(long)]
+    task_id: String,
+    #[arg(long)]
+    request_id: String,
+    #[arg(long)]
+    patch_id: String,
+    #[arg(long)]
+    preflight_id: String,
+    #[arg(long)]
+    execution_id: String,
+    #[arg(long)]
+    checkpoint_id: String,
+    #[arg(long)]
+    reviewer_gate_id: String,
+    #[arg(long)]
+    policy_decision_id: String,
+    #[arg(long)]
+    sandbox_profile: String,
+    #[arg(long)]
+    isolated_root: PathBuf,
+    #[arg(long)]
+    root_label: String,
+    #[arg(long = "allowed-path")]
+    allowed_paths: Vec<String>,
+    #[arg(long)]
+    patch_file: Option<PathBuf>,
+    #[arg(long)]
+    stdin: bool,
+    #[arg(long)]
+    dry_run: bool,
+    #[arg(long)]
+    json: bool,
+    #[arg(long)]
+    config: Option<PathBuf>,
+    #[arg(long)]
+    data_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -463,6 +508,90 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         },
+        Some(Commands::ApplyPatch(options)) => {
+            let ApplyPatchCommandOptions {
+                trace_id,
+                workflow_id,
+                task_id,
+                request_id,
+                patch_id,
+                preflight_id,
+                execution_id,
+                checkpoint_id,
+                reviewer_gate_id,
+                policy_decision_id,
+                sandbox_profile,
+                isolated_root,
+                root_label,
+                allowed_paths,
+                patch_file,
+                stdin,
+                dry_run,
+                json,
+                config,
+                data_dir,
+            } = *options;
+            let config = tessera_cli::resolve_config(config)?;
+            let data_dir = tessera_cli::resolve_data_dir_with_config(data_dir, &config)?;
+            let patch_source_count = usize::from(patch_file.is_some()) + usize::from(stdin);
+            if patch_source_count != 1 {
+                anyhow::bail!("exactly one of --patch-file or --stdin is required");
+            }
+            let patch_body = if stdin {
+                let mut input = String::new();
+                std::io::stdin().read_to_string(&mut input)?;
+                input
+            } else {
+                std::fs::read_to_string(patch_file.expect("patch_file exists when stdin is false"))?
+            };
+            let trace_id = trace_id.unwrap_or_else(|| {
+                format!(
+                    "trace_apply_patch_{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|duration| duration.as_millis())
+                        .unwrap_or(0)
+                )
+            });
+            let output = tessera_cli::run_apply_patch_with_options(
+                data_dir,
+                tessera_cli::CliApplyPatchOptions {
+                    trace_id,
+                    workflow_id,
+                    task_id,
+                    request_id,
+                    patch_id,
+                    preflight_id,
+                    execution_id,
+                    checkpoint_id,
+                    reviewer_gate_id,
+                    policy_decision_id,
+                    sandbox_profile_label: sandbox_profile,
+                    isolated_root,
+                    root_label,
+                    allowed_paths,
+                    patch_body,
+                    dry_run,
+                    operator_label: "cli".to_string(),
+                },
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            } else if let Some(status) = &output.execution_status {
+                println!(
+                    "apply-patch execution {status} affected={} trace={}",
+                    output.affected_paths.join(","),
+                    output.trace_id
+                );
+            } else {
+                println!(
+                    "apply-patch preflight {} affected={} trace={}",
+                    output.preflight_status,
+                    output.affected_paths.join(","),
+                    output.trace_id
+                );
+            }
+        }
         Some(Commands::Chat {
             provider,
             prompt,

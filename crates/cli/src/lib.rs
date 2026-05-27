@@ -10,18 +10,30 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tessera_client::{ClientMessage, ClientMessageRole, ClientSnapshot};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
-    AgentLoop, AgentRunOutcome, AgentRunRequest, ConversationEngine, ConversationOutcome,
-    ConversationRequest, EventSinkAction, InstructionDiscoveryOptions, InstructionDiscoveryPlanner,
-    LoadedInstructionSet, LoadedSkillSet, ReplayRunner, ReplaySummary, RunCancellationToken,
-    RunControls, RunPauseToken, RuntimeEventQuery, RuntimePauseCheckpointSummary, RuntimeReader,
+    AgentLoop, AgentRunOutcome, AgentRunRequest, ApplyPatchDryRunInput, ApplyPatchDryRunOperation,
+    ApplyPatchExecutor, ApplyPatchExecutorContext, ApplyPatchExecutorRootKind, ApplyPatchGate,
+    ApplyPatchGateBlocker, ApplyPatchGateRecord, ApplyPatchGateRequest, ApplyPatchGateStatus,
+    ApplyPatchIsolatedFileRequest, ConversationEngine, ConversationOutcome, ConversationRequest,
+    EventSinkAction, InstructionDiscoveryOptions, InstructionDiscoveryPlanner,
+    LoadedInstructionSet, LoadedSkillSet, MutationEnforcementPlan, MutationEnforcementPlanRequest,
+    MutationEnforcementPlanner, ReplayRunner, ReplaySummary, RunCancellationToken, RunControls,
+    RunPauseToken, RuntimeEventQuery, RuntimePauseCheckpointSummary, RuntimeReader,
     RuntimeSessionSummary, RuntimeTaskOwnerSummary, RuntimeTaskResumer, SkillActivationRequest,
     SkillDiscoveryOptions, SkillDiscoveryReport, SkillRuntimeOptions, SkillRuntimePlanner,
 };
 use tessera_protocol::{
-    AgentProfile, AgentProfileId, AgentRunSummary, ContextReference, EventFrame, InstructionSource,
-    ModelProfileId, ProviderId, ResumeMode, RunEvent, SkillActivation, SkillManifest,
-    SkillReferenceSource, TaskId, TaskOwnerKind, TaskOwnerStatus, TaskReattachMode, TaskStatus,
-    TraceRecord,
+    AgentHandoffId, AgentProfile, AgentProfileId, AgentRunSummary, ApplyPatchDryRunOperationKind,
+    ApplyPatchDryRunOperationSummary, ApplyPatchExecutionBlocker, ApplyPatchExecutionId,
+    ApplyPatchExecutionRecord, ApplyPatchExecutionStatus, ApplyPatchPreflightBlocker,
+    ApplyPatchPreflightId, ApplyPatchPreflightRecord, ApplyPatchPreflightStatus, CodingWorkflowId,
+    ContextReference, EventFrame, HandoffEvidenceRef, InstructionSource, ModelProfileId,
+    MutationMode, MutationRequestId, MutationRequestOperationKind, MutationRequestProposal,
+    MutationRequestStatus, PatchProposal, PatchProposalId, PolicyDecisionId, PolicyOutcome,
+    ProviderId, ResumeMode, ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, RunEvent,
+    SkillActivation, SkillManifest, SkillReferenceSource, SnapshotId, TaskId, TaskOwnerKind,
+    TaskOwnerStatus, TaskReattachMode, TaskStatus, ToolCallId, ToolId, ToolPermission,
+    ToolPolicyDecision, ToolSideEffect, TraceRecord, WorkspaceCheckpointLifecycleRecord,
+    WorkspaceCheckpointLifecycleStatus, WorkspaceMutationScope,
 };
 use tessera_providers::{
     mock::MockProvider, ollama::OllamaProvider, openai_compatible::OpenAiCompatibleProvider,
@@ -89,6 +101,41 @@ pub struct CliAgentRunOutput {
     pub instruction_warning_count: usize,
     pub skill_activations: Vec<SkillActivation>,
     pub skill_warning_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CliApplyPatchOptions {
+    pub trace_id: String,
+    pub workflow_id: String,
+    pub task_id: String,
+    pub request_id: String,
+    pub patch_id: String,
+    pub preflight_id: String,
+    pub execution_id: String,
+    pub checkpoint_id: String,
+    pub reviewer_gate_id: String,
+    pub policy_decision_id: String,
+    pub sandbox_profile_label: String,
+    pub isolated_root: PathBuf,
+    pub root_label: String,
+    pub allowed_paths: Vec<String>,
+    pub patch_body: String,
+    pub dry_run: bool,
+    pub operator_label: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliApplyPatchOutput {
+    pub trace_id: String,
+    pub preflight_status: String,
+    pub executor_blocked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_status: Option<String>,
+    pub affected_paths: Vec<String>,
+    pub conflict_paths: Vec<String>,
+    pub blockers: Vec<String>,
+    pub executor_label: String,
+    pub isolated_root_label: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -363,6 +410,9 @@ pub const VERSION_TEXT: &str = concat!(
     env!("TESSERA_GIT_SHA"),
     ")"
 );
+
+const APPLY_PATCH_EXECUTOR_LABEL: &str = "core.apply_patch_executor.v1";
+const APPLY_PATCH_REQUEST_SOURCE_LABEL: &str = "cli.apply-patch";
 
 static TRACE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -1976,6 +2026,492 @@ pub fn run_doctor_with_config(
             .map(|profile| profile.id.clone())
             .collect(),
     })
+}
+
+pub fn run_apply_patch_with_options(
+    data_dir: impl AsRef<Path>,
+    options: CliApplyPatchOptions,
+) -> Result<CliApplyPatchOutput> {
+    validate_apply_patch_options(&options)?;
+    let gate_request = build_apply_patch_gate_request(&options)?;
+    let gate_record = ApplyPatchGate.evaluate(gate_request);
+    let preflight = apply_patch_preflight_record_from_gate(&options, &gate_record);
+
+    let mut store = TraceStore::open(data_dir)?;
+    let preflight_seq = next_trace_seq(&store, &options.trace_id)?;
+    store.append(&EventFrame::new(
+        options.trace_id.clone(),
+        preflight_seq,
+        RunEvent::ApplyPatchPreflightRecorded {
+            record: preflight.clone(),
+        },
+    ))?;
+
+    if options.dry_run {
+        if gate_record.status != ApplyPatchGateStatus::PreflightReady {
+            anyhow::bail!(
+                "apply-patch dry-run blocked: {}",
+                format_apply_patch_gate_blockers(&gate_record.blockers).join(", ")
+            );
+        }
+        return Ok(CliApplyPatchOutput::from_records(
+            options.trace_id,
+            options.root_label,
+            &preflight,
+            None,
+        ));
+    }
+
+    if gate_record.status != ApplyPatchGateStatus::ExecutorReady {
+        anyhow::bail!(
+            "apply-patch execution blocked: {}",
+            format_apply_patch_gate_blockers(&gate_record.blockers).join(", ")
+        );
+    }
+
+    let execution = ApplyPatchExecutor
+        .apply_to_isolated_root(ApplyPatchIsolatedFileRequest {
+            execution_id: ApplyPatchExecutionId::from(options.execution_id.clone()),
+            preflight_id: ApplyPatchPreflightId::from(options.preflight_id.clone()),
+            workflow_id: CodingWorkflowId::from(options.workflow_id.clone()),
+            task_id: TaskId::from(options.task_id.clone()),
+            request_id: MutationRequestId::from(options.request_id.clone()),
+            patch_id: PatchProposalId::from(options.patch_id.clone()),
+            checkpoint_id: Some(SnapshotId::from(options.checkpoint_id.clone())),
+            reviewer_gate_id: Some(ReviewerGateId::from(options.reviewer_gate_id.clone())),
+            policy_decision_id: Some(PolicyDecisionId::from(options.policy_decision_id.clone())),
+            sandbox_profile_label: Some(options.sandbox_profile_label.clone()),
+            isolated_root: options.isolated_root.clone(),
+            isolated_root_label: options.root_label.clone(),
+            root_kind: ApplyPatchExecutorRootKind::IsolatedWorktree,
+            executor_label: APPLY_PATCH_EXECUTOR_LABEL.to_string(),
+            allowed_paths: options.allowed_paths.clone(),
+            patch_body: options.patch_body.clone(),
+        })
+        .record;
+
+    let execution_seq = next_trace_seq(&store, &options.trace_id)?;
+    store.append(&EventFrame::new(
+        options.trace_id.clone(),
+        execution_seq,
+        RunEvent::ApplyPatchExecutionRecorded {
+            record: execution.clone(),
+        },
+    ))?;
+
+    if execution.status != ApplyPatchExecutionStatus::Applied {
+        anyhow::bail!(
+            "apply-patch execution did not apply: {}",
+            format_apply_patch_execution_blockers(&execution.blockers).join(", ")
+        );
+    }
+
+    Ok(CliApplyPatchOutput::from_records(
+        options.trace_id,
+        options.root_label,
+        &preflight,
+        Some(&execution),
+    ))
+}
+
+fn validate_apply_patch_options(options: &CliApplyPatchOptions) -> Result<()> {
+    if options.trace_id.trim().is_empty() {
+        anyhow::bail!("--trace-id must not be empty");
+    }
+    if options.allowed_paths.is_empty() {
+        anyhow::bail!("--allowed-path is required");
+    }
+    if options.sandbox_profile_label.trim().is_empty() {
+        anyhow::bail!("--sandbox-profile is required");
+    }
+    for path in &options.allowed_paths {
+        validate_cli_relative_path(path)?;
+    }
+    Ok(())
+}
+
+fn validate_cli_relative_path(path: &str) -> Result<()> {
+    let path = path.trim();
+    if path.is_empty() || Path::new(path).is_absolute() {
+        anyhow::bail!("--allowed-path must be a relative workspace path");
+    }
+    if Path::new(path).components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
+        )
+    }) {
+        anyhow::bail!("--allowed-path must not traverse outside the workspace");
+    }
+    Ok(())
+}
+
+fn next_trace_seq(store: &TraceStore, trace_id: &str) -> Result<u64> {
+    if !store.list_trace_ids()?.iter().any(|id| id == trace_id) {
+        return Ok(1);
+    }
+    Ok(store
+        .read_trace_records(trace_id)?
+        .iter()
+        .map(|record| record.seq)
+        .max()
+        .unwrap_or(0)
+        + 1)
+}
+
+fn build_apply_patch_gate_request(options: &CliApplyPatchOptions) -> Result<ApplyPatchGateRequest> {
+    let workflow_id = CodingWorkflowId::from(options.workflow_id.clone());
+    let task_id = TaskId::from(options.task_id.clone());
+    let request_id = MutationRequestId::from(options.request_id.clone());
+    let patch_id = PatchProposalId::from(options.patch_id.clone());
+    let checkpoint_id = SnapshotId::from(options.checkpoint_id.clone());
+    let reviewer_gate_id = ReviewerGateId::from(options.reviewer_gate_id.clone());
+    let policy_decision_id = PolicyDecisionId::from(options.policy_decision_id.clone());
+
+    let mutation_request = MutationRequestProposal {
+        request_id: request_id.clone(),
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        operation: MutationRequestOperationKind::PatchApplication,
+        status: MutationRequestStatus::Approved,
+        summary: "explicit CLI apply-patch request".to_string(),
+        requested_paths: options.allowed_paths.clone(),
+        required_checkpoint_id: Some(checkpoint_id.clone()),
+        reviewer_gate_id: Some(reviewer_gate_id.clone()),
+        policy_decision_id: Some(policy_decision_id.clone()),
+        sandbox_profile_label: Some(options.sandbox_profile_label.clone()),
+        worktree_required: true,
+        evidence: Vec::<HandoffEvidenceRef>::new(),
+    };
+    let patch_proposal = PatchProposal {
+        patch_id: patch_id.clone(),
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        summary: "explicit CLI apply-patch patch body".to_string(),
+        touched_paths: options.allowed_paths.clone(),
+        diff_artifacts: Vec::new(),
+        risk_labels: vec!["explicit_cli_apply_patch".to_string()],
+        required_checkpoint_id: Some(checkpoint_id.clone()),
+        reviewer_gate_id: Some(reviewer_gate_id.clone()),
+    };
+    let enforcement_plan = MutationEnforcementPlanner::new(
+        options.isolated_root.display().to_string(),
+    )
+    .plan(MutationEnforcementPlanRequest {
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        requested_paths: options.allowed_paths.clone(),
+        mutation_mode: Some(MutationMode::WorktreeFirst),
+        policy_decision_id: Some(policy_decision_id.clone()),
+        reason: "explicit CLI apply-patch".to_string(),
+    })?;
+    let mutation_scope = WorkspaceMutationScope {
+        root_label: options.root_label.clone(),
+        allowed_paths: options.allowed_paths.clone(),
+        ..enforcement_plan.scope.clone()
+    };
+    let patch_body = (!options.patch_body.trim().is_empty()).then(|| ApplyPatchDryRunInput {
+        body: options.patch_body.clone(),
+        max_bytes: 1024 * 1024,
+    });
+
+    Ok(ApplyPatchGateRequest {
+        workflow_id: workflow_id.clone(),
+        task_id: task_id.clone(),
+        mutation_request,
+        patch_proposal,
+        mutation_scope,
+        enforcement_plan: MutationEnforcementPlan {
+            sandbox_profile_label: Some(options.sandbox_profile_label.clone()),
+            ..enforcement_plan
+        },
+        checkpoint_lifecycle: Some(WorkspaceCheckpointLifecycleRecord {
+            checkpoint_id,
+            task_id: task_id.clone(),
+            status: WorkspaceCheckpointLifecycleStatus::Created,
+            reason: "explicit CLI checkpoint reference".to_string(),
+            restore_plan_id: None,
+            execution_blocked: true,
+            evidence: Vec::new(),
+            metadata: None,
+        }),
+        reviewer_decision: Some(ReviewerGateDecision {
+            gate_id: reviewer_gate_id,
+            handoff_id: AgentHandoffId::from_static("handoff_cli_apply_patch"),
+            decision: ReviewerDecisionKind::Accept,
+            reviewer: options.operator_label.clone(),
+            reason_code: "explicit_cli_accept".to_string(),
+            comment: Some("operator supplied reviewer gate reference".to_string()),
+        }),
+        policy_decision: Some(ToolPolicyDecision {
+            decision_id: policy_decision_id,
+            call_id: ToolCallId::from_static("tool_call_cli_apply_patch"),
+            tool_id: ToolId::from_static("tool_cli_apply_patch"),
+            outcome: PolicyOutcome::Allow,
+            reason: "operator supplied policy decision reference".to_string(),
+            required_permissions: vec![ToolPermission::FilesystemWrite],
+            side_effects: vec![ToolSideEffect::WritesWorkspace],
+            approval_id: None,
+        }),
+        patch_body,
+        executor_context: (!options.dry_run).then(|| ApplyPatchExecutorContext {
+            isolated_root_label: options.root_label.clone(),
+            root_kind: ApplyPatchExecutorRootKind::IsolatedWorktree,
+            executor_label: APPLY_PATCH_EXECUTOR_LABEL.to_string(),
+            executor_available: true,
+            request_source_label: APPLY_PATCH_REQUEST_SOURCE_LABEL.to_string(),
+        }),
+        operator_label: options.operator_label.clone(),
+    })
+}
+
+fn apply_patch_preflight_record_from_gate(
+    options: &CliApplyPatchOptions,
+    gate: &ApplyPatchGateRecord,
+) -> ApplyPatchPreflightRecord {
+    ApplyPatchPreflightRecord {
+        preflight_id: ApplyPatchPreflightId::from(options.preflight_id.clone()),
+        workflow_id: CodingWorkflowId::from(options.workflow_id.clone()),
+        task_id: TaskId::from(options.task_id.clone()),
+        request_id: MutationRequestId::from(options.request_id.clone()),
+        patch_id: PatchProposalId::from(options.patch_id.clone()),
+        status: match gate.status {
+            ApplyPatchGateStatus::Blocked => ApplyPatchPreflightStatus::Blocked,
+            ApplyPatchGateStatus::PreflightReady => ApplyPatchPreflightStatus::DryRunReady,
+            ApplyPatchGateStatus::ExecutorReady => ApplyPatchPreflightStatus::ExecutorReady,
+        },
+        blockers: gate
+            .blockers
+            .iter()
+            .map(map_apply_patch_gate_blocker)
+            .collect(),
+        affected_paths: gate.affected_paths.clone(),
+        operations: gate
+            .dry_run
+            .as_ref()
+            .map(|dry_run| {
+                dry_run
+                    .operations
+                    .iter()
+                    .map(|operation| ApplyPatchDryRunOperationSummary {
+                        path: operation.path.clone(),
+                        operation: match operation.operation {
+                            ApplyPatchDryRunOperation::Create => {
+                                ApplyPatchDryRunOperationKind::Create
+                            }
+                            ApplyPatchDryRunOperation::Modify => {
+                                ApplyPatchDryRunOperationKind::Modify
+                            }
+                            ApplyPatchDryRunOperation::DeleteUnsupported => {
+                                ApplyPatchDryRunOperationKind::DeleteUnsupported
+                            }
+                            ApplyPatchDryRunOperation::RenameUnsupported => {
+                                ApplyPatchDryRunOperationKind::RenameUnsupported
+                            }
+                            ApplyPatchDryRunOperation::BinaryUnsupported => {
+                                ApplyPatchDryRunOperationKind::BinaryUnsupported
+                            }
+                        },
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        executor_blocked: gate.executor_blocked,
+        executor_block_reason: gate.executor_block_reason.clone(),
+        evidence: Vec::new(),
+    }
+}
+
+fn map_apply_patch_gate_blocker(blocker: &ApplyPatchGateBlocker) -> ApplyPatchPreflightBlocker {
+    match blocker {
+        ApplyPatchGateBlocker::WorkflowMismatch
+        | ApplyPatchGateBlocker::TaskMismatch
+        | ApplyPatchGateBlocker::OperationNotPatchApplication => {
+            ApplyPatchPreflightBlocker::OperationMismatch
+        }
+        ApplyPatchGateBlocker::MutationRequestNotApproved => {
+            ApplyPatchPreflightBlocker::MutationRequestNotApproved
+        }
+        ApplyPatchGateBlocker::ScopeMismatch => ApplyPatchPreflightBlocker::ScopeMismatch,
+        ApplyPatchGateBlocker::WorktreeIsolationRequired
+        | ApplyPatchGateBlocker::MissingExecutorContext
+        | ApplyPatchGateBlocker::PrimaryRootRejected => {
+            ApplyPatchPreflightBlocker::WorktreeIsolationRequired
+        }
+        ApplyPatchGateBlocker::MissingPolicyDecision => {
+            ApplyPatchPreflightBlocker::MissingPolicyDecision
+        }
+        ApplyPatchGateBlocker::PolicyNotAllowed => ApplyPatchPreflightBlocker::PolicyNotAllowed,
+        ApplyPatchGateBlocker::MissingReviewerDecision => {
+            ApplyPatchPreflightBlocker::MissingReviewerDecision
+        }
+        ApplyPatchGateBlocker::ReviewerNotAccepted => {
+            ApplyPatchPreflightBlocker::ReviewerNotAccepted
+        }
+        ApplyPatchGateBlocker::MissingCheckpointLifecycle => {
+            ApplyPatchPreflightBlocker::MissingCheckpointLifecycle
+        }
+        ApplyPatchGateBlocker::CheckpointNotCreated => {
+            ApplyPatchPreflightBlocker::CheckpointNotCreated
+        }
+        ApplyPatchGateBlocker::MissingSandboxProfile => {
+            ApplyPatchPreflightBlocker::MissingSandboxProfile
+        }
+        ApplyPatchGateBlocker::MissingPatchBody => ApplyPatchPreflightBlocker::MissingPatchBody,
+        ApplyPatchGateBlocker::PatchBodyTooLarge => ApplyPatchPreflightBlocker::PatchBodyTooLarge,
+        ApplyPatchGateBlocker::UnsafePatchPath => ApplyPatchPreflightBlocker::UnsafePatchPath,
+        ApplyPatchGateBlocker::UnsupportedPatchOperation => {
+            ApplyPatchPreflightBlocker::UnsupportedPatchOperation
+        }
+        ApplyPatchGateBlocker::ExecutorUnavailable => {
+            ApplyPatchPreflightBlocker::ExecutorUnavailable
+        }
+    }
+}
+
+fn format_apply_patch_gate_blockers(blockers: &[ApplyPatchGateBlocker]) -> Vec<String> {
+    blockers
+        .iter()
+        .map(apply_patch_gate_blocker_label)
+        .collect()
+}
+
+fn apply_patch_gate_blocker_label(blocker: &ApplyPatchGateBlocker) -> String {
+    match blocker {
+        ApplyPatchGateBlocker::WorkflowMismatch => "workflow_mismatch",
+        ApplyPatchGateBlocker::TaskMismatch => "task_mismatch",
+        ApplyPatchGateBlocker::OperationNotPatchApplication => "operation_not_patch_application",
+        ApplyPatchGateBlocker::MutationRequestNotApproved => "mutation_request_not_approved",
+        ApplyPatchGateBlocker::ScopeMismatch => "scope_mismatch",
+        ApplyPatchGateBlocker::WorktreeIsolationRequired => "worktree_isolation_required",
+        ApplyPatchGateBlocker::MissingPolicyDecision => "missing_policy_decision",
+        ApplyPatchGateBlocker::PolicyNotAllowed => "policy_not_allowed",
+        ApplyPatchGateBlocker::MissingReviewerDecision => "missing_reviewer_decision",
+        ApplyPatchGateBlocker::ReviewerNotAccepted => "reviewer_not_accepted",
+        ApplyPatchGateBlocker::MissingCheckpointLifecycle => "missing_checkpoint_lifecycle",
+        ApplyPatchGateBlocker::CheckpointNotCreated => "checkpoint_not_created",
+        ApplyPatchGateBlocker::MissingSandboxProfile => "missing_sandbox_profile",
+        ApplyPatchGateBlocker::MissingPatchBody => "missing_patch_body",
+        ApplyPatchGateBlocker::PatchBodyTooLarge => "patch_body_too_large",
+        ApplyPatchGateBlocker::UnsafePatchPath => "unsafe_patch_path",
+        ApplyPatchGateBlocker::UnsupportedPatchOperation => "unsupported_patch_operation",
+        ApplyPatchGateBlocker::MissingExecutorContext => "missing_executor_context",
+        ApplyPatchGateBlocker::ExecutorUnavailable => "executor_unavailable",
+        ApplyPatchGateBlocker::PrimaryRootRejected => "primary_root_rejected",
+    }
+    .to_string()
+}
+
+fn format_apply_patch_execution_blockers(blockers: &[ApplyPatchExecutionBlocker]) -> Vec<String> {
+    blockers
+        .iter()
+        .map(apply_patch_execution_blocker_label)
+        .collect()
+}
+
+fn apply_patch_execution_blocker_label(blocker: &ApplyPatchExecutionBlocker) -> String {
+    match blocker {
+        ApplyPatchExecutionBlocker::PreflightNotReady => "preflight_not_ready",
+        ApplyPatchExecutionBlocker::ExecutorUnavailable => "executor_unavailable",
+        ApplyPatchExecutionBlocker::PrimaryRootRejected => "primary_root_rejected",
+        ApplyPatchExecutionBlocker::MissingCheckpointLifecycle => "missing_checkpoint_lifecycle",
+        ApplyPatchExecutionBlocker::CheckpointNotCreated => "checkpoint_not_created",
+        ApplyPatchExecutionBlocker::MissingPolicyDecision => "missing_policy_decision",
+        ApplyPatchExecutionBlocker::PolicyNotAllowed => "policy_not_allowed",
+        ApplyPatchExecutionBlocker::MissingReviewerDecision => "missing_reviewer_decision",
+        ApplyPatchExecutionBlocker::ReviewerNotAccepted => "reviewer_not_accepted",
+        ApplyPatchExecutionBlocker::MissingSandboxProfile => "missing_sandbox_profile",
+        ApplyPatchExecutionBlocker::MissingIsolatedRoot => "missing_isolated_root",
+        ApplyPatchExecutionBlocker::UnsafePath => "unsafe_path",
+        ApplyPatchExecutionBlocker::SymlinkRejected => "symlink_rejected",
+        ApplyPatchExecutionBlocker::UnsupportedPatchOperation => "unsupported_patch_operation",
+        ApplyPatchExecutionBlocker::MultipleFilesUnsupported => "multiple_files_unsupported",
+        ApplyPatchExecutionBlocker::HunkConflict => "hunk_conflict",
+        ApplyPatchExecutionBlocker::WriteFailed => "write_failed",
+    }
+    .to_string()
+}
+
+fn apply_patch_preflight_status_label(status: ApplyPatchPreflightStatus) -> &'static str {
+    match status {
+        ApplyPatchPreflightStatus::Blocked => "blocked",
+        ApplyPatchPreflightStatus::DryRunReady => "dry_run_ready",
+        ApplyPatchPreflightStatus::ExecutorReady => "executor_ready",
+    }
+}
+
+fn apply_patch_execution_status_label(status: ApplyPatchExecutionStatus) -> &'static str {
+    match status {
+        ApplyPatchExecutionStatus::Planned => "planned",
+        ApplyPatchExecutionStatus::Applied => "applied",
+        ApplyPatchExecutionStatus::Conflict => "conflict",
+        ApplyPatchExecutionStatus::Rejected => "rejected",
+        ApplyPatchExecutionStatus::Failed => "failed",
+    }
+}
+
+fn apply_patch_preflight_blocker_label(blocker: &ApplyPatchPreflightBlocker) -> String {
+    match blocker {
+        ApplyPatchPreflightBlocker::MissingMutationRequest => "missing_mutation_request",
+        ApplyPatchPreflightBlocker::MissingPatchProposal => "missing_patch_proposal",
+        ApplyPatchPreflightBlocker::OperationMismatch => "operation_mismatch",
+        ApplyPatchPreflightBlocker::MutationRequestNotApproved => "mutation_request_not_approved",
+        ApplyPatchPreflightBlocker::ScopeMismatch => "scope_mismatch",
+        ApplyPatchPreflightBlocker::WorktreeIsolationRequired => "worktree_isolation_required",
+        ApplyPatchPreflightBlocker::MissingPolicyDecision => "missing_policy_decision",
+        ApplyPatchPreflightBlocker::PolicyNotAllowed => "policy_not_allowed",
+        ApplyPatchPreflightBlocker::MissingReviewerDecision => "missing_reviewer_decision",
+        ApplyPatchPreflightBlocker::ReviewerNotAccepted => "reviewer_not_accepted",
+        ApplyPatchPreflightBlocker::MissingCheckpointLifecycle => "missing_checkpoint_lifecycle",
+        ApplyPatchPreflightBlocker::CheckpointNotCreated => "checkpoint_not_created",
+        ApplyPatchPreflightBlocker::MissingSandboxProfile => "missing_sandbox_profile",
+        ApplyPatchPreflightBlocker::MissingPatchBody => "missing_patch_body",
+        ApplyPatchPreflightBlocker::PatchBodyTooLarge => "patch_body_too_large",
+        ApplyPatchPreflightBlocker::UnsafePatchPath => "unsafe_patch_path",
+        ApplyPatchPreflightBlocker::UnsupportedPatchOperation => "unsupported_patch_operation",
+        ApplyPatchPreflightBlocker::ExecutorUnavailable => "executor_unavailable",
+    }
+    .to_string()
+}
+
+impl CliApplyPatchOutput {
+    fn from_records(
+        trace_id: String,
+        isolated_root_label: String,
+        preflight: &ApplyPatchPreflightRecord,
+        execution: Option<&ApplyPatchExecutionRecord>,
+    ) -> Self {
+        Self {
+            trace_id,
+            preflight_status: apply_patch_preflight_status_label(preflight.status).to_string(),
+            executor_blocked: preflight.executor_blocked,
+            execution_status: execution
+                .map(|record| apply_patch_execution_status_label(record.status).to_string()),
+            affected_paths: execution
+                .map(|record| record.affected_paths.clone())
+                .unwrap_or_else(|| preflight.affected_paths.clone()),
+            conflict_paths: execution
+                .map(|record| record.conflict_paths.clone())
+                .unwrap_or_default(),
+            blockers: execution
+                .map(|record| format_apply_patch_execution_blockers(&record.blockers))
+                .unwrap_or_else(|| {
+                    preflight
+                        .blockers
+                        .iter()
+                        .map(apply_patch_preflight_blocker_label)
+                        .collect()
+                }),
+            executor_label: execution
+                .map(|record| record.executor_label.clone())
+                .unwrap_or_else(|| APPLY_PATCH_EXECUTOR_LABEL.to_string()),
+            isolated_root_label: execution
+                .map(|record| record.isolated_root_label.clone())
+                .unwrap_or(isolated_root_label),
+        }
+    }
 }
 
 fn ensure_provider_profile(config: &TesseraConfig, provider_id: &str) -> Result<()> {

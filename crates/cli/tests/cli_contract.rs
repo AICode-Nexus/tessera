@@ -152,6 +152,64 @@ impl io::BufRead for DelayedLineReader {
     }
 }
 
+fn apply_patch_modify_body() -> String {
+    [
+        "diff --git a/docs/README.md b/docs/README.md",
+        "index 1111111..2222222 100644",
+        "--- a/docs/README.md",
+        "+++ b/docs/README.md",
+        "@@ -1,3 +1,3 @@",
+        " alpha",
+        "-old",
+        "+new",
+        " omega",
+        "",
+    ]
+    .join("\n")
+}
+
+fn apply_patch_args(
+    data_dir: &std::path::Path,
+    isolated_root: &std::path::Path,
+    patch_file: &std::path::Path,
+) -> Vec<String> {
+    vec![
+        "apply-patch".to_string(),
+        "--data-dir".to_string(),
+        data_dir.display().to_string(),
+        "--trace-id".to_string(),
+        "trace_cli_apply_patch".to_string(),
+        "--workflow-id".to_string(),
+        "coding_workflow_cli_apply_patch".to_string(),
+        "--task-id".to_string(),
+        "task_cli_apply_patch".to_string(),
+        "--request-id".to_string(),
+        "mutation_request_cli_apply_patch".to_string(),
+        "--patch-id".to_string(),
+        "patch_proposal_cli_apply_patch".to_string(),
+        "--preflight-id".to_string(),
+        "apply_patch_preflight_cli".to_string(),
+        "--execution-id".to_string(),
+        "apply_patch_execution_cli".to_string(),
+        "--checkpoint-id".to_string(),
+        "snapshot_cli_apply_patch".to_string(),
+        "--reviewer-gate-id".to_string(),
+        "reviewer_gate_cli_apply_patch".to_string(),
+        "--policy-decision-id".to_string(),
+        "policy_cli_apply_patch".to_string(),
+        "--sandbox-profile".to_string(),
+        "workspace_write_isolated".to_string(),
+        "--isolated-root".to_string(),
+        isolated_root.display().to_string(),
+        "--root-label".to_string(),
+        "worktree:cli-apply-patch".to_string(),
+        "--allowed-path".to_string(),
+        "docs/README.md".to_string(),
+        "--patch-file".to_string(),
+        patch_file.display().to_string(),
+    ]
+}
+
 #[test]
 fn version_output_reports_crate_version_and_git_sha() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
@@ -188,6 +246,127 @@ fn chat_help_lists_resume_option() {
     assert!(stdout.contains("--json"));
     assert!(stdout.contains("--continue"));
     assert!(stdout.contains("--list-commands"));
+}
+
+#[test]
+fn apply_patch_command_help_lists_explicit_isolated_root_options() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(["apply-patch", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--isolated-root"));
+    assert!(stdout.contains("--root-label"));
+    assert!(stdout.contains("--allowed-path"));
+    assert!(stdout.contains("--patch-file"));
+    assert!(stdout.contains("--stdin"));
+    assert!(stdout.contains("--dry-run"));
+}
+
+#[test]
+fn apply_patch_command_applies_single_file_inside_isolated_root_and_records_trace() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let isolated_root = temp.path().join("isolated");
+    let docs_dir = isolated_root.join("docs");
+    std::fs::create_dir_all(&docs_dir).unwrap();
+    std::fs::write(docs_dir.join("README.md"), "alpha\nold\nomega\n").unwrap();
+    let patch_file = temp.path().join("patch.diff");
+    std::fs::write(&patch_file, apply_patch_modify_body()).unwrap();
+
+    let mut args = apply_patch_args(&data_dir, &isolated_root, &patch_file);
+    args.push("--json".to_string());
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(args)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(docs_dir.join("README.md")).unwrap(),
+        "alpha\nnew\nomega\n"
+    );
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["trace_id"], "trace_cli_apply_patch");
+    assert_eq!(stdout["preflight_status"], "executor_ready");
+    assert_eq!(stdout["execution_status"], "applied");
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_apply_patch.jsonl")).unwrap();
+    assert!(trace.contains("apply_patch_preflight_recorded"));
+    assert!(trace.contains("apply_patch_execution_recorded"));
+    assert!(!trace.contains("alpha\\nnew\\nomega"));
+}
+
+#[test]
+fn apply_patch_command_dry_run_records_preflight_without_writing_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let isolated_root = temp.path().join("isolated");
+    let docs_dir = isolated_root.join("docs");
+    std::fs::create_dir_all(&docs_dir).unwrap();
+    std::fs::write(docs_dir.join("README.md"), "alpha\nold\nomega\n").unwrap();
+    let patch_file = temp.path().join("patch.diff");
+    std::fs::write(&patch_file, apply_patch_modify_body()).unwrap();
+
+    let mut args = apply_patch_args(&data_dir, &isolated_root, &patch_file);
+    args.push("--dry-run".to_string());
+    args.push("--json".to_string());
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(args)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(docs_dir.join("README.md")).unwrap(),
+        "alpha\nold\nomega\n"
+    );
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["preflight_status"], "dry_run_ready");
+    assert_eq!(stdout["executor_blocked"], true);
+    assert!(stdout.get("execution_status").is_none());
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_apply_patch.jsonl")).unwrap();
+    assert!(trace.contains("apply_patch_preflight_recorded"));
+    assert!(!trace.contains("apply_patch_execution_recorded"));
+}
+
+#[test]
+fn apply_patch_command_rejects_primary_root_label_without_writing_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let isolated_root = temp.path().join("isolated");
+    let docs_dir = isolated_root.join("docs");
+    std::fs::create_dir_all(&docs_dir).unwrap();
+    std::fs::write(docs_dir.join("README.md"), "alpha\nold\nomega\n").unwrap();
+    let patch_file = temp.path().join("patch.diff");
+    std::fs::write(&patch_file, apply_patch_modify_body()).unwrap();
+
+    let mut args = apply_patch_args(&data_dir, &isolated_root, &patch_file);
+    let root_label_index = args.iter().position(|arg| arg == "--root-label").unwrap() + 1;
+    args[root_label_index] = "project".to_string();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(args)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(
+        std::fs::read_to_string(docs_dir.join("README.md")).unwrap(),
+        "alpha\nold\nomega\n"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("primary_root_rejected") || stderr.contains("PrimaryRootRejected"));
 }
 
 #[test]
