@@ -2348,7 +2348,8 @@ pub fn run_worktree_list_options(
 ) -> Result<Vec<CliWorktreeListOutput>> {
     validate_worktree_list_options(&options)?;
     let data_dir = data_dir.as_ref();
-    let created_worktree_ids = worktree_lifecycle_created_ids(data_dir, &options.trace_id)?;
+    let created_worktree_ids_with_refs =
+        worktree_lifecycle_created_ids_with_refs(data_dir, &options.trace_id)?;
     let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
     let lifecycles = reader.list_worktree_lifecycles(&options.trace_id)?;
     Ok(lifecycles
@@ -2356,7 +2357,7 @@ pub fn run_worktree_list_options(
         .map(|lifecycle| {
             CliWorktreeListOutput::from_lifecycle(
                 lifecycle,
-                created_worktree_ids.contains(lifecycle.worktree_id.as_str()),
+                created_worktree_ids_with_refs.contains(lifecycle.worktree_id.as_str()),
             )
         })
         .collect())
@@ -2475,9 +2476,6 @@ fn resolve_retained_worktree_record(
     if !saw_created {
         anyhow::bail!("worktree lifecycle was never created");
     }
-    if !saw_retained {
-        anyhow::bail!("worktree lifecycle is not retained");
-    }
     match record.lifecycle_status {
         WorkspaceWorktreeLifecycleStatus::Retained => {}
         WorkspaceWorktreeLifecycleStatus::CleanupCompleted => {
@@ -2490,13 +2488,19 @@ fn resolve_retained_worktree_record(
             anyhow::bail!("worktree lifecycle is not retained");
         }
     }
+    if !saw_retained {
+        anyhow::bail!("worktree lifecycle is not retained");
+    }
     if !record.worktree_root_label.starts_with("worktree:") {
         anyhow::bail!("retained worktree lifecycle is not generated");
     }
     Ok(record)
 }
 
-fn worktree_lifecycle_created_ids(data_dir: &Path, trace_id: &str) -> Result<HashSet<String>> {
+fn worktree_lifecycle_created_ids_with_refs(
+    data_dir: &Path,
+    trace_id: &str,
+) -> Result<HashSet<String>> {
     let store = TraceStore::open(data_dir)?;
     let records = store.read_trace_records(trace_id)?;
     let mut ids = HashSet::new();
@@ -2507,7 +2511,10 @@ fn worktree_lifecycle_created_ids(data_dir: &Path, trace_id: &str) -> Result<Has
         }
         let record: WorkspaceWorktreeLifecycleRecord =
             serde_json::from_value(trace_record.payload["record"].clone())?;
-        if record.lifecycle_status == WorkspaceWorktreeLifecycleStatus::Created {
+        if record.lifecycle_status == WorkspaceWorktreeLifecycleStatus::Created
+            && record.created_for_request_id.is_some()
+            && record.created_for_patch_id.is_some()
+        {
             ids.insert(record.worktree_id.to_string());
         }
     }

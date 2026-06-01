@@ -375,6 +375,16 @@ fn trace_worktree_lifecycle_record(
     }
 }
 
+fn trace_worktree_lifecycle_record_without_refs(
+    status: WorkspaceWorktreeLifecycleStatus,
+    reason: &str,
+) -> WorkspaceWorktreeLifecycleRecord {
+    let mut record = trace_worktree_lifecycle_record(status, reason);
+    record.created_for_request_id = None;
+    record.created_for_patch_id = None;
+    record
+}
+
 fn write_trace_worktree_lifecycle_bundle(
     data_dir: &Path,
     statuses: &[WorkspaceWorktreeLifecycleStatus],
@@ -392,6 +402,23 @@ fn write_trace_worktree_lifecycle_bundle(
                         worktree_lifecycle_test_reason(*status),
                     ),
                 },
+            ))
+            .unwrap();
+    }
+}
+
+fn write_trace_worktree_lifecycle_records(
+    data_dir: &Path,
+    records: Vec<WorkspaceWorktreeLifecycleRecord>,
+) {
+    let mut store = TraceStore::open(data_dir).unwrap();
+    let trace_id = "trace_cli_trace_apply_patch";
+    for (offset, record) in records.into_iter().enumerate() {
+        store
+            .append(&EventFrame::new(
+                trace_id,
+                100 + offset as u64,
+                RunEvent::WorkspaceWorktreeLifecycleRecorded { record },
             ))
             .unwrap();
     }
@@ -1243,6 +1270,46 @@ fn worktree_list_command_emits_json_for_trace_lifecycle() {
 }
 
 #[test]
+fn worktree_list_command_requires_created_record_refs_for_cleanup_candidate() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+    write_trace_worktree_lifecycle_records(
+        &data_dir,
+        vec![
+            trace_worktree_lifecycle_record(
+                WorkspaceWorktreeLifecycleStatus::Planned,
+                "isolated worktree planned",
+            ),
+            trace_worktree_lifecycle_record_without_refs(
+                WorkspaceWorktreeLifecycleStatus::Created,
+                "isolated worktree created without request refs",
+            ),
+            trace_worktree_lifecycle_record(
+                WorkspaceWorktreeLifecycleStatus::Retained,
+                "isolated worktree retained with latest refs only",
+            ),
+        ],
+    );
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_list_args(&data_dir, true))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let lifecycle = &stdout.as_array().unwrap()[0];
+    assert_eq!(lifecycle["latest_status"], "retained");
+    assert_eq!(lifecycle["trace_cleanup_candidate"], false);
+    assert!(lifecycle.get("worktree_path").is_none());
+}
+
+#[test]
 fn worktree_cleanup_command_dry_run_validates_without_removing_or_appending_lifecycle() {
     let temp = tempfile::tempdir().unwrap();
     let data_dir = temp.path().join("data");
@@ -1497,6 +1564,39 @@ fn worktree_cleanup_rejects_never_retained_lifecycle_with_specific_message() {
     assert!(arbitrary_path.exists());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("not retained"));
+}
+
+#[test]
+fn worktree_cleanup_rejects_cleanup_failed_without_retained_with_specific_message() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let arbitrary_path = temp.path().join("cli-trace-apply-patch");
+    init_apply_patch_source_repo(&source_root);
+    std::fs::create_dir_all(&arbitrary_path).unwrap();
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+    write_trace_worktree_lifecycle_bundle(
+        &data_dir,
+        &[
+            WorkspaceWorktreeLifecycleStatus::Created,
+            WorkspaceWorktreeLifecycleStatus::CleanupFailed,
+        ],
+    );
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_cleanup_args(
+            &data_dir,
+            &source_root,
+            trace_worktree_id().as_str(),
+            &arbitrary_path,
+        ))
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(arbitrary_path.exists());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("latest cleanup failed"));
 }
 
 #[test]
