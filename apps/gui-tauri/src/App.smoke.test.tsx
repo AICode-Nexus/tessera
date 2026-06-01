@@ -36,6 +36,46 @@ describe('GUI shell smoke path', () => {
     )
   })
 
+  it('renders safe review inspection metadata from the mock snapshot', async () => {
+    render(<App />)
+
+    expect(await screen.findByText('Mock/replay projection loaded')).toBeInTheDocument()
+    const panel = screen.getByLabelText('Review Inspection')
+    expect(within(panel).getByRole('heading', { name: 'Review Inspection' })).toBeInTheDocument()
+    expect(panel).toHaveTextContent(
+      'inspection workflows 1 / review gates 4 accepted / approvals 1 pending / diff refs 3',
+    )
+    expect(panel).toHaveTextContent('workflow:1')
+    expect(panel).toHaveTextContent('task:1')
+    expect(panel).toHaveTextContent('Patches2')
+    expect(panel).toHaveTextContent('Diff Refs3')
+    expect(panel).toHaveTextContent('Needs Review1')
+    expect(panel).toHaveTextContent('Review Bundles4')
+    expect(panel).toHaveTextContent('Reviewer Gates6')
+    expect(panel).toHaveTextContent('Accepted4')
+    expect(panel).toHaveTextContent('Pending1')
+    expect(panel).toHaveTextContent('Approvals3')
+    expect(panel).toHaveTextContent('Pending Approvals1')
+    expect(panel).toHaveTextContent('Preflights4')
+    expect(panel).toHaveTextContent('Executor Ready1')
+    expect(panel).toHaveTextContent('Executions2')
+    expect(panel).toHaveTextContent('Failed Executions1')
+    expect(panel).not.toHaveTextContent('workflow_web_read_only')
+    expect(panel).not.toHaveTextContent('task_web_workflow')
+    expect(panel).not.toHaveTextContent('gate_web_review')
+    expect(panel).not.toHaveTextContent('approval_web_sensitive')
+    expect(panel).not.toHaveTextContent('Project read-only workflow metadata')
+    expect(panel).not.toHaveTextContent('Render compact metadata rows')
+    expect(panel).not.toHaveTextContent('Read-only metadata ready for review')
+    expect(panel).not.toHaveTextContent('No browser fallback tests run yet')
+    expect(panel).not.toHaveTextContent('Restore execution is outside GUI surface')
+    expect(panel).not.toHaveTextContent('apps/gui-tauri/src/App.tsx')
+    expect(panel).not.toHaveTextContent('/Users/admin/work/tessera/.env')
+    expect(panel).not.toHaveTextContent('reviewer private comment')
+    expect(panel).not.toHaveTextContent('approval reason')
+    expect(panel).not.toHaveTextContent('diagnostic summary')
+  })
+
   it('projects submit, cancel, and new-thread actions through the mock shell', async () => {
     render(<App />)
 
