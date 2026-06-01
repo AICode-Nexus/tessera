@@ -797,26 +797,8 @@ fn write_workflow_inspection_trace(data_dir: &Path) {
 }
 
 fn write_empty_workflow_inspection_trace(data_dir: &Path) {
-    let mut store = TraceStore::open(data_dir).unwrap();
-    store
-        .append(&EventFrame::new(
-            "trace_cli_workflow_inspect",
-            1,
-            RunEvent::ArtifactBodyRecorded {
-                record: ArtifactBodyRecord {
-                    artifact_id: ArtifactId::from_static("artifact_no_workflow"),
-                    kind: ArtifactKind::Trace,
-                    task_id: None,
-                    media_type: "application/json".to_string(),
-                    byte_len: 0,
-                    storage_uri: "artifact:no-workflow".to_string(),
-                    redaction_status: ArtifactBodyRedactionStatus::Redacted,
-                    summary: None,
-                    metadata: None,
-                },
-            },
-        ))
-        .unwrap();
+    TraceStore::open(data_dir).unwrap();
+    std::fs::write(data_dir.join("traces/trace_cli_workflow_inspect.jsonl"), "").unwrap();
 }
 
 fn assert_workflow_inspect_output_is_safe(output: &str) {

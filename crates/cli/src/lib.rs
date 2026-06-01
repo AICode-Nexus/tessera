@@ -911,7 +911,7 @@ pub fn run_workflow_inspect_options(
     data_dir: impl AsRef<Path>,
     options: CliWorkflowInspectOptions,
 ) -> Result<Vec<CliWorkflowInspectionOutput>> {
-    let snapshot = load_trace_snapshot(data_dir, &options.trace_id, "workflow-inspect")?;
+    let snapshot = load_workflow_inspect_snapshot(data_dir, &options.trace_id)?;
     Ok(snapshot
         .workflow_inspections
         .iter()
@@ -1377,6 +1377,19 @@ fn config_validation_error(
 
 fn load_transcript_snapshot(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<ClientSnapshot> {
     load_trace_snapshot(data_dir, trace_id, "transcript")
+}
+
+fn load_workflow_inspect_snapshot(
+    data_dir: impl AsRef<Path>,
+    trace_id: &str,
+) -> Result<ClientSnapshot> {
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    let page = reader.list_events(RuntimeEventQuery::new(trace_id))?;
+    let mut snapshot = ClientSnapshot::new("workflow-inspect");
+    for record in &page.records {
+        snapshot.apply_trace_record(record);
+    }
+    Ok(snapshot)
 }
 
 fn load_trace_snapshot(
