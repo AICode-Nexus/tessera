@@ -13,6 +13,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type ClientContextPlacement"));
     assert!(bindings.contains("export type ClientContextSourceKind"));
     assert!(bindings.contains("export type ClientCodingWorkflow"));
+    assert!(bindings.contains("export type ClientWorktreeLifecycle"));
     assert!(bindings.contains("export type ClientMemoryProposal"));
     assert!(bindings.contains("export type ClientAgentHandoff"));
     assert!(bindings.contains("export type ClientReviewerGate"));
@@ -71,6 +72,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type RuntimeApiCommandAck"));
     assert!(bindings.contains("context_handles"));
     assert!(bindings.contains("coding_workflows"));
+    assert!(bindings.contains("worktree_lifecycles"));
     assert!(bindings.contains("apply_patch_preflights"));
     assert!(bindings.contains("apply_patch_executions"));
     assert!(bindings.contains("loopback_dev_token"));

@@ -20,6 +20,7 @@ use tessera_protocol::{
     TaskReattachMode, TaskReattachRecord, TaskStatus, TestEvidenceSummaryRecord, TestPlanRecord,
     TestRunRecord, ThreadId, Timestamp, ToolApproval, ToolCallId, ToolId, ToolPermission,
     ToolPolicyDecision, ToolSideEffect, TraceRecord, TurnId, WorkspaceMutationScope,
+    WorkspaceWorktreeId, WorkspaceWorktreeLifecycleRecord, WorkspaceWorktreeLifecycleStatus,
 };
 
 /// User intent shared by CLI/TUI/GUI surfaces before it reaches runtime code.
@@ -1158,6 +1159,60 @@ impl ClientCodingWorkflow {
     }
 }
 
+/// UI-neutral, read-only projection for isolated worktree lifecycle metadata.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientWorktreeLifecycle {
+    pub worktree_id: WorkspaceWorktreeId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub trace_id: String,
+    pub source_commit: String,
+    pub source_branch_label: Option<String>,
+    pub worktree_root_label: String,
+    pub worktree_base_key: String,
+    pub latest_status: WorkspaceWorktreeLifecycleStatus,
+    pub latest_reason: Option<String>,
+    pub created_for_request_id: Option<tessera_protocol::MutationRequestId>,
+    pub created_for_patch_id: Option<tessera_protocol::PatchProposalId>,
+    pub evidence: Vec<HandoffEvidenceRef>,
+}
+
+impl ClientWorktreeLifecycle {
+    fn from_record(record: &WorkspaceWorktreeLifecycleRecord) -> Self {
+        Self {
+            worktree_id: record.worktree_id.clone(),
+            workflow_id: record.workflow_id.clone(),
+            task_id: record.task_id.clone(),
+            trace_id: record.trace_id.clone(),
+            source_commit: record.source_commit.clone(),
+            source_branch_label: record.source_branch_label.clone(),
+            worktree_root_label: record.worktree_root_label.clone(),
+            worktree_base_key: record.worktree_base_key.clone(),
+            latest_status: record.lifecycle_status,
+            latest_reason: Some(record.reason.clone()),
+            created_for_request_id: record.created_for_request_id.clone(),
+            created_for_patch_id: record.created_for_patch_id.clone(),
+            evidence: record.evidence.clone(),
+        }
+    }
+
+    fn update_from_record(&mut self, record: &WorkspaceWorktreeLifecycleRecord) {
+        self.workflow_id = record.workflow_id.clone();
+        self.task_id = record.task_id.clone();
+        self.trace_id = record.trace_id.clone();
+        self.source_commit = record.source_commit.clone();
+        self.source_branch_label = record.source_branch_label.clone();
+        self.worktree_root_label = record.worktree_root_label.clone();
+        self.worktree_base_key = record.worktree_base_key.clone();
+        self.latest_status = record.lifecycle_status;
+        self.latest_reason = Some(record.reason.clone());
+        self.created_for_request_id = record.created_for_request_id.clone();
+        self.created_for_patch_id = record.created_for_patch_id.clone();
+        self.evidence = record.evidence.clone();
+    }
+}
+
 /// Provider-neutral telemetry projection shared by terminal and future GUI shells.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
@@ -1321,6 +1376,8 @@ pub struct ClientStatus {
     #[serde(default)]
     pub coding_workflow_summary: String,
     #[serde(default)]
+    pub worktree_summary: String,
+    #[serde(default)]
     pub subagent_summary: String,
     #[serde(default)]
     pub subagent_runtime_summary: String,
@@ -1371,6 +1428,7 @@ impl ClientStatus {
             coding_workflow_summary:
                 "coding workflows 0 / patches 0 / tests 0 / reviews 0 / mutation requests 0 / blocked restores 0"
                     .to_string(),
+            worktree_summary: worktree_lifecycle_summary(&[]),
             subagent_summary: "subagents 0 / active 0 / waiting 0 / inactive 0".to_string(),
             subagent_runtime_summary:
                 "subagent runtime decisions 0 / transcripts 0 / forwarding queued 0 / inactive require_reviewer 0 / cancellations 0"
@@ -1514,6 +1572,10 @@ impl ClientStatus {
             "coding workflows {} / patches {patches} / tests {tests} / test evidence summaries {test_evidence_summaries} / reviews {reviews} / mutation requests {mutation_requests} / apply-patch preflights {apply_patch_preflights} / apply-patch executions {apply_patch_executions} / blocked restores {blocked_restores}",
             workflows.len()
         );
+    }
+
+    fn update_worktree_summary(&mut self, lifecycles: &[ClientWorktreeLifecycle]) {
+        self.worktree_summary = worktree_lifecycle_summary(lifecycles);
     }
 
     fn update_subagent_summary(&mut self, sessions: &[ClientSubagentSession]) {
@@ -1755,6 +1817,8 @@ pub struct ClientSnapshot {
     #[serde(default)]
     pub coding_workflows: Vec<ClientCodingWorkflow>,
     #[serde(default)]
+    pub worktree_lifecycles: Vec<ClientWorktreeLifecycle>,
+    #[serde(default)]
     pub subagent_sessions: Vec<ClientSubagentSession>,
     #[serde(default)]
     pub subagent_runtime_decisions: Vec<ClientSubagentRuntimeDecision>,
@@ -1795,6 +1859,7 @@ impl ClientSnapshot {
             handoffs: Vec::new(),
             reviewer_gates: Vec::new(),
             coding_workflows: Vec::new(),
+            worktree_lifecycles: Vec::new(),
             subagent_sessions: Vec::new(),
             subagent_runtime_decisions: Vec::new(),
             subagent_transcripts: Vec::new(),
@@ -2025,6 +2090,9 @@ impl ClientSnapshot {
             }
             RunEvent::RestorePlanRecorded { plan } => {
                 self.record_coding_workflow_restore_plan(plan);
+            }
+            RunEvent::WorkspaceWorktreeLifecycleRecorded { record } => {
+                self.record_worktree_lifecycle(record);
             }
             RunEvent::SubagentSessionPlanned { session }
             | RunEvent::SubagentSessionStarted { session }
@@ -2457,6 +2525,14 @@ impl ClientSnapshot {
                 };
                 self.record_coding_workflow_restore_plan(&plan);
             }
+            "workspace_worktree_lifecycle_recorded" => {
+                let Some(record) =
+                    trace_payload::<WorkspaceWorktreeLifecycleRecord>(record.payload.get("record"))
+                else {
+                    return;
+                };
+                self.record_worktree_lifecycle(&record);
+            }
             "subagent_session_planned"
             | "subagent_session_started"
             | "subagent_session_waiting_for_approval"
@@ -2621,6 +2697,7 @@ impl ClientSnapshot {
         self.handoffs.clear();
         self.reviewer_gates.clear();
         self.coding_workflows.clear();
+        self.worktree_lifecycles.clear();
         self.subagent_sessions.clear();
         self.subagent_runtime_decisions.clear();
         self.subagent_transcripts.clear();
@@ -2639,6 +2716,8 @@ impl ClientSnapshot {
             .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
         self.status
             .update_coding_workflow_summary(&self.coding_workflows);
+        self.status
+            .update_worktree_summary(&self.worktree_lifecycles);
         self.status.update_subagent_summary(&self.subagent_sessions);
         self.refresh_subagent_runtime_summary();
         self.status
@@ -3048,6 +3127,21 @@ impl ClientSnapshot {
         self.refresh_coding_workflow_summary();
     }
 
+    fn record_worktree_lifecycle(&mut self, record: &WorkspaceWorktreeLifecycleRecord) {
+        if let Some(existing) = self
+            .worktree_lifecycles
+            .iter_mut()
+            .find(|existing| existing.worktree_id == record.worktree_id)
+        {
+            existing.update_from_record(record);
+        } else {
+            self.worktree_lifecycles
+                .push(ClientWorktreeLifecycle::from_record(record));
+        }
+        self.status
+            .update_worktree_summary(&self.worktree_lifecycles);
+    }
+
     fn record_subagent_session(&mut self, session: &SubagentSessionDescriptor) {
         let projected = ClientSubagentSession::from_descriptor(session);
         if let Some(existing) = self
@@ -3420,6 +3514,27 @@ fn context_handles_summary(handle_count: usize, summary: &ClientContextBudgetSum
         label.push_str(" over budget");
     }
     label
+}
+
+fn worktree_lifecycle_summary(lifecycles: &[ClientWorktreeLifecycle]) -> String {
+    let retained = lifecycles
+        .iter()
+        .filter(|lifecycle| lifecycle.latest_status == WorkspaceWorktreeLifecycleStatus::Retained)
+        .count();
+    let cleanup_failed = lifecycles
+        .iter()
+        .filter(|lifecycle| {
+            lifecycle.latest_status == WorkspaceWorktreeLifecycleStatus::CleanupFailed
+        })
+        .count();
+    if cleanup_failed > 0 {
+        format!(
+            "worktrees {} / cleanup_failed {cleanup_failed}",
+            lifecycles.len()
+        )
+    } else {
+        format!("worktrees {} / retained {retained}", lifecycles.len())
+    }
 }
 
 fn task_status_label(status: &TaskStatus) -> &'static str {

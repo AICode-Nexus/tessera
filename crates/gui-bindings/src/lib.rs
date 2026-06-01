@@ -13,7 +13,7 @@ use tessera_client::{
     ClientSubagentInactivePolicy, ClientSubagentRuntimeDecision, ClientSubagentRuntimeDecisionKind,
     ClientSubagentSession, ClientSubagentSessionStatus, ClientSubagentTranscriptArtifact,
     ClientSubagentTranscriptArtifactLifecycle, ClientSubagentTranscriptArtifactStatus, ClientTask,
-    ClientTelemetrySummary,
+    ClientTelemetrySummary, ClientWorktreeLifecycle,
 };
 use tessera_gui_bridge::{GuiCommandOutcome, GuiEvent, GuiProfile, GuiRuntimeMode, GuiShellState};
 use tessera_protocol::{
@@ -108,6 +108,7 @@ pub fn generate_bindings() -> String {
     push_decl::<ClientSubagentTranscriptArtifactStatus>(&mut output, &cfg);
     push_decl::<ClientTask>(&mut output, &cfg);
     push_decl::<ClientTelemetrySummary>(&mut output, &cfg);
+    push_decl::<ClientWorktreeLifecycle>(&mut output, &cfg);
     push_decl::<ContextId>(&mut output, &cfg);
     push_decl::<CostEstimate>(&mut output, &cfg);
     push_decl::<EventId>(&mut output, &cfg);
