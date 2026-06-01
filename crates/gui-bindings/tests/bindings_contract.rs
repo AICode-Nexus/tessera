@@ -55,12 +55,18 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type ApplyPatchDryRunOperationKind"));
     assert!(bindings.contains("export type PatchProposal"));
     assert!(bindings.contains("export type PatchApplicationRecord"));
+    assert!(bindings.contains("export type PolicyDecisionId"));
     assert!(bindings.contains("export type TestPlanRecord"));
+    assert!(bindings.contains("export type TestEvidenceSummaryId"));
+    assert!(bindings.contains("export type TestEvidenceSummaryRecord"));
+    assert!(bindings.contains("export type TestEvidenceSummaryStatus"));
     assert!(bindings.contains("export type TestRunRecord"));
     assert!(bindings.contains("export type ReviewBundle"));
     assert!(bindings.contains("export type RestorePlanRecord"));
     assert!(bindings.contains("export type WorkspaceCheckpointLifecycleRecord"));
     assert!(bindings.contains("export type WorkspaceCheckpointLifecycleStatus"));
+    assert!(bindings.contains("export type WorkspaceWorktreeId"));
+    assert!(bindings.contains("export type WorkspaceWorktreeLifecycleStatus"));
     assert!(bindings.contains("export type SnapshotId"));
     assert!(bindings.contains("export type ClientSnapshot"));
     assert!(bindings.contains("export type ContextId"));

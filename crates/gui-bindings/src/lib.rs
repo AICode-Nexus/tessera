@@ -26,22 +26,25 @@ use tessera_protocol::{
     CodingWorkflowId, ContextId, CostEstimate, EventId, EventRange, HandoffEvidenceKind,
     HandoffEvidenceRef, ItemId, MemoryProposalId, MutationMode, MutationRequestId,
     MutationRequestOperationKind, MutationRequestProposal, MutationRequestStatus,
-    PatchApplicationOutcome, PatchApplicationRecord, PatchProposal, PatchProposalId, RestorePlanId,
-    RestorePlanRecord, ReviewBundle, ReviewBundleId, ReviewerDecisionKind, ReviewerGateDecision,
-    ReviewerGateId, ReviewerGateRequest, RuntimeApiAuthMode, RuntimeApiAuthPolicy,
-    RuntimeApiBindConfig, RuntimeApiBindKind, RuntimeApiCommand, RuntimeApiCommandAck,
-    RuntimeApiCommandEnvelope, RuntimeApiCommandStatus, RuntimeApiEventStreamRequest,
-    RuntimeApiQueueOverflow, RuntimeApiQueuePolicy, RuntimeApiServerConfig, RuntimeInstanceId,
-    SnapshotId, SubagentApprovalForwarding, SubagentApprovalForwardingRecord,
-    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
-    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
-    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionCaps,
-    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
-    SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactRecord,
-    SubagentTranscriptArtifactStatus, TaskId, TaskKind, TaskOwnerKind, TaskOwnerStatus,
-    TaskOwnershipId, TaskReattachMode, TaskStatus, TestPlanId, TestPlanRecord, TestRunId,
-    TestRunRecord, TestRunStatus, ThreadId, Timestamp, ToolCallId, ToolId, TraceRecord, TurnId,
-    WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus, WorkspaceMutationScope,
+    PatchApplicationOutcome, PatchApplicationRecord, PatchProposal, PatchProposalId,
+    PolicyDecisionId, RestorePlanId, RestorePlanRecord, ReviewBundle, ReviewBundleId,
+    ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest,
+    RuntimeApiAuthMode, RuntimeApiAuthPolicy, RuntimeApiBindConfig, RuntimeApiBindKind,
+    RuntimeApiCommand, RuntimeApiCommandAck, RuntimeApiCommandEnvelope, RuntimeApiCommandStatus,
+    RuntimeApiEventStreamRequest, RuntimeApiQueueOverflow, RuntimeApiQueuePolicy,
+    RuntimeApiServerConfig, RuntimeInstanceId, SnapshotId, SubagentApprovalForwarding,
+    SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
+    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
+    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
+    SubagentRuntimeDecisionKind, SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId,
+    SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
+    SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskKind,
+    TaskOwnerKind, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus,
+    TestEvidenceSummaryId, TestEvidenceSummaryRecord, TestEvidenceSummaryStatus, TestPlanId,
+    TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus, ThreadId, Timestamp, ToolCallId,
+    ToolId, TraceRecord, TurnId, WorkspaceCheckpointLifecycleRecord,
+    WorkspaceCheckpointLifecycleStatus, WorkspaceMutationScope, WorkspaceWorktreeId,
+    WorkspaceWorktreeLifecycleStatus,
 };
 use ts_rs::{Config, TS};
 
@@ -141,6 +144,7 @@ pub fn generate_bindings() -> String {
     push_decl::<PatchApplicationRecord>(&mut output, &cfg);
     push_decl::<PatchProposal>(&mut output, &cfg);
     push_decl::<PatchProposalId>(&mut output, &cfg);
+    push_decl::<PolicyDecisionId>(&mut output, &cfg);
     push_decl::<RestorePlanId>(&mut output, &cfg);
     push_decl::<RestorePlanRecord>(&mut output, &cfg);
     push_decl::<ReviewBundle>(&mut output, &cfg);
@@ -189,6 +193,9 @@ pub fn generate_bindings() -> String {
     push_decl::<TaskOwnershipId>(&mut output, &cfg);
     push_decl::<TaskReattachMode>(&mut output, &cfg);
     push_decl::<TaskStatus>(&mut output, &cfg);
+    push_decl::<TestEvidenceSummaryId>(&mut output, &cfg);
+    push_decl::<TestEvidenceSummaryRecord>(&mut output, &cfg);
+    push_decl::<TestEvidenceSummaryStatus>(&mut output, &cfg);
     push_decl::<TestPlanId>(&mut output, &cfg);
     push_decl::<TestPlanRecord>(&mut output, &cfg);
     push_decl::<TestRunId>(&mut output, &cfg);
@@ -203,6 +210,8 @@ pub fn generate_bindings() -> String {
     push_decl::<TraceRecord>(&mut output, &cfg);
     push_decl::<TurnId>(&mut output, &cfg);
     push_decl::<WorkspaceMutationScope>(&mut output, &cfg);
+    push_decl::<WorkspaceWorktreeId>(&mut output, &cfg);
+    push_decl::<WorkspaceWorktreeLifecycleStatus>(&mut output, &cfg);
 
     output.truncate(output.trim_end_matches('\n').len());
     output.push('\n');

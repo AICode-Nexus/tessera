@@ -163,6 +163,8 @@ export type PatchProposal = { patch_id: PatchProposalId, workflow_id: CodingWork
 
 export type PatchProposalId = string;
 
+export type PolicyDecisionId = string;
+
 export type RestorePlanId = string;
 
 export type RestorePlanRecord = { restore_plan_id: RestorePlanId, workflow_id: CodingWorkflowId, task_id: TaskId, checkpoint_id: SnapshotId, target_paths: Array<string>, reason: string, execution_blocked: boolean, };
@@ -259,6 +261,12 @@ export type TaskReattachMode = "observe_existing_owner" | "resume_from_checkpoin
 
 export type TaskStatus = "pending" | "running" | "waiting_for_approval" | "paused" | "completed" | "failed" | "cancelled";
 
+export type TestEvidenceSummaryId = string;
+
+export type TestEvidenceSummaryRecord = { summary_id: TestEvidenceSummaryId, workflow_id: CodingWorkflowId, task_id: TaskId, test_plan_ids: Array<TestPlanId>, test_run_ids: Array<TestRunId>, status: TestEvidenceSummaryStatus, total_runs: number, passed_runs: number, failed_runs: number, cancelled_runs: number, error_runs: number, required_artifact_kinds: Array<ArtifactKind>, artifact_refs: Array<ArtifactId>, diagnostics: Array<HandoffEvidenceRef>, redaction_status: CodingWorkflowEvidenceRedactionStatus, summary: string, execution_blocked: boolean, };
+
+export type TestEvidenceSummaryStatus = "passed" | "failed" | "cancelled" | "error" | "incomplete";
+
 export type TestPlanId = string;
 
 export type TestPlanRecord = { test_plan_id: TestPlanId, workflow_id: CodingWorkflowId, task_id: TaskId, command_labels: Array<string>, affected_paths: Array<string>, required_artifact_kinds: Array<ArtifactKind>, };
@@ -285,3 +293,7 @@ export type TraceRecord = { schema_version: number, trace_id: string, seq: numbe
 export type TurnId = string;
 
 export type WorkspaceMutationScope = { workflow_id: CodingWorkflowId, task_id: TaskId, root_label: string, allowed_paths: Array<string>, denied_paths: Array<string>, mutation_mode: MutationMode, worktree_required: boolean, reason: string | null, };
+
+export type WorkspaceWorktreeId = string;
+
+export type WorkspaceWorktreeLifecycleStatus = "planned" | "created" | "creation_failed" | "retained" | "cleanup_started" | "cleanup_completed" | "cleanup_failed";
