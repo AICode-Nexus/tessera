@@ -1,20 +1,22 @@
 //! UI-neutral client model for Tessera shells.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tessera_protocol::{
     AgentHandoffId, AgentHandoffStatus, AgentHandoffSummary, ApplyPatchExecutionRecord,
-    ApplyPatchPreflightRecord, ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind,
-    ClientInstanceId, CodingWorkflowId, ContextId, ContextPlacement, ContextReference,
-    ContextSourceKind, EventFrame, EventRange, HandoffEvidenceRef, ItemId, MemoryProposal,
-    MemoryProposalId, MemoryProposalStatus, MutationRequestProposal, PatchApplicationRecord,
-    PatchProposal, RestorePlanRecord, ReviewBundle, ReviewerDecisionKind, ReviewerGateDecision,
-    ReviewerGateId, ReviewerGateRequest, RunEvent, RuntimeInstanceId,
-    SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
-    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
-    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
-    SubagentRuntimeDecisionKind, SubagentSessionDescriptor, SubagentSessionId,
-    SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
+    ApplyPatchExecutionStatus, ApplyPatchPreflightRecord, ApplyPatchPreflightStatus, ApprovalId,
+    ApprovalStatus, ArtifactId, ArtifactKind, ClientInstanceId, CodingWorkflowId, ContextId,
+    ContextPlacement, ContextReference, ContextSourceKind, EventFrame, EventRange,
+    HandoffEvidenceRef, ItemId, MemoryProposal, MemoryProposalId, MemoryProposalStatus,
+    MutationMode, MutationRequestProposal, PatchApplicationRecord, PatchProposal,
+    RestorePlanRecord, ReviewBundle, ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId,
+    ReviewerGateRequest, RunEvent, RuntimeInstanceId, SubagentApprovalForwardingRecord,
+    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
+    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
+    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionDescriptor,
+    SubagentSessionId, SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
     SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskKind,
     TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
     TaskReattachMode, TaskReattachRecord, TaskStatus, TestEvidenceSummaryRecord, TestPlanRecord,
@@ -975,6 +977,36 @@ impl ClientSubagentCancellation {
     }
 }
 
+/// Safe, UI-neutral inspection projection for read-only workflow review metadata.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
+pub struct ClientWorkflowInspection {
+    pub workflow_ref: String,
+    pub task_ref: String,
+    pub active: bool,
+    pub mutation_mode: Option<String>,
+    pub worktree_required: bool,
+    pub patch_count: usize,
+    pub diff_artifact_ref_count: usize,
+    pub patches_requiring_review_count: usize,
+    pub review_bundle_count: usize,
+    pub review_evidence_ref_count: usize,
+    pub reviewer_gate_count: usize,
+    pub accepted_reviewer_gate_count: usize,
+    pub rejected_reviewer_gate_count: usize,
+    pub revision_requested_reviewer_gate_count: usize,
+    pub pending_reviewer_gate_count: usize,
+    pub approval_count: usize,
+    pub pending_approval_count: usize,
+    pub resolved_approval_count: usize,
+    pub apply_patch_preflight_count: usize,
+    pub executor_ready_preflight_count: usize,
+    pub executor_blocked_preflight_count: usize,
+    pub apply_patch_execution_count: usize,
+    pub successful_apply_patch_execution_count: usize,
+    pub failed_apply_patch_execution_count: usize,
+}
+
 /// UI-neutral, read-only projection for coding-agent workflow metadata.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bindings", derive(ts_rs::TS))]
@@ -1376,6 +1408,8 @@ pub struct ClientStatus {
     #[serde(default)]
     pub coding_workflow_summary: String,
     #[serde(default)]
+    pub workflow_inspection_summary: String,
+    #[serde(default)]
     pub worktree_summary: String,
     #[serde(default)]
     pub subagent_summary: String,
@@ -1427,6 +1461,9 @@ impl ClientStatus {
             handoff_summary: "handoffs 0 / reviews 0 pending".to_string(),
             coding_workflow_summary:
                 "coding workflows 0 / patches 0 / tests 0 / reviews 0 / mutation requests 0 / blocked restores 0"
+                    .to_string(),
+            workflow_inspection_summary:
+                "inspection workflows 0 / review gates 0 accepted 0 rejected 0 revision_requested 0 pending 0 / approvals 0 pending / diff refs 0"
                     .to_string(),
             worktree_summary: worktree_lifecycle_summary(&[]),
             subagent_summary: "subagents 0 / active 0 / waiting 0 / inactive 0".to_string(),
@@ -1571,6 +1608,46 @@ impl ClientStatus {
         self.coding_workflow_summary = format!(
             "coding workflows {} / patches {patches} / tests {tests} / test evidence summaries {test_evidence_summaries} / reviews {reviews} / mutation requests {mutation_requests} / apply-patch preflights {apply_patch_preflights} / apply-patch executions {apply_patch_executions} / blocked restores {blocked_restores}",
             workflows.len()
+        );
+    }
+
+    fn update_workflow_inspection_summary(
+        &mut self,
+        inspections: &[ClientWorkflowInspection],
+        approvals: &[ClientApproval],
+    ) {
+        let accepted = inspections
+            .iter()
+            .map(|inspection| inspection.accepted_reviewer_gate_count)
+            .sum::<usize>();
+        let rejected = inspections
+            .iter()
+            .map(|inspection| inspection.rejected_reviewer_gate_count)
+            .sum::<usize>();
+        let revision_requested = inspections
+            .iter()
+            .map(|inspection| inspection.revision_requested_reviewer_gate_count)
+            .sum::<usize>();
+        let pending_gates = inspections
+            .iter()
+            .map(|inspection| inspection.pending_reviewer_gate_count)
+            .sum::<usize>();
+        let reviewer_gates = inspections
+            .iter()
+            .map(|inspection| inspection.reviewer_gate_count)
+            .sum::<usize>();
+        let diff_refs = inspections
+            .iter()
+            .map(|inspection| inspection.diff_artifact_ref_count)
+            .sum::<usize>();
+        let pending_approvals = approvals
+            .iter()
+            .filter(|approval| approval.status == ClientApprovalStatus::Pending)
+            .count();
+
+        self.workflow_inspection_summary = format!(
+            "inspection workflows {} / review gates {reviewer_gates} accepted {accepted} rejected {rejected} revision_requested {revision_requested} pending {pending_gates} / approvals {pending_approvals} pending / diff refs {diff_refs}",
+            inspections.len()
         );
     }
 
@@ -1817,6 +1894,8 @@ pub struct ClientSnapshot {
     #[serde(default)]
     pub coding_workflows: Vec<ClientCodingWorkflow>,
     #[serde(default)]
+    pub workflow_inspections: Vec<ClientWorkflowInspection>,
+    #[serde(default)]
     pub worktree_lifecycles: Vec<ClientWorktreeLifecycle>,
     #[serde(default)]
     pub subagent_sessions: Vec<ClientSubagentSession>,
@@ -1859,6 +1938,7 @@ impl ClientSnapshot {
             handoffs: Vec::new(),
             reviewer_gates: Vec::new(),
             coding_workflows: Vec::new(),
+            workflow_inspections: Vec::new(),
             worktree_lifecycles: Vec::new(),
             subagent_sessions: Vec::new(),
             subagent_runtime_decisions: Vec::new(),
@@ -2697,6 +2777,7 @@ impl ClientSnapshot {
         self.handoffs.clear();
         self.reviewer_gates.clear();
         self.coding_workflows.clear();
+        self.workflow_inspections.clear();
         self.worktree_lifecycles.clear();
         self.subagent_sessions.clear();
         self.subagent_runtime_decisions.clear();
@@ -2716,6 +2797,8 @@ impl ClientSnapshot {
             .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
         self.status
             .update_coding_workflow_summary(&self.coding_workflows);
+        self.status
+            .update_workflow_inspection_summary(&self.workflow_inspections, &self.approvals);
         self.status
             .update_worktree_summary(&self.worktree_lifecycles);
         self.status.update_subagent_summary(&self.subagent_sessions);
@@ -2822,6 +2905,7 @@ impl ClientSnapshot {
             self.approvals.push(approval);
         }
         self.status.update_approval_summary(&self.approvals);
+        self.refresh_workflow_inspections();
     }
 
     fn record_pending_approval_parts(&mut self, parts: PendingApprovalParts) {
@@ -2844,6 +2928,7 @@ impl ClientSnapshot {
             self.approvals.push(approval);
         }
         self.status.update_approval_summary(&self.approvals);
+        self.refresh_workflow_inspections();
     }
 
     fn record_resolved_approval(&mut self, approval: &ToolApproval) {
@@ -2857,6 +2942,7 @@ impl ClientSnapshot {
             self.approvals.push(ClientApproval::from_approval(approval));
         }
         self.status.update_approval_summary(&self.approvals);
+        self.refresh_workflow_inspections();
     }
 
     fn record_resolved_approval_parts(&mut self, parts: ResolvedApprovalParts) {
@@ -2881,6 +2967,7 @@ impl ClientSnapshot {
             });
         }
         self.status.update_approval_summary(&self.approvals);
+        self.refresh_workflow_inspections();
     }
 
     fn record_memory_proposal(&mut self, proposal: &MemoryProposal) {
@@ -2946,6 +3033,7 @@ impl ClientSnapshot {
         }
         self.status
             .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
+        self.refresh_workflow_inspections();
     }
 
     fn record_reviewer_gate_decision(&mut self, decision: &ReviewerGateDecision) {
@@ -2961,6 +3049,7 @@ impl ClientSnapshot {
         }
         self.status
             .update_handoff_summary(&self.handoffs, &self.reviewer_gates);
+        self.refresh_workflow_inspections();
     }
 
     fn record_coding_workflow_started(
@@ -3221,6 +3310,7 @@ impl ClientSnapshot {
         self.subagent_approval_forwarding
             .push(ClientSubagentApprovalForwarding::from_record(forwarding));
         self.refresh_subagent_runtime_summary();
+        self.refresh_workflow_inspections();
     }
 
     fn record_subagent_inactive_policy(&mut self, inactive: &SubagentInactivePolicyRecord) {
@@ -3238,6 +3328,18 @@ impl ClientSnapshot {
     fn refresh_coding_workflow_summary(&mut self) {
         self.status
             .update_coding_workflow_summary(&self.coding_workflows);
+        self.refresh_workflow_inspections();
+    }
+
+    fn refresh_workflow_inspections(&mut self) {
+        self.workflow_inspections = project_workflow_inspections(
+            &self.coding_workflows,
+            &self.reviewer_gates,
+            &self.approvals,
+            &self.subagent_approval_forwarding,
+        );
+        self.status
+            .update_workflow_inspection_summary(&self.workflow_inspections, &self.approvals);
     }
 
     fn refresh_subagent_runtime_summary(&mut self) {
@@ -3310,6 +3412,192 @@ impl ClientSnapshot {
             artifact.record_reference(&event_kind);
         }
         self.status.update_artifact_summary(&self.artifacts);
+    }
+}
+
+fn project_workflow_inspections(
+    workflows: &[ClientCodingWorkflow],
+    reviewer_gates: &[ClientReviewerGate],
+    approvals: &[ClientApproval],
+    approval_forwarding: &[ClientSubagentApprovalForwarding],
+) -> Vec<ClientWorkflowInspection> {
+    let mut sorted_workflows = workflows.iter().collect::<Vec<_>>();
+    sorted_workflows.sort_by(|left, right| {
+        left.workflow_id
+            .cmp(&right.workflow_id)
+            .then_with(|| left.task_id.cmp(&right.task_id))
+    });
+
+    let mut sorted_task_ids = workflows
+        .iter()
+        .map(|workflow| workflow.task_id.clone())
+        .collect::<Vec<_>>();
+    sorted_task_ids.sort();
+    sorted_task_ids.dedup();
+    let task_refs = sorted_task_ids
+        .into_iter()
+        .enumerate()
+        .map(|(index, task_id)| (task_id, format!("task:{}", index + 1)))
+        .collect::<BTreeMap<_, _>>();
+
+    let reviewer_gate_by_id = reviewer_gates
+        .iter()
+        .map(|gate| (gate.gate_id.clone(), gate))
+        .collect::<BTreeMap<_, _>>();
+    let approvals_by_id = approvals
+        .iter()
+        .map(|approval| (approval.approval_id.clone(), approval))
+        .collect::<BTreeMap<_, _>>();
+
+    sorted_workflows
+        .into_iter()
+        .enumerate()
+        .map(|(index, workflow)| {
+            let gate_ids = workflow_gate_ids(workflow);
+            let matched_gates = gate_ids
+                .iter()
+                .filter_map(|gate_id| reviewer_gate_by_id.get(gate_id).copied())
+                .collect::<Vec<_>>();
+            let approval_ids = approval_forwarding
+                .iter()
+                .filter(|forwarding| {
+                    forwarding
+                        .reviewer_gate_id
+                        .as_ref()
+                        .map(|gate_id| gate_ids.contains(gate_id))
+                        .unwrap_or(false)
+                })
+                .map(|forwarding| forwarding.approval_id.clone())
+                .collect::<BTreeSet<_>>();
+            let matched_approvals = approval_ids
+                .iter()
+                .filter_map(|approval_id| approvals_by_id.get(approval_id).copied())
+                .collect::<Vec<_>>();
+
+            ClientWorkflowInspection {
+                workflow_ref: format!("workflow:{}", index + 1),
+                task_ref: task_refs
+                    .get(&workflow.task_id)
+                    .cloned()
+                    .unwrap_or_else(|| format!("task:{}", index + 1)),
+                active: workflow.active,
+                mutation_mode: workflow
+                    .workspace_scope
+                    .as_ref()
+                    .map(|scope| mutation_mode_label(scope.mutation_mode).to_string()),
+                worktree_required: workflow
+                    .workspace_scope
+                    .as_ref()
+                    .map(|scope| scope.worktree_required)
+                    .unwrap_or_else(|| {
+                        workflow
+                            .mutation_requests
+                            .iter()
+                            .any(|request| request.worktree_required)
+                    }),
+                patch_count: workflow.patch_proposals.len(),
+                diff_artifact_ref_count: workflow
+                    .patch_proposals
+                    .iter()
+                    .map(|proposal| proposal.diff_artifacts.len())
+                    .sum(),
+                patches_requiring_review_count: workflow
+                    .patch_proposals
+                    .iter()
+                    .filter(|proposal| proposal.reviewer_gate_id.is_some())
+                    .count(),
+                review_bundle_count: workflow.review_bundles.len(),
+                review_evidence_ref_count: workflow
+                    .review_bundles
+                    .iter()
+                    .map(|bundle| bundle.evidence.len())
+                    .sum(),
+                reviewer_gate_count: matched_gates.len(),
+                accepted_reviewer_gate_count: matched_gates
+                    .iter()
+                    .filter(|gate| gate.status == ClientReviewerGateStatus::Accepted)
+                    .count(),
+                rejected_reviewer_gate_count: matched_gates
+                    .iter()
+                    .filter(|gate| gate.status == ClientReviewerGateStatus::Rejected)
+                    .count(),
+                revision_requested_reviewer_gate_count: matched_gates
+                    .iter()
+                    .filter(|gate| gate.status == ClientReviewerGateStatus::RevisionRequested)
+                    .count(),
+                pending_reviewer_gate_count: matched_gates
+                    .iter()
+                    .filter(|gate| gate.status == ClientReviewerGateStatus::Pending)
+                    .count(),
+                approval_count: matched_approvals.len(),
+                pending_approval_count: matched_approvals
+                    .iter()
+                    .filter(|approval| approval.status == ClientApprovalStatus::Pending)
+                    .count(),
+                resolved_approval_count: matched_approvals
+                    .iter()
+                    .filter(|approval| approval.status != ClientApprovalStatus::Pending)
+                    .count(),
+                apply_patch_preflight_count: workflow.apply_patch_preflights.len(),
+                executor_ready_preflight_count: workflow
+                    .apply_patch_preflights
+                    .iter()
+                    .filter(|preflight| {
+                        preflight.status == ApplyPatchPreflightStatus::ExecutorReady
+                    })
+                    .count(),
+                executor_blocked_preflight_count: workflow
+                    .apply_patch_preflights
+                    .iter()
+                    .filter(|preflight| preflight.executor_blocked)
+                    .count(),
+                apply_patch_execution_count: workflow.apply_patch_executions.len(),
+                successful_apply_patch_execution_count: workflow
+                    .apply_patch_executions
+                    .iter()
+                    .filter(|execution| execution.status == ApplyPatchExecutionStatus::Applied)
+                    .count(),
+                failed_apply_patch_execution_count: workflow
+                    .apply_patch_executions
+                    .iter()
+                    .filter(|execution| {
+                        matches!(
+                            execution.status,
+                            ApplyPatchExecutionStatus::Conflict
+                                | ApplyPatchExecutionStatus::Rejected
+                                | ApplyPatchExecutionStatus::Failed
+                        )
+                    })
+                    .count(),
+            }
+        })
+        .collect()
+}
+
+fn workflow_gate_ids(workflow: &ClientCodingWorkflow) -> BTreeSet<ReviewerGateId> {
+    let mut gate_ids = BTreeSet::new();
+    for gate_id in workflow
+        .patch_proposals
+        .iter()
+        .filter_map(|proposal| proposal.reviewer_gate_id.clone())
+    {
+        gate_ids.insert(gate_id);
+    }
+    for gate_id in workflow
+        .review_bundles
+        .iter()
+        .map(|bundle| bundle.reviewer_gate_id.clone())
+    {
+        gate_ids.insert(gate_id);
+    }
+    gate_ids
+}
+
+fn mutation_mode_label(mode: MutationMode) -> &'static str {
+    match mode {
+        MutationMode::WorktreeFirst => "worktree_first",
+        MutationMode::ExplicitLocal => "explicit_local",
+        MutationMode::ReadOnlyProposal => "read_only_proposal",
     }
 }
 

@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf};
 use tessera_gui_bindings::{generate_bindings, write_bindings};
 
 #[test]
-fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
+fn bindings_contract_generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     let bindings = generate_bindings();
 
     assert!(bindings.contains("export type ClientIntent"));
@@ -22,6 +22,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type ClientSubagentTranscriptArtifact"));
     assert!(bindings.contains("export type ClientSubagentTranscriptArtifactLifecycle"));
     assert!(bindings.contains("export type ClientSubagentTranscriptArtifactStatus"));
+    assert!(bindings.contains("export type ClientWorkflowInspection"));
     assert!(bindings.contains("export type ClientSubagentApprovalForwarding"));
     assert!(bindings.contains("export type ClientSubagentInactivePolicy"));
     assert!(bindings.contains("export type ClientSubagentCancellation"));
@@ -78,6 +79,9 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type RuntimeApiCommandAck"));
     assert!(bindings.contains("context_handles"));
     assert!(bindings.contains("coding_workflows"));
+    assert!(bindings.contains("workflow_inspections"));
+    assert!(bindings.contains("workflow_inspection_summary"));
+    assert!(bindings.contains("revision_requested_reviewer_gate_count"));
     assert!(bindings.contains("worktree_lifecycles"));
     assert!(bindings.contains("apply_patch_preflights"));
     assert!(bindings.contains("apply_patch_executions"));
