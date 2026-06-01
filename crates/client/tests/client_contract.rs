@@ -879,15 +879,65 @@ fn workflow_inspection_patch_proposal() -> PatchProposal {
         task_id: workflow_inspection_task_id(),
         summary: "/Users/admin/work/tessera/.env::sk-secret-patch-summary".to_string(),
         touched_paths: vec!["/Users/admin/work/tessera/.env::sk-secret-touched-path".to_string()],
-        diff_artifacts: vec![workflow_inspection_evidence(
-            "/Users/admin/work/tessera/.env::sk-secret-diff-label",
-            "/Users/admin/work/tessera/.env::sk-secret-diff-summary",
-        )],
+        diff_artifacts: vec![
+            workflow_inspection_evidence(
+                "/Users/admin/work/tessera/.env::sk-secret-diff-label",
+                "/Users/admin/work/tessera/.env::sk-secret-diff-summary",
+            ),
+            HandoffEvidenceRef {
+                kind: HandoffEvidenceKind::TraceRange,
+                artifact_id: None,
+                trace_id: Some(
+                    "/Users/admin/work/tessera/.env::sk-secret-trace-only-diff-trace".to_string(),
+                ),
+                event_range: Some(EventRange {
+                    start_seq: 21,
+                    end_seq: 34,
+                }),
+                label: Some(
+                    "/Users/admin/work/tessera/.env::sk-secret-trace-only-diff-label".to_string(),
+                ),
+                summary: Some(
+                    "/Users/admin/work/tessera/.env::sk-secret-trace-only-diff-summary".to_string(),
+                ),
+            },
+        ],
         risk_labels: vec!["/Users/admin/work/tessera/.env::sk-secret-risk-label".to_string()],
         required_checkpoint_id: Some(SnapshotId::from(
             "/Users/admin/work/tessera/.env::sk-secret-checkpoint-id",
         )),
         reviewer_gate_id: Some(workflow_inspection_gate_id("accepted")),
+    }
+}
+
+fn workflow_inspection_mutation_request() -> MutationRequestProposal {
+    MutationRequestProposal {
+        request_id: MutationRequestId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-mutation-request-id",
+        ),
+        workflow_id: workflow_inspection_workflow_id(),
+        task_id: workflow_inspection_task_id(),
+        operation: MutationRequestOperationKind::PatchApplication,
+        status: MutationRequestStatus::ReviewerPending,
+        summary: "/Users/admin/work/tessera/.env::sk-secret-mutation-summary".to_string(),
+        requested_paths: vec![
+            "/Users/admin/work/tessera/.env::sk-secret-requested-path".to_string()
+        ],
+        required_checkpoint_id: Some(SnapshotId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-checkpoint-id",
+        )),
+        reviewer_gate_id: Some(workflow_inspection_gate_id("accepted")),
+        policy_decision_id: Some(PolicyDecisionId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-policy-id",
+        )),
+        sandbox_profile_label: Some(
+            "/Users/admin/work/tessera/.env::sk-secret-sandbox-label".to_string(),
+        ),
+        worktree_required: true,
+        evidence: vec![workflow_inspection_evidence(
+            "/Users/admin/work/tessera/.env::sk-secret-mutation-evidence-label",
+            "/Users/admin/work/tessera/.env::sk-secret-mutation-evidence-summary",
+        )],
     }
 }
 
@@ -1178,6 +1228,9 @@ fn workflow_inspection_events() -> Vec<RunEvent> {
         RunEvent::PatchProposalRecorded {
             proposal: workflow_inspection_patch_proposal(),
         },
+        RunEvent::MutationRequestProposalRecorded {
+            proposal: workflow_inspection_mutation_request(),
+        },
         RunEvent::ReviewBundleRecorded {
             bundle: workflow_inspection_review_bundle("accepted"),
         },
@@ -1279,9 +1332,13 @@ fn assert_workflow_inspection_projection(snapshot: &ClientSnapshot) {
         "denied",
         "objective",
         "patch-summary",
+        "mutation-summary",
+        "requested-path",
         "review-summary",
         "diff-label",
         "diff-summary",
+        "trace-only-diff-label",
+        "trace-only-diff-summary",
         "review-evidence-label",
         "review-evidence-summary",
         "reviewer-comment",

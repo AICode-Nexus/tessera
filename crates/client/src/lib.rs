@@ -3499,8 +3499,9 @@ fn project_workflow_inspections(
                 diff_artifact_ref_count: workflow
                     .patch_proposals
                     .iter()
-                    .map(|proposal| proposal.diff_artifacts.len())
-                    .sum(),
+                    .flat_map(|proposal| proposal.diff_artifacts.iter())
+                    .filter(|evidence| evidence.artifact_id.is_some())
+                    .count(),
                 patches_requiring_review_count: workflow
                     .patch_proposals
                     .iter()
