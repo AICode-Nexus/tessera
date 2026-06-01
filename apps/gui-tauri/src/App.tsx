@@ -267,7 +267,7 @@ function App() {
               <h2>Review Inspection</h2>
               <span>
                 {snapshot?.status.workflow_inspection_summary ??
-                  'inspection workflows 0 / review gates 0 accepted / approvals 0 pending / diff refs 0'}
+                  'inspection workflows 0 / review gates 0 accepted 0 rejected 0 revision_requested 0 pending 0 / approvals 0 pending / diff refs 0'}
               </span>
             </div>
             {workflowInspectionRows.length === 0 ? (

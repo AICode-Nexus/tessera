@@ -43,7 +43,7 @@ describe('GUI shell smoke path', () => {
     const panel = screen.getByLabelText('Review Inspection')
     expect(within(panel).getByRole('heading', { name: 'Review Inspection' })).toBeInTheDocument()
     expect(panel).toHaveTextContent(
-      'inspection workflows 1 / review gates 4 accepted / approvals 1 pending / diff refs 3',
+      'inspection workflows 1 / review gates 6 accepted 4 rejected 1 revision_requested 0 pending 1 / approvals 1 pending / diff refs 3',
     )
     expect(panel).toHaveTextContent('workflow:1')
     expect(panel).toHaveTextContent('task:1')

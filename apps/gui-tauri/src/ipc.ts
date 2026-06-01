@@ -113,7 +113,7 @@ function submitFallbackIntent(intent: ClientIntent): GuiCommandOutcome {
           context_handles_summary: 'context 0 handles / 0/0 tokens',
           coding_workflow_summary: 'workflows 0',
           workflow_inspection_summary:
-            'inspection workflows 0 / review gates 0 accepted / approvals 0 pending / diff refs 0',
+            'inspection workflows 0 / review gates 0 accepted 0 rejected 0 revision_requested 0 pending 0 / approvals 0 pending / diff refs 0',
           worktree_summary: 'worktrees 0',
         },
         projection: { ...fallbackSnapshot.projection, messages: [] },
@@ -241,7 +241,7 @@ function createFallbackSnapshot(): ClientSnapshot {
       handoff_summary: 'handoffs 0',
       coding_workflow_summary: 'workflows 1 active',
       workflow_inspection_summary:
-        'inspection workflows 1 / review gates 4 accepted / approvals 1 pending / diff refs 3',
+        'inspection workflows 1 / review gates 6 accepted 4 rejected 1 revision_requested 0 pending 1 / approvals 1 pending / diff refs 3',
       worktree_summary: 'worktrees 1 retained',
       subagent_summary: 'subagents 0',
       subagent_runtime_summary: 'subagent runtime 0',

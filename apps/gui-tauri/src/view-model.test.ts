@@ -22,7 +22,7 @@ const snapshot: ClientSnapshot = {
     handoff_summary: 'handoffs 0',
     coding_workflow_summary: 'workflows 0',
     workflow_inspection_summary:
-      'inspection workflows 0 / review gates 0 accepted / approvals 0 pending / diff refs 0',
+      'inspection workflows 0 / review gates 0 accepted 0 rejected 0 revision_requested 0 pending 0 / approvals 0 pending / diff refs 0',
     worktree_summary: 'worktrees 0',
     subagent_summary: 'subagents 0',
     subagent_runtime_summary: 'subagent runtime 0',
@@ -301,7 +301,7 @@ describe('GUI shell view model', () => {
       status: {
         ...snapshot.status,
         workflow_inspection_summary:
-          'inspection workflows 1 / review gates 2 accepted / approvals 1 pending / diff refs 3',
+          'inspection workflows 1 / review gates 6 accepted 2 rejected 1 revision_requested 1 pending 2 / approvals 1 pending / diff refs 3',
       },
       workflow_inspections: [
         {
