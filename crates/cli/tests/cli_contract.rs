@@ -26,6 +26,7 @@ use tessera_protocol::{
     SnapshotId, TaskId, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
     TaskStatus, Timestamp, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect,
     WorkspaceCheckpointLifecycleRecord, WorkspaceCheckpointLifecycleStatus, WorkspaceMutationScope,
+    WorkspaceWorktreeId, WorkspaceWorktreeLifecycleRecord, WorkspaceWorktreeLifecycleStatus,
 };
 use tessera_storage::{ArtifactBodyWrite, TraceStore};
 
@@ -277,6 +278,21 @@ fn worktree_cleanup_args(
     ]
 }
 
+fn worktree_list_args(data_dir: &std::path::Path, json: bool) -> Vec<String> {
+    let mut args = vec![
+        "worktree".to_string(),
+        "list".to_string(),
+        "--data-dir".to_string(),
+        data_dir.display().to_string(),
+        "--trace".to_string(),
+        "trace_cli_trace_apply_patch".to_string(),
+    ];
+    if json {
+        args.push("--json".to_string());
+    }
+    args
+}
+
 fn trace_workflow_id() -> CodingWorkflowId {
     CodingWorkflowId::from_static("coding_workflow_cli_trace_apply_patch")
 }
@@ -309,6 +325,10 @@ fn trace_patch_artifact_id() -> ArtifactId {
     ArtifactId::from_static("artifact_cli_trace_apply_patch")
 }
 
+fn trace_worktree_id() -> WorkspaceWorktreeId {
+    WorkspaceWorktreeId::from_static("workspace_worktree_cli_trace_apply_patch")
+}
+
 fn trace_patch_evidence() -> HandoffEvidenceRef {
     HandoffEvidenceRef {
         kind: HandoffEvidenceKind::DiffArtifact,
@@ -320,6 +340,72 @@ fn trace_patch_evidence() -> HandoffEvidenceRef {
         }),
         label: Some("reviewed patch artifact".to_string()),
         summary: Some("patch body stored out of trace".to_string()),
+    }
+}
+
+fn trace_worktree_lifecycle_record(
+    status: WorkspaceWorktreeLifecycleStatus,
+    reason: &str,
+) -> WorkspaceWorktreeLifecycleRecord {
+    WorkspaceWorktreeLifecycleRecord {
+        worktree_id: trace_worktree_id(),
+        workflow_id: trace_workflow_id(),
+        task_id: trace_task_id(),
+        trace_id: "trace_cli_trace_apply_patch".to_string(),
+        source_commit: "17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1".to_string(),
+        source_branch_label: Some("main".to_string()),
+        worktree_root_label: "worktree:cli-trace-apply-patch".to_string(),
+        worktree_base_key: "data_dir:worktrees/cli-source".to_string(),
+        lifecycle_status: status,
+        reason: reason.to_string(),
+        created_for_request_id: Some(trace_request_id()),
+        created_for_patch_id: Some(trace_patch_id()),
+        evidence: vec![HandoffEvidenceRef {
+            kind: HandoffEvidenceKind::TraceRange,
+            artifact_id: None,
+            trace_id: Some("trace_cli_trace_apply_patch".to_string()),
+            event_range: Some(EventRange {
+                start_seq: 1,
+                end_seq: 3,
+            }),
+            label: Some("trace worktree lifecycle evidence".to_string()),
+            summary: Some("metadata-only generated worktree refs".to_string()),
+        }],
+        metadata: None,
+    }
+}
+
+fn write_trace_worktree_lifecycle_bundle(
+    data_dir: &Path,
+    statuses: &[WorkspaceWorktreeLifecycleStatus],
+) {
+    let mut store = TraceStore::open(data_dir).unwrap();
+    let trace_id = "trace_cli_trace_apply_patch";
+    for (offset, status) in statuses.iter().enumerate() {
+        store
+            .append(&EventFrame::new(
+                trace_id,
+                100 + offset as u64,
+                RunEvent::WorkspaceWorktreeLifecycleRecorded {
+                    record: trace_worktree_lifecycle_record(
+                        *status,
+                        worktree_lifecycle_test_reason(*status),
+                    ),
+                },
+            ))
+            .unwrap();
+    }
+}
+
+fn worktree_lifecycle_test_reason(status: WorkspaceWorktreeLifecycleStatus) -> &'static str {
+    match status {
+        WorkspaceWorktreeLifecycleStatus::Planned => "isolated worktree planned",
+        WorkspaceWorktreeLifecycleStatus::Created => "isolated worktree created",
+        WorkspaceWorktreeLifecycleStatus::CreationFailed => "isolated worktree creation failed",
+        WorkspaceWorktreeLifecycleStatus::Retained => "isolated worktree retained for review",
+        WorkspaceWorktreeLifecycleStatus::CleanupStarted => "trace-confirmed cleanup started",
+        WorkspaceWorktreeLifecycleStatus::CleanupCompleted => "trace-confirmed cleanup completed",
+        WorkspaceWorktreeLifecycleStatus::CleanupFailed => "trace-confirmed cleanup failed",
     }
 }
 
@@ -1077,6 +1163,86 @@ fn worktree_cleanup_command_help_lists_trace_and_path_options() {
 }
 
 #[test]
+fn worktree_list_command_reports_trace_lifecycle_without_local_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let generated_worktree_path = temp
+        .path()
+        .join("worktrees")
+        .join("cli-trace-apply-patch-generated");
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+    write_trace_worktree_lifecycle_bundle(
+        &data_dir,
+        &[
+            WorkspaceWorktreeLifecycleStatus::Planned,
+            WorkspaceWorktreeLifecycleStatus::Created,
+            WorkspaceWorktreeLifecycleStatus::Retained,
+        ],
+    );
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_list_args(&data_dir, false))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("workspace_worktree_cli_trace_apply_patch"));
+    assert!(stdout.contains("retained"));
+    assert!(stdout.contains("worktree:cli-trace-apply-patch"));
+    assert!(stdout.contains("data_dir:worktrees/cli-source"));
+    assert!(stdout.contains("17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1"));
+    assert!(stdout.contains("trace_cleanup_candidate"));
+    assert!(!stdout.contains(&generated_worktree_path.display().to_string()));
+    assert!(!stdout.contains(&temp.path().display().to_string()));
+}
+
+#[test]
+fn worktree_list_command_emits_json_for_trace_lifecycle() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+    write_trace_worktree_lifecycle_bundle(
+        &data_dir,
+        &[
+            WorkspaceWorktreeLifecycleStatus::Planned,
+            WorkspaceWorktreeLifecycleStatus::Created,
+            WorkspaceWorktreeLifecycleStatus::Retained,
+        ],
+    );
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_list_args(&data_dir, true))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let lifecycles = stdout.as_array().unwrap();
+    assert_eq!(lifecycles.len(), 1);
+    let lifecycle = &lifecycles[0];
+    assert_eq!(
+        lifecycle["worktree_id"],
+        "workspace_worktree_cli_trace_apply_patch"
+    );
+    assert_eq!(lifecycle["latest_status"], "retained");
+    assert_eq!(lifecycle["trace_cleanup_candidate"], true);
+    assert_eq!(
+        lifecycle["trace_cleanup_candidate_note"],
+        "trace evidence only; cleanup still requires explicit --worktree-path validation"
+    );
+    assert!(lifecycle.get("worktree_path").is_none());
+}
+
+#[test]
 fn worktree_cleanup_command_dry_run_validates_without_removing_or_appending_lifecycle() {
     let temp = tempfile::tempdir().unwrap();
     let data_dir = temp.path().join("data");
@@ -1259,10 +1425,78 @@ fn worktree_cleanup_command_rejects_missing_lifecycle_evidence_before_git() {
     assert!(!output.status.success());
     assert!(arbitrary_path.exists());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("retained worktree lifecycle evidence not found"));
+    assert!(stderr.contains("no matching worktree lifecycle records found"));
     let trace =
         std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
     assert!(!trace.contains("\"lifecycle_status\":\"cleanup_started\""));
+}
+
+#[test]
+fn worktree_cleanup_rejects_already_cleaned_lifecycle_with_specific_message() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let arbitrary_path = temp.path().join("cli-trace-apply-patch");
+    init_apply_patch_source_repo(&source_root);
+    std::fs::create_dir_all(&arbitrary_path).unwrap();
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+    write_trace_worktree_lifecycle_bundle(
+        &data_dir,
+        &[
+            WorkspaceWorktreeLifecycleStatus::Planned,
+            WorkspaceWorktreeLifecycleStatus::Created,
+            WorkspaceWorktreeLifecycleStatus::Retained,
+            WorkspaceWorktreeLifecycleStatus::CleanupCompleted,
+        ],
+    );
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_cleanup_args(
+            &data_dir,
+            &source_root,
+            trace_worktree_id().as_str(),
+            &arbitrary_path,
+        ))
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(arbitrary_path.exists());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("already cleaned"));
+}
+
+#[test]
+fn worktree_cleanup_rejects_never_retained_lifecycle_with_specific_message() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let arbitrary_path = temp.path().join("cli-trace-apply-patch");
+    init_apply_patch_source_repo(&source_root);
+    std::fs::create_dir_all(&arbitrary_path).unwrap();
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+    write_trace_worktree_lifecycle_bundle(
+        &data_dir,
+        &[
+            WorkspaceWorktreeLifecycleStatus::Planned,
+            WorkspaceWorktreeLifecycleStatus::Created,
+        ],
+    );
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_cleanup_args(
+            &data_dir,
+            &source_root,
+            trace_worktree_id().as_str(),
+            &arbitrary_path,
+        ))
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(arbitrary_path.exists());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not retained"));
 }
 
 #[test]

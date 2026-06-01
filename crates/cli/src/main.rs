@@ -203,7 +203,20 @@ enum SkillsCommands {
 
 #[derive(Subcommand)]
 enum WorktreeCommands {
+    List(WorktreeListCommandOptions),
     Cleanup(WorktreeCleanupCommandOptions),
+}
+
+#[derive(Args)]
+struct WorktreeListCommandOptions {
+    #[arg(long)]
+    trace: String,
+    #[arg(long)]
+    json: bool,
+    #[arg(long)]
+    config: Option<PathBuf>,
+    #[arg(long)]
+    data_dir: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -550,6 +563,24 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Some(Commands::Worktree { command }) => match command {
+            WorktreeCommands::List(options) => {
+                let config = tessera_cli::resolve_config(options.config)?;
+                let data_dir =
+                    tessera_cli::resolve_data_dir_with_config(options.data_dir, &config)?;
+                let output = tessera_cli::run_worktree_list_options(
+                    data_dir,
+                    tessera_cli::CliWorktreeListOptions {
+                        trace_id: options.trace,
+                    },
+                )?;
+                if options.json {
+                    println!("{}", serde_json::to_string_pretty(&output)?);
+                } else {
+                    for line in tessera_cli::format_worktree_list_lines(&output) {
+                        println!("{line}");
+                    }
+                }
+            }
             WorktreeCommands::Cleanup(options) => {
                 let config = tessera_cli::resolve_config(options.config)?;
                 let data_dir =
