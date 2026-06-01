@@ -277,8 +277,7 @@ button:disabled {
 .metadata-heading span,
 .metadata-title span,
 .metadata-grid dt,
-.empty-metadata,
-.metadata-list {
+.empty-metadata {
   color: #666a62;
   font-size: 12px;
 }
@@ -296,8 +295,7 @@ button:disabled {
 .metadata-title strong,
 .metadata-title span,
 .metadata-heading span,
-.metadata-grid dd,
-.metadata-list li {
+.metadata-grid dd {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -338,13 +336,6 @@ button:disabled {
   margin-top: 3px;
   font-size: 13px;
   font-weight: 650;
-}
-
-.metadata-list {
-  display: grid;
-  gap: 4px;
-  margin: 10px 0 0;
-  padding-left: 18px;
 }
 
 .empty-metadata {

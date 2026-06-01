@@ -251,20 +251,37 @@ describe('GUI shell view model', () => {
     expect(buildCodingWorkflowRows(workflowSnapshot)).toEqual([
       {
         id: 'workflow_read_only',
+        taskId: 'task_workflow',
         objective: 'Add read-only workflow panels',
         active: true,
         scopeRootLabel: 'repo:tessera',
         allowedPathCount: 2,
+        deniedPathCount: 1,
+        mutationMode: 'read_only_proposal',
+        worktreeRequired: true,
         patchCount: 1,
         reviewCount: 1,
+        testPlanCount: 0,
+        testRunCount: 0,
         testEvidenceCount: 1,
+        failedTestEvidenceCount: 1,
+        blockedTestEvidenceCount: 1,
+        restoreCount: 1,
         blockedRestoreCount: 1,
-        patchLabels: ['patch_ui_summary: Expose workflow metadata (apps/gui-tauri/src/App.tsx)'],
-        reviewLabels: ['review_bundle_ui: Needs helper implementation'],
-        testEvidenceLabels: ['test_summary_contract: failed, blocked - GUI test failed before helper exists'],
-        restoreLabels: ['restore_blocked_ui: blocked by read-only gate'],
       },
     ])
+    expect(JSON.stringify(buildCodingWorkflowRows(workflowSnapshot))).not.toContain(
+      'apps/gui-tauri/src/App.tsx',
+    )
+    expect(JSON.stringify(buildCodingWorkflowRows(workflowSnapshot))).not.toContain(
+      'Needs helper implementation',
+    )
+    expect(JSON.stringify(buildCodingWorkflowRows(workflowSnapshot))).not.toContain(
+      'GUI test failed before helper exists',
+    )
+    expect(JSON.stringify(buildCodingWorkflowRows(workflowSnapshot))).not.toContain(
+      'blocked by read-only gate',
+    )
   })
 
   it('builds read-only worktree lifecycle rows from snapshot metadata', () => {

@@ -204,6 +204,18 @@ function App() {
                       <dd>{row.allowedPathCount}</dd>
                     </div>
                     <div>
+                      <dt>Denied</dt>
+                      <dd>{row.deniedPathCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Mode</dt>
+                      <dd>{row.mutationMode}</dd>
+                    </div>
+                    <div>
+                      <dt>Required</dt>
+                      <dd>{row.worktreeRequired ? 'yes' : 'no'}</dd>
+                    </div>
+                    <div>
                       <dt>Patches</dt>
                       <dd>{row.patchCount}</dd>
                     </div>
@@ -212,18 +224,34 @@ function App() {
                       <dd>{row.reviewCount}</dd>
                     </div>
                     <div>
-                      <dt>Tests</dt>
+                      <dt>Plans</dt>
+                      <dd>{row.testPlanCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Runs</dt>
+                      <dd>{row.testRunCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Evidence</dt>
                       <dd>{row.testEvidenceCount}</dd>
                     </div>
                     <div>
+                      <dt>Failures</dt>
+                      <dd>{row.failedTestEvidenceCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Blocked Tests</dt>
+                      <dd>{row.blockedTestEvidenceCount}</dd>
+                    </div>
+                    <div>
                       <dt>Restores</dt>
+                      <dd>{row.restoreCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Blocked Restores</dt>
                       <dd>{row.blockedRestoreCount}</dd>
                     </div>
                   </dl>
-                  <MetadataList items={row.patchLabels} />
-                  <MetadataList items={row.reviewLabels} />
-                  <MetadataList items={row.testEvidenceLabels} />
-                  <MetadataList items={row.restoreLabels} />
                 </article>
               ))
             )}
@@ -296,17 +324,6 @@ function MessageRow({ message }: { message: ClientMessage }) {
       <span className="message-role">{message.role}</span>
       <p>{message.content}</p>
     </article>
-  )
-}
-
-function MetadataList({ items }: { items: string[] }) {
-  if (items.length === 0) return null
-  return (
-    <ul className="metadata-list">
-      {items.map((item) => (
-        <li key={item}>{item}</li>
-      ))}
-    </ul>
   )
 }
 

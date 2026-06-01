@@ -27,18 +27,23 @@ export interface ShellMetric {
 
 export interface CodingWorkflowRow {
   id: string
+  taskId: string
   objective: string
   active: boolean
   scopeRootLabel: string
   allowedPathCount: number
+  deniedPathCount: number
+  mutationMode: string
+  worktreeRequired: boolean
   patchCount: number
   reviewCount: number
+  testPlanCount: number
+  testRunCount: number
   testEvidenceCount: number
+  failedTestEvidenceCount: number
+  blockedTestEvidenceCount: number
+  restoreCount: number
   blockedRestoreCount: number
-  patchLabels: string[]
-  reviewLabels: string[]
-  testEvidenceLabels: string[]
-  restoreLabels: string[]
 }
 
 export interface WorktreeLifecycleRow {

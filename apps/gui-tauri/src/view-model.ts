@@ -23,28 +23,31 @@ export function visibleMessages(snapshot: ClientSnapshot): ClientMessage[] {
 export function buildCodingWorkflowRows(snapshot: ClientSnapshot): CodingWorkflowRow[] {
   return snapshot.coding_workflows.map((workflow) => {
     const blockedRestores = workflow.restore_plans.filter((plan) => plan.execution_blocked)
+    const failedTestEvidence = workflow.test_evidence_summaries.filter(
+      (summary) => summary.status === 'failed' || summary.status === 'error',
+    )
+    const blockedTestEvidence = workflow.test_evidence_summaries.filter(
+      (summary) => summary.execution_blocked,
+    )
     return {
       id: workflow.workflow_id,
+      taskId: workflow.task_id,
       objective: workflow.objective ?? 'Untitled workflow',
       active: workflow.active,
       scopeRootLabel: workflow.workspace_scope?.root_label ?? 'unscoped',
       allowedPathCount: workflow.workspace_scope?.allowed_paths.length ?? 0,
+      deniedPathCount: workflow.workspace_scope?.denied_paths.length ?? 0,
+      mutationMode: workflow.workspace_scope?.mutation_mode ?? 'unscoped',
+      worktreeRequired: workflow.workspace_scope?.worktree_required ?? false,
       patchCount: workflow.patch_proposals.length,
       reviewCount: workflow.review_bundles.length,
+      testPlanCount: workflow.test_plans.length,
+      testRunCount: workflow.test_runs.length,
       testEvidenceCount: workflow.test_evidence_summaries.length,
+      failedTestEvidenceCount: failedTestEvidence.length,
+      blockedTestEvidenceCount: blockedTestEvidence.length,
+      restoreCount: workflow.restore_plans.length,
       blockedRestoreCount: blockedRestores.length,
-      patchLabels: workflow.patch_proposals.map((patch) => {
-        const pathLabel = patch.touched_paths.length > 0 ? ` (${patch.touched_paths.join(', ')})` : ''
-        return `${patch.patch_id}: ${patch.summary}${pathLabel}`
-      }),
-      reviewLabels: workflow.review_bundles.map(
-        (bundle) => `${bundle.review_bundle_id}: ${bundle.summary}`,
-      ),
-      testEvidenceLabels: workflow.test_evidence_summaries.map((summary) => {
-        const blocked = summary.execution_blocked ? ', blocked' : ''
-        return `${summary.summary_id}: ${summary.status}${blocked} - ${summary.summary}`
-      }),
-      restoreLabels: blockedRestores.map((plan) => `${plan.restore_plan_id}: ${plan.reason}`),
     }
   })
 }

@@ -20,7 +20,14 @@ describe('GUI shell smoke path', () => {
     expect(screen.getByLabelText('Coding workflows')).toHaveTextContent(
       'Project read-only workflow metadata',
     )
-    expect(screen.getByLabelText('Coding workflows')).toHaveTextContent('apps/gui-tauri/src/App.tsx')
+    expect(screen.getByLabelText('Coding workflows')).toHaveTextContent('Allowed2')
+    expect(screen.getByLabelText('Coding workflows')).toHaveTextContent('Requiredyes')
+    expect(screen.getByLabelText('Coding workflows')).not.toHaveTextContent('apps/gui-tauri/src/App.tsx')
+    expect(screen.getByLabelText('Coding workflows')).not.toHaveTextContent('Render compact metadata rows')
+    expect(screen.getByLabelText('Coding workflows')).not.toHaveTextContent('No browser fallback tests run yet')
+    expect(screen.getByLabelText('Coding workflows')).not.toHaveTextContent(
+      'Restore execution is outside GUI surface',
+    )
     expect(screen.getByLabelText('Worktree lifecycles')).toHaveTextContent('worktree_web_read_only')
     expect(screen.getByLabelText('Worktree lifecycles')).toHaveTextContent('mock-base')
   })
