@@ -61,7 +61,7 @@ Tessera 处理方式：
 
 - v0.2 的 GUI shell 只做 mock/replay 和 read-only projection 是正确的。
 - v0.5-v0.6 应先让 GUI 展示真实 task lifecycle、approvals、artifacts、task ownership metadata、handoff evidence 和 runtime events；background reattach 仍等待 app-server/listener/daemon owner gate。
-- v0.7 metadata foundation 让 GUI 可以只读展示 coding workflow 和 worktree lifecycle 的安全 aggregate fields；当前 GUI panels 不展示本地路径、touched paths、reason text、summaries、diagnostics、artifact bodies，也不提供 apply/cleanup/restore/test/Git/shell/provider mutation controls。当前 apply-patch mutation 只允许通过 explicit 或 trace-driven CLI envelope，automatic worktree lifecycle 也只通过 `--from-trace --auto-worktree` / `worktree cleanup` CLI paths 暴露本地 worktree path 和清理入口，Git/diff/review/patch controls 仍必须等待对应 typed client intent、policy、checkpoint 和 trace event。
+- v0.7 metadata foundation 让 GUI 可以只读展示 coding workflow 和 worktree lifecycle 的安全 aggregate fields；当前 GUI panels 不展示本地路径、touched paths、workflow objective text、reason text、summaries、diagnostics、artifact bodies，也不提供 apply/cleanup/restore/test/Git/shell/provider mutation controls。当前 apply-patch mutation 只允许通过 explicit 或 trace-driven CLI envelope，automatic worktree lifecycle 也只通过 `--from-trace --auto-worktree` / `worktree cleanup` CLI paths 暴露本地 worktree path 和清理入口，Git/diff/review/patch controls 仍必须等待对应 typed client intent、policy、checkpoint 和 trace event。
 - Worktree mode 应成为 coding-agent workflow 的首选写入模式；local mode 只能在明确 scope 下启用。
 - Automations 后置到 task runtime、skills、worktree、sandbox、notifications 和 failure reporting 稳定之后。
 

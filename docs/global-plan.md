@@ -157,7 +157,7 @@
 - [x] Conservative `tessera worktree cleanup` command for retained Tessera-generated detached worktrees, requiring trace lifecycle evidence and an explicit local path while forbidding force removal and broader Git/test/checkpoint execution.
 - [x] Read-only worktree lifecycle projection in `RuntimeReader` and `tessera-client`, including generated GUI bindings, status summaries and replay support from `workspace_worktree_lifecycle_recorded` records.
 - [x] Read-only `tessera worktree list --trace <trace_id> [--json]` over lifecycle trace metadata, including conservative `trace_cleanup_candidate` evidence labels and improved cleanup diagnostics without filesystem paths.
-- [x] TUI status line summaries and GUI read-only Coding Workflows / Worktrees metadata panels over safe aggregate `ClientSnapshot` fields only, with no paths, touched paths, reason text, summaries, diagnostics, artifact bodies or mutation controls.
+- [x] TUI status line summaries and GUI read-only Coding Workflows / Worktrees metadata panels over safe aggregate `ClientSnapshot` fields only, with no paths, touched paths, workflow objective text, reason text, summaries, diagnostics, artifact bodies or mutation controls.
 
 ## 6. Current Gaps
 
