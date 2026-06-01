@@ -142,7 +142,7 @@ input:focus {
 
 .workspace {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   min-width: 0;
   min-height: 100vh;
 }
@@ -244,6 +244,113 @@ button:disabled {
   color: #7c5207;
 }
 
+.metadata-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  min-width: 0;
+  padding: 0 28px 22px;
+}
+
+.metadata-panel {
+  min-width: 0;
+  border-top: 1px solid #d9d5ca;
+  padding-top: 14px;
+}
+
+.metadata-heading,
+.metadata-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.metadata-heading h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+.metadata-heading span,
+.metadata-title span,
+.metadata-grid dt,
+.empty-metadata,
+.metadata-list {
+  color: #666a62;
+  font-size: 12px;
+}
+
+.metadata-row {
+  min-width: 0;
+  padding: 13px 0;
+  border-bottom: 1px solid #e4dfd5;
+}
+
+.metadata-row:last-child {
+  border-bottom: 0;
+}
+
+.metadata-title strong,
+.metadata-title span,
+.metadata-heading span,
+.metadata-grid dd,
+.metadata-list li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.metadata-title strong {
+  font-size: 14px;
+  font-weight: 680;
+}
+
+.metadata-title span {
+  flex: 0 0 auto;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 12px 0 0;
+}
+
+.metadata-grid div {
+  min-width: 0;
+}
+
+.metadata-grid dt,
+.metadata-grid dd {
+  margin: 0;
+}
+
+.metadata-grid dt {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metadata-grid dd {
+  margin-top: 3px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.metadata-list {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.empty-metadata {
+  margin: 12px 0 0;
+}
+
 .composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -275,6 +382,7 @@ button:disabled {
   }
 
   .workspace-header,
+  .metadata-panels,
   .composer {
     padding-right: 18px;
     padding-left: 18px;
@@ -287,5 +395,13 @@ button:disabled {
   .message-row {
     grid-template-columns: 1fr;
     gap: 6px;
+  }
+
+  .metadata-panels {
+    grid-template-columns: 1fr;
+  }
+
+  .metadata-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

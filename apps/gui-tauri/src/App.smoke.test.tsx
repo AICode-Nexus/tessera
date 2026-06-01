@@ -13,6 +13,18 @@ describe('GUI shell smoke path', () => {
     expect(screen.getByTitle('Cancel task')).toHaveAttribute('aria-label', 'Cancel task')
   })
 
+  it('renders read-only workflow and worktree metadata from the mock snapshot', async () => {
+    render(<App />)
+
+    expect(await screen.findByText('Mock/replay projection loaded')).toBeInTheDocument()
+    expect(screen.getByLabelText('Coding workflows')).toHaveTextContent(
+      'Project read-only workflow metadata',
+    )
+    expect(screen.getByLabelText('Coding workflows')).toHaveTextContent('apps/gui-tauri/src/App.tsx')
+    expect(screen.getByLabelText('Worktree lifecycles')).toHaveTextContent('worktree_web_read_only')
+    expect(screen.getByLabelText('Worktree lifecycles')).toHaveTextContent('mock-base')
+  })
+
   it('projects submit, cancel, and new-thread actions through the mock shell', async () => {
     render(<App />)
 

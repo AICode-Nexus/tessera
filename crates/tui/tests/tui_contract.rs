@@ -172,6 +172,23 @@ fn tui_status_line_renders_live_artifact_summary() {
 }
 
 #[test]
+fn tui_status_line_renders_coding_workflow_and_worktree_summaries() {
+    let mut state = ChatViewState::new("mock-default");
+    state.status.coding_workflow_summary =
+        "workflow 1 active / patches 2 / reviews 1 / tests 1 blocked".to_string();
+    state.status.worktree_summary = "worktrees 2 retained / 1 cleanup_failed".to_string();
+
+    let rendered = status_line(&state)
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+
+    assert!(rendered.contains("workflow 1 active / patches 2 / reviews 1 / tests 1 blocked"));
+    assert!(rendered.contains("worktrees 2 retained / 1 cleanup_failed"));
+}
+
+#[test]
 fn tui_status_line_renders_context_handle_summary() {
     let mut state = ChatViewState::new("mock-default");
 
