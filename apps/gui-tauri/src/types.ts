@@ -52,5 +52,4 @@ export interface WorktreeLifecycleRow {
   status: string
   rootLabel: string
   baseKey: string
-  reason: string
 }

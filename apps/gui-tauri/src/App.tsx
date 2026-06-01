@@ -284,10 +284,6 @@ function App() {
                       <dt>Workflow</dt>
                       <dd>{row.workflowId}</dd>
                     </div>
-                    <div>
-                      <dt>Reason</dt>
-                      <dd>{row.reason}</dd>
-                    </div>
                   </dl>
                 </article>
               ))

@@ -30,6 +30,9 @@ describe('GUI shell smoke path', () => {
     )
     expect(screen.getByLabelText('Worktree lifecycles')).toHaveTextContent('worktree_web_read_only')
     expect(screen.getByLabelText('Worktree lifecycles')).toHaveTextContent('mock-base')
+    expect(screen.getByLabelText('Worktree lifecycles')).not.toHaveTextContent(
+      'available for read-only inspection',
+    )
   })
 
   it('projects submit, cancel, and new-thread actions through the mock shell', async () => {

@@ -59,6 +59,5 @@ export function buildWorktreeLifecycleRows(snapshot: ClientSnapshot): WorktreeLi
     status: lifecycle.latest_status,
     rootLabel: lifecycle.worktree_root_label,
     baseKey: lifecycle.worktree_base_key,
-    reason: lifecycle.latest_reason ?? 'No reason recorded',
   }))
 }

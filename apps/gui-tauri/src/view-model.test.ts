@@ -298,7 +298,7 @@ describe('GUI shell view model', () => {
           worktree_root_label: 'isolated worktree',
           worktree_base_key: 'base-main',
           latest_status: 'retained',
-          latest_reason: 'awaiting review',
+          latest_reason: 'retained at /Users/admin/work/tessera/.env with token sk-secret',
           created_for_request_id: 'request_patch',
           created_for_patch_id: 'patch_ui_summary',
           evidence: [],
@@ -313,7 +313,7 @@ describe('GUI shell view model', () => {
           worktree_root_label: 'cleanup candidate',
           worktree_base_key: 'base-cleanup',
           latest_status: 'cleanup_failed',
-          latest_reason: 'manual cleanup required',
+          latest_reason: 'manual cleanup required for /tmp/private-worktree',
           created_for_request_id: null,
           created_for_patch_id: null,
           evidence: [],
@@ -330,7 +330,6 @@ describe('GUI shell view model', () => {
         status: 'retained',
         rootLabel: 'isolated worktree',
         baseKey: 'base-main',
-        reason: 'awaiting review',
       },
       {
         id: 'worktree_cleanup_failed',
@@ -338,9 +337,12 @@ describe('GUI shell view model', () => {
         status: 'cleanup_failed',
         rootLabel: 'cleanup candidate',
         baseKey: 'base-cleanup',
-        reason: 'manual cleanup required',
       },
     ])
     expect(rows.every((row) => !('path' in row))).toBe(true)
+    expect(rows.every((row) => !('reason' in row))).toBe(true)
+    expect(JSON.stringify(rows)).not.toContain('/Users/admin/work/tessera/.env')
+    expect(JSON.stringify(rows)).not.toContain('sk-secret')
+    expect(JSON.stringify(rows)).not.toContain('/tmp/private-worktree')
   })
 })
