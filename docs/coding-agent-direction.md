@@ -22,7 +22,7 @@ Tessera 只吸收长期结构：
 - Skills、hooks、subagents、automations 都必须进入 policy、scope 和 trace，而不是成为旁路插件。
 - GUI 的价值不只是漂亮界面，而是并行任务、worktree、diff/review、approval、artifact 和 terminal 的统一控制面。
 
-当前 v0.7 coding-agent runtime 已包含 read-only workflow/worktree observation 和 conservative worktree cleanup：`tessera worktree list --trace <trace_id> [--json]`、TUI status summary 和 GUI metadata panels 只展示 trace/client projection；`tessera worktree cleanup` 只能清理 trace 证明由 Tessera 生成并 retained 的 detached worktree，并要求调用者提供本地路径。它们都不是 test runner、checkpoint restore、branch/stage/commit/push/PR、GUI Git mutation、GUI mutation control、app-server mutation listener 或通用 `git worktree prune`。
+当前 v0.7 coding-agent runtime 已包含 read-only workflow/worktree/review-inspection observation 和 conservative worktree cleanup：`tessera worktree list --trace <trace_id> [--json]`、`tessera workflow inspect --trace <trace_id> [--json]`、TUI status summary 和 GUI metadata panels 只展示 trace/client projection；`tessera worktree cleanup` 只能清理 trace 证明由 Tessera 生成并 retained 的 detached worktree，并要求调用者提供本地路径。它们都不是 test runner、checkpoint restore、branch/stage/commit/push/PR、GUI Git mutation、GUI mutation control、app-server mutation listener、hook/automation runtime、swarm、learning apply 或通用 `git worktree prune`。
 
 ## 2. Directional Compatibility Targets
 
@@ -43,7 +43,7 @@ Tessera 处理方式：
 - v0.5 已收口为 foundation-stable：chat/resume/tasks、no-tool single-agent loop、opt-in project instructions、explicit read-only skills、task ownership metadata 和 runtime API DTOs 可用，但不声称完整 coding-agent CLI。
 - v0.5 的 non-interactive agent run 只提供无工具、无文件修改的输入/输出 envelope。
 - v0.5 的 project instruction discovery 只支持 opt-in `AGENTS.md` / `CLAUDE.md` source report；default/global/user loading、Claude imports 和 `.claude/` 兼容性继续等待 precedence、byte limit、redaction 和 trace-reference gate。
-- v0.7 已具备 metadata-only coding workflow foundation、窄的 explicit `tessera apply-patch` CLI envelope、trace-driven `tessera apply-patch --from-trace` CLI envelope、opt-in `--auto-worktree` detached worktree lifecycle、read-only `tessera worktree list --trace <trace_id> [--json]`、TUI/GUI workflow/worktree observation，以及 trace-backed `tessera worktree cleanup`；diff/test execution、checkpoint restore/rollback、broader worktree lifecycle、GUI mutation controls、app-server mutation listener 和 code review command 仍按后续 runtime gate 推进。
+- v0.7 已具备 metadata-only coding workflow foundation、窄的 explicit `tessera apply-patch` CLI envelope、trace-driven `tessera apply-patch --from-trace` CLI envelope、opt-in `--auto-worktree` detached worktree lifecycle、read-only `tessera worktree list --trace <trace_id> [--json]`、read-only `tessera workflow inspect --trace <trace_id> [--json]`、TUI/GUI workflow/worktree/review-inspection observation，以及 trace-backed `tessera worktree cleanup`；diff apply、patch-text/artifact-body review rendering、test execution、checkpoint restore/rollback、broader worktree lifecycle、GUI mutation controls、app-server mutation listener 和 code review command 仍按后续 runtime gate 推进。
 - runtime API / app-server 必须是 core 的薄协议壳，不能成为第二套 runtime。
 
 ### Codex App / GUI Direction
@@ -61,7 +61,7 @@ Tessera 处理方式：
 
 - v0.2 的 GUI shell 只做 mock/replay 和 read-only projection 是正确的。
 - v0.5-v0.6 应先让 GUI 展示真实 task lifecycle、approvals、artifacts、task ownership metadata、handoff evidence 和 runtime events；background reattach 仍等待 app-server/listener/daemon owner gate。
-- v0.7 metadata foundation 让 GUI 可以只读展示 coding workflow 和 worktree lifecycle 的安全 aggregate fields；当前 GUI panels 不展示本地路径、touched paths、workflow objective text、reason text、summaries、diagnostics、artifact bodies，也不提供 apply/cleanup/restore/test/Git/shell/provider mutation controls。当前 apply-patch mutation 只允许通过 explicit 或 trace-driven CLI envelope，automatic worktree lifecycle 也只通过 `--from-trace --auto-worktree` / `worktree cleanup` CLI paths 暴露本地 worktree path 和清理入口，Git/diff/review/patch controls 仍必须等待对应 typed client intent、policy、checkpoint 和 trace event。
+- v0.7 metadata foundation 让 GUI 可以只读展示 coding workflow、worktree lifecycle 和 Review Inspection 的安全 aggregate fields；当前 GUI panels 不展示本地路径、touched paths、workflow objective text、reason text、review comments、summaries、diagnostics、artifact bodies 或 patch text，也不提供 apply/cleanup/restore/test/Git/shell/provider mutation controls。当前 apply-patch mutation 只允许通过 explicit 或 trace-driven CLI envelope，automatic worktree lifecycle 也只通过 `--from-trace --auto-worktree` / `worktree cleanup` CLI paths 暴露本地 worktree path 和清理入口，Git/diff/review/patch controls 仍必须等待对应 typed client intent、policy、checkpoint 和 trace event。
 - Worktree mode 应成为 coding-agent workflow 的首选写入模式；local mode 只能在明确 scope 下启用。
 - Automations 后置到 task runtime、skills、worktree、sandbox、notifications 和 failure reporting 稳定之后。
 
@@ -154,7 +154,7 @@ v0.6 should start with structured handoff and reviewer gate foundations. Persist
 
 ### v0.7 Must Be Coding-Workflow Complete
 
-v0.7 should be the first version that can honestly claim coding-agent workflow. The current foundation can represent and replay workflow scope, patch proposals, patch application records, test plans/runs, metadata-only test evidence summaries, review bundles, restore plans and worktree lifecycle records through protocol/core/client/GUI bindings. It also has narrow explicit and trace-driven `tessera apply-patch` CLI envelopes for one gated isolated-root file mutation, opt-in automatic detached worktree creation for trace-driven apply-patch, conservative cleanup, read-only worktree listing, TUI summaries and GUI metadata panels, but it still is not a full coding-agent diff/test/checkpoint/Git workflow.
+v0.7 should be the first version that can honestly claim coding-agent workflow. The current foundation can represent and replay workflow scope, patch proposals, patch application records, test plans/runs, metadata-only test evidence summaries, review bundles, restore plans and worktree lifecycle records through protocol/core/client/GUI bindings. It also has narrow explicit and trace-driven `tessera apply-patch` CLI envelopes for one gated isolated-root file mutation, opt-in automatic detached worktree creation for trace-driven apply-patch, conservative cleanup, read-only worktree listing, read-only workflow inspection with generated refs/counts/status labels only, TUI summaries and GUI metadata panels, but it still is not a full coding-agent diff/test/checkpoint/Git workflow.
 
 Remaining runtime-complete work:
 
@@ -163,7 +163,7 @@ Remaining runtime-complete work:
 - Worktree-first mutation mode.
 - Checkpoint before mutation and restore/revert trace events.
 - Review command and evidence bundle.
-- GUI/TUI diff, approval, artifact inspection and mutation surfaces beyond current read-only metadata panels.
+- GUI/TUI diff, approval, artifact inspection and mutation surfaces beyond current read-only metadata panels and safe inspection counts.
 - Git stage/commit/push/PR intents only after patch/checkpoint gates exist.
 
 ### v0.8 Must Not Be "More Agents"
