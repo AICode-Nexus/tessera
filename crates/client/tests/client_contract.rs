@@ -31,7 +31,8 @@ use tessera_protocol::{
     TaskReattachMode, TaskStatus, TestEvidenceSummaryId, TestEvidenceSummaryRecord,
     TestEvidenceSummaryStatus, TestPlanId, TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus,
     Timestamp, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
-    ToolSideEffect, WorkspaceMutationScope,
+    ToolSideEffect, WorkspaceMutationScope, WorkspaceWorktreeId, WorkspaceWorktreeLifecycleRecord,
+    WorkspaceWorktreeLifecycleStatus,
 };
 
 #[test]
@@ -676,6 +677,40 @@ fn coding_restore_plan() -> RestorePlanRecord {
     }
 }
 
+fn client_worktree_lifecycle_record(
+    status: WorkspaceWorktreeLifecycleStatus,
+    reason: &str,
+) -> WorkspaceWorktreeLifecycleRecord {
+    WorkspaceWorktreeLifecycleRecord {
+        worktree_id: WorkspaceWorktreeId::from_static("workspace_worktree_client_projection"),
+        workflow_id: coding_workflow_id(),
+        task_id: coding_task_id(),
+        trace_id: "trace_worktree_lifecycle_client".to_string(),
+        source_commit: "17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1".to_string(),
+        source_branch_label: Some("main".to_string()),
+        worktree_root_label: "worktree:client-projection".to_string(),
+        worktree_base_key: "data_dir:worktrees".to_string(),
+        lifecycle_status: status,
+        reason: reason.to_string(),
+        created_for_request_id: Some(MutationRequestId::from_static(
+            "mutation_request_client_apply",
+        )),
+        created_for_patch_id: Some(PatchProposalId::from_static("patch_proposal_client")),
+        evidence: vec![HandoffEvidenceRef {
+            kind: HandoffEvidenceKind::TraceRange,
+            artifact_id: None,
+            trace_id: Some("trace_worktree_lifecycle_client".to_string()),
+            event_range: Some(EventRange {
+                start_seq: 3,
+                end_seq: 8,
+            }),
+            label: Some("approved isolated worktree request".to_string()),
+            summary: Some("metadata-only lifecycle evidence".to_string()),
+        }],
+        metadata: None,
+    }
+}
+
 fn coding_reviewer_gate_request() -> ReviewerGateRequest {
     ReviewerGateRequest {
         gate_id: ReviewerGateId::from_static("gate_coding_review"),
@@ -790,6 +825,121 @@ fn apply_patch_execution(status: ApplyPatchExecutionStatus) -> ApplyPatchExecuti
         artifact_refs: vec![ArtifactId::from_static("artifact_apply_patch_execution")],
         evidence: vec![coding_diff_evidence()],
     }
+}
+
+#[test]
+fn client_snapshot_projects_worktree_lifecycle_from_live_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    for (seq, status, reason) in [
+        (
+            1,
+            WorkspaceWorktreeLifecycleStatus::Planned,
+            "isolated worktree planned",
+        ),
+        (
+            2,
+            WorkspaceWorktreeLifecycleStatus::Created,
+            "isolated worktree created",
+        ),
+        (
+            3,
+            WorkspaceWorktreeLifecycleStatus::Retained,
+            "retained for reviewer",
+        ),
+    ] {
+        snapshot.apply_event(&EventFrame::new(
+            "trace_worktree_lifecycle_client",
+            seq,
+            RunEvent::WorkspaceWorktreeLifecycleRecorded {
+                record: client_worktree_lifecycle_record(status, reason),
+            },
+        ));
+    }
+
+    assert_eq!(snapshot.worktree_lifecycles.len(), 1);
+    let lifecycle = &snapshot.worktree_lifecycles[0];
+    assert_eq!(
+        lifecycle.worktree_id,
+        WorkspaceWorktreeId::from_static("workspace_worktree_client_projection")
+    );
+    assert_eq!(lifecycle.workflow_id, coding_workflow_id());
+    assert_eq!(lifecycle.task_id, coding_task_id());
+    assert_eq!(
+        lifecycle.latest_status,
+        WorkspaceWorktreeLifecycleStatus::Retained
+    );
+    assert_eq!(
+        lifecycle.latest_reason.as_deref(),
+        Some("retained for reviewer")
+    );
+    assert_eq!(lifecycle.worktree_root_label, "worktree:client-projection");
+    assert_eq!(lifecycle.worktree_base_key, "data_dir:worktrees");
+    assert!(!lifecycle.worktree_root_label.contains('/'));
+    assert!(!lifecycle.worktree_base_key.contains('/'));
+    assert_eq!(
+        lifecycle.created_for_request_id,
+        Some(MutationRequestId::from_static(
+            "mutation_request_client_apply"
+        ))
+    );
+    assert_eq!(
+        lifecycle.created_for_patch_id,
+        Some(PatchProposalId::from_static("patch_proposal_client"))
+    );
+    assert_eq!(lifecycle.evidence.len(), 1);
+    assert_eq!(snapshot.status.worktree_summary, "worktrees 1 / retained 1");
+}
+
+#[test]
+fn client_snapshot_projects_worktree_lifecycle_from_replayed_records() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+
+    for (seq, status, reason) in [
+        (
+            1,
+            WorkspaceWorktreeLifecycleStatus::Created,
+            "isolated worktree created",
+        ),
+        (
+            2,
+            WorkspaceWorktreeLifecycleStatus::CleanupFailed,
+            "git worktree remove failed",
+        ),
+    ] {
+        snapshot.apply_trace_record(
+            &EventFrame::new(
+                "trace_worktree_lifecycle_client",
+                seq,
+                RunEvent::WorkspaceWorktreeLifecycleRecorded {
+                    record: client_worktree_lifecycle_record(status, reason),
+                },
+            )
+            .to_trace_record(),
+        );
+    }
+
+    assert_eq!(snapshot.worktree_lifecycles.len(), 1);
+    assert_eq!(
+        snapshot.worktree_lifecycles[0].latest_status,
+        WorkspaceWorktreeLifecycleStatus::CleanupFailed
+    );
+    assert_eq!(
+        snapshot.worktree_lifecycles[0].latest_reason.as_deref(),
+        Some("git worktree remove failed")
+    );
+    assert_eq!(
+        snapshot.worktree_lifecycles[0].worktree_root_label,
+        "worktree:client-projection"
+    );
+    assert_eq!(
+        snapshot.worktree_lifecycles[0].worktree_base_key,
+        "data_dir:worktrees"
+    );
+    assert_eq!(
+        snapshot.status.worktree_summary,
+        "worktrees 1 / cleanup_failed 1"
+    );
 }
 
 #[test]

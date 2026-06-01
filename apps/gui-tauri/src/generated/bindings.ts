@@ -63,9 +63,9 @@ export type ClientReviewerGate = { gate_id: ReviewerGateId, handoff_id: AgentHan
 
 export type ClientReviewerGateStatus = "pending" | "accepted" | "rejected" | "revision_requested";
 
-export type ClientSnapshot = { status: ClientStatus, projection: ClientProjection, tasks: Array<ClientTask>, artifacts: Array<ClientArtifact>, approvals: Array<ClientApproval>, memory_proposals: Array<ClientMemoryProposal>, handoffs: Array<ClientAgentHandoff>, reviewer_gates: Array<ClientReviewerGate>, coding_workflows: Array<ClientCodingWorkflow>, subagent_sessions: Array<ClientSubagentSession>, subagent_runtime_decisions: Array<ClientSubagentRuntimeDecision>, subagent_transcripts: Array<ClientSubagentTranscriptArtifact>, subagent_transcript_lifecycles: Array<ClientSubagentTranscriptArtifactLifecycle>, subagent_approval_forwarding: Array<ClientSubagentApprovalForwarding>, subagent_inactive_policies: Array<ClientSubagentInactivePolicy>, subagent_cancellations: Array<ClientSubagentCancellation>, context_handles: Array<ClientContextHandle>, draft_input: string, };
+export type ClientSnapshot = { status: ClientStatus, projection: ClientProjection, tasks: Array<ClientTask>, artifacts: Array<ClientArtifact>, approvals: Array<ClientApproval>, memory_proposals: Array<ClientMemoryProposal>, handoffs: Array<ClientAgentHandoff>, reviewer_gates: Array<ClientReviewerGate>, coding_workflows: Array<ClientCodingWorkflow>, worktree_lifecycles: Array<ClientWorktreeLifecycle>, subagent_sessions: Array<ClientSubagentSession>, subagent_runtime_decisions: Array<ClientSubagentRuntimeDecision>, subagent_transcripts: Array<ClientSubagentTranscriptArtifact>, subagent_transcript_lifecycles: Array<ClientSubagentTranscriptArtifactLifecycle>, subagent_approval_forwarding: Array<ClientSubagentApprovalForwarding>, subagent_inactive_policies: Array<ClientSubagentInactivePolicy>, subagent_cancellations: Array<ClientSubagentCancellation>, context_handles: Array<ClientContextHandle>, draft_input: string, };
 
-export type ClientStatus = { active_profile: string, available_profiles: Array<string>, reasoning_visible: boolean, task_summary: string, artifact_summary: string, approval_summary: string, memory_summary: string, handoff_summary: string, coding_workflow_summary: string, subagent_summary: string, subagent_runtime_summary: string, subagent_transcript_lifecycle_summary: string, usage_summary: string, cache_summary: string, cost_summary: string, context_summary: string, context_handles_summary: string, telemetry: ClientTelemetrySummary, };
+export type ClientStatus = { active_profile: string, available_profiles: Array<string>, reasoning_visible: boolean, task_summary: string, artifact_summary: string, approval_summary: string, memory_summary: string, handoff_summary: string, coding_workflow_summary: string, worktree_summary: string, subagent_summary: string, subagent_runtime_summary: string, subagent_transcript_lifecycle_summary: string, usage_summary: string, cache_summary: string, cost_summary: string, context_summary: string, context_handles_summary: string, telemetry: ClientTelemetrySummary, };
 
 export type ClientSubagentApprovalForwarding = { session_id: SubagentSessionId, parent_task_id: TaskId, approval_id: ApprovalId, reviewer_gate_id: ReviewerGateId | null, status: ClientSubagentApprovalForwardingStatus, reason: string, };
 
@@ -96,6 +96,8 @@ export type ClientSubagentTranscriptArtifactStatus = "reserved" | "published" | 
 export type ClientTask = { task_id: TaskId, kind: TaskKind | null, status: TaskStatus, thread_id: ThreadId | null, turn_id: TurnId | null, created_at: Timestamp | null, started_at: Timestamp | null, finished_at: Timestamp | null, cancel_reason: string | null, error_code: string | null, error_message: string | null, owner_lease_id: TaskOwnershipId | null, owner_runtime_id: RuntimeInstanceId | null, owner_client_id: ClientInstanceId | null, owner_kind: TaskOwnerKind | null, owner_status: TaskOwnerStatus | null, owner_reattach_mode: TaskReattachMode | null, owner_last_heartbeat_at: Timestamp | null, owner_expires_at: Timestamp | null, owner_last_seq: number | null, owner_reason: string | null, };
 
 export type ClientTelemetrySummary = { input_tokens: number, output_tokens: number, total_tokens: number, cache_read_tokens: number, cache_write_tokens: number, cache_miss_tokens: number, cache_total_tokens: number, latest_context_tokens: number | null, max_context_tokens: number | null, estimated_cost: number | null, cost_currency: string | null, cost_currency_mixed: boolean, };
+
+export type ClientWorktreeLifecycle = { worktree_id: WorkspaceWorktreeId, workflow_id: CodingWorkflowId, task_id: TaskId, trace_id: string, source_commit: string, source_branch_label: string | null, worktree_root_label: string, worktree_base_key: string, latest_status: WorkspaceWorktreeLifecycleStatus, latest_reason: string | null, created_for_request_id: MutationRequestId | null, created_for_patch_id: PatchProposalId | null, evidence: Array<HandoffEvidenceRef>, };
 
 export type ContextId = string;
 
@@ -160,6 +162,8 @@ export type PatchApplicationRecord = { patch_id: PatchProposalId, workflow_id: C
 export type PatchProposal = { patch_id: PatchProposalId, workflow_id: CodingWorkflowId, task_id: TaskId, summary: string, touched_paths: Array<string>, diff_artifacts: Array<HandoffEvidenceRef>, risk_labels: Array<string>, required_checkpoint_id: SnapshotId | null, reviewer_gate_id: ReviewerGateId | null, };
 
 export type PatchProposalId = string;
+
+export type PolicyDecisionId = string;
 
 export type RestorePlanId = string;
 
@@ -257,6 +261,12 @@ export type TaskReattachMode = "observe_existing_owner" | "resume_from_checkpoin
 
 export type TaskStatus = "pending" | "running" | "waiting_for_approval" | "paused" | "completed" | "failed" | "cancelled";
 
+export type TestEvidenceSummaryId = string;
+
+export type TestEvidenceSummaryRecord = { summary_id: TestEvidenceSummaryId, workflow_id: CodingWorkflowId, task_id: TaskId, test_plan_ids: Array<TestPlanId>, test_run_ids: Array<TestRunId>, status: TestEvidenceSummaryStatus, total_runs: number, passed_runs: number, failed_runs: number, cancelled_runs: number, error_runs: number, required_artifact_kinds: Array<ArtifactKind>, artifact_refs: Array<ArtifactId>, diagnostics: Array<HandoffEvidenceRef>, redaction_status: CodingWorkflowEvidenceRedactionStatus, summary: string, execution_blocked: boolean, };
+
+export type TestEvidenceSummaryStatus = "passed" | "failed" | "cancelled" | "error" | "incomplete";
+
 export type TestPlanId = string;
 
 export type TestPlanRecord = { test_plan_id: TestPlanId, workflow_id: CodingWorkflowId, task_id: TaskId, command_labels: Array<string>, affected_paths: Array<string>, required_artifact_kinds: Array<ArtifactKind>, };
@@ -283,3 +293,7 @@ export type TraceRecord = { schema_version: number, trace_id: string, seq: numbe
 export type TurnId = string;
 
 export type WorkspaceMutationScope = { workflow_id: CodingWorkflowId, task_id: TaskId, root_label: string, allowed_paths: Array<string>, denied_paths: Array<string>, mutation_mode: MutationMode, worktree_required: boolean, reason: string | null, };
+
+export type WorkspaceWorktreeId = string;
+
+export type WorkspaceWorktreeLifecycleStatus = "planned" | "created" | "creation_failed" | "retained" | "cleanup_started" | "cleanup_completed" | "cleanup_failed";

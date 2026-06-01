@@ -8,7 +8,12 @@ import {
   submitClientIntent,
 } from './ipc'
 import type { ClientMessage, ClientSnapshot, GuiProfile, GuiShellState } from './types'
-import { buildShellMetrics, visibleMessages } from './view-model'
+import {
+  buildCodingWorkflowRows,
+  buildShellMetrics,
+  buildWorktreeLifecycleRows,
+  visibleMessages,
+} from './view-model'
 
 function App() {
   const [shellState, setShellState] = useState<GuiShellState | null>(null)
@@ -19,6 +24,14 @@ function App() {
   const [busy, setBusy] = useState(false)
   const metrics = useMemo(() => (snapshot ? buildShellMetrics(snapshot) : []), [snapshot])
   const messages = useMemo(() => (snapshot ? visibleMessages(snapshot) : []), [snapshot])
+  const workflowRows = useMemo(
+    () => (snapshot ? buildCodingWorkflowRows(snapshot) : []),
+    [snapshot],
+  )
+  const worktreeRows = useMemo(
+    () => (snapshot ? buildWorktreeLifecycleRows(snapshot) : []),
+    [snapshot],
+  )
 
   useEffect(() => {
     let mounted = true
@@ -165,6 +178,118 @@ function App() {
             <MessageRow key={message.item_id ?? `${message.role}-${index}`} message={message} />
           ))}
         </div>
+
+        <section className="metadata-panels" aria-label="Read-only workflow metadata">
+          <div className="metadata-panel" aria-label="Coding workflows">
+            <div className="metadata-heading">
+              <h2>Coding Workflows</h2>
+              <span>{snapshot?.status.coding_workflow_summary ?? 'workflows 0'}</span>
+            </div>
+            {workflowRows.length === 0 ? (
+              <p className="empty-metadata">No workflow metadata projected.</p>
+            ) : (
+              workflowRows.map((row) => (
+                <article className="metadata-row" key={row.id}>
+                  <div className="metadata-title">
+                    <strong>{row.id}</strong>
+                    <span>{row.active ? 'active' : 'inactive'}</span>
+                  </div>
+                  <dl className="metadata-grid">
+                    <div>
+                      <dt>Scope</dt>
+                      <dd>{row.scopeRootLabel}</dd>
+                    </div>
+                    <div>
+                      <dt>Allowed</dt>
+                      <dd>{row.allowedPathCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Denied</dt>
+                      <dd>{row.deniedPathCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Mode</dt>
+                      <dd>{row.mutationMode}</dd>
+                    </div>
+                    <div>
+                      <dt>Required</dt>
+                      <dd>{row.worktreeRequired ? 'yes' : 'no'}</dd>
+                    </div>
+                    <div>
+                      <dt>Patches</dt>
+                      <dd>{row.patchCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Reviews</dt>
+                      <dd>{row.reviewCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Plans</dt>
+                      <dd>{row.testPlanCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Runs</dt>
+                      <dd>{row.testRunCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Evidence</dt>
+                      <dd>{row.testEvidenceCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Failures</dt>
+                      <dd>{row.failedTestEvidenceCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Blocked Tests</dt>
+                      <dd>{row.blockedTestEvidenceCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Restores</dt>
+                      <dd>{row.restoreCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Blocked Restores</dt>
+                      <dd>{row.blockedRestoreCount}</dd>
+                    </div>
+                  </dl>
+                </article>
+              ))
+            )}
+          </div>
+
+          <div className="metadata-panel" aria-label="Worktree lifecycles">
+            <div className="metadata-heading">
+              <h2>Worktrees</h2>
+              <span>{snapshot?.status.worktree_summary ?? 'worktrees 0'}</span>
+            </div>
+            {worktreeRows.length === 0 ? (
+              <p className="empty-metadata">No worktree lifecycle metadata projected.</p>
+            ) : (
+              worktreeRows.map((row) => (
+                <article className="metadata-row" key={row.id}>
+                  <div className="metadata-title">
+                    <strong>{row.id}</strong>
+                    <span>{row.status}</span>
+                  </div>
+                  <dl className="metadata-grid">
+                    <div>
+                      <dt>Root</dt>
+                      <dd>{row.rootLabel}</dd>
+                    </div>
+                    <div>
+                      <dt>Base</dt>
+                      <dd>{row.baseKey}</dd>
+                    </div>
+                    <div>
+                      <dt>Workflow</dt>
+                      <dd>{row.workflowId}</dd>
+                    </div>
+                  </dl>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
 
         <form
           className="composer"

@@ -13,6 +13,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type ClientContextPlacement"));
     assert!(bindings.contains("export type ClientContextSourceKind"));
     assert!(bindings.contains("export type ClientCodingWorkflow"));
+    assert!(bindings.contains("export type ClientWorktreeLifecycle"));
     assert!(bindings.contains("export type ClientMemoryProposal"));
     assert!(bindings.contains("export type ClientAgentHandoff"));
     assert!(bindings.contains("export type ClientReviewerGate"));
@@ -54,12 +55,18 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type ApplyPatchDryRunOperationKind"));
     assert!(bindings.contains("export type PatchProposal"));
     assert!(bindings.contains("export type PatchApplicationRecord"));
+    assert!(bindings.contains("export type PolicyDecisionId"));
     assert!(bindings.contains("export type TestPlanRecord"));
+    assert!(bindings.contains("export type TestEvidenceSummaryId"));
+    assert!(bindings.contains("export type TestEvidenceSummaryRecord"));
+    assert!(bindings.contains("export type TestEvidenceSummaryStatus"));
     assert!(bindings.contains("export type TestRunRecord"));
     assert!(bindings.contains("export type ReviewBundle"));
     assert!(bindings.contains("export type RestorePlanRecord"));
     assert!(bindings.contains("export type WorkspaceCheckpointLifecycleRecord"));
     assert!(bindings.contains("export type WorkspaceCheckpointLifecycleStatus"));
+    assert!(bindings.contains("export type WorkspaceWorktreeId"));
+    assert!(bindings.contains("export type WorkspaceWorktreeLifecycleStatus"));
     assert!(bindings.contains("export type SnapshotId"));
     assert!(bindings.contains("export type ClientSnapshot"));
     assert!(bindings.contains("export type ContextId"));
@@ -71,6 +78,7 @@ fn generated_bindings_include_gui_dtos_without_forbidden_runtime_commands() {
     assert!(bindings.contains("export type RuntimeApiCommandAck"));
     assert!(bindings.contains("context_handles"));
     assert!(bindings.contains("coding_workflows"));
+    assert!(bindings.contains("worktree_lifecycles"));
     assert!(bindings.contains("apply_patch_preflights"));
     assert!(bindings.contains("apply_patch_executions"));
     assert!(bindings.contains("loopback_dev_token"));

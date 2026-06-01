@@ -55,23 +55,24 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tessera_protocol::{
     AgentProfile, AgentProfileId, AgentRunSummary, AgentStepStatus, AgentStepSummary, ArtifactId,
-    ArtifactKind, ClientInstanceId, ContextBudget, ContextId, ContextPlacement, ContextReference,
-    ContextSource, ContextSourceKind, Diagnostic, DiagnosticReport, DiagnosticReportId, EventFrame,
-    EventRange, ExtensionMap, InstructionLoadStatus, InstructionRedactionStatus, InstructionSource,
-    InstructionSourceKind, ItemId, ModelProfileId, NoProgressAction, NoProgressLoop,
-    NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode, OsSandboxNetwork, OsSandboxProfile,
-    OsSandboxProfileId, OsSandboxShell, PolicyDecisionId, PolicyOutcome, ProviderCapability,
-    ProviderId, ResumeMode, RouteDecision, RouteDecisionId, RouteStrategy, RunEvent,
-    RuntimeApiEventStreamRequest, RuntimeInstanceId, SandboxDecision, SandboxDecisionId,
-    SandboxDecisionKind, SkillActivation, SkillActivationStatus, SkillActivationStep,
-    SkillEntrypoint, SkillEntrypointFormat, SkillId, SkillLoadStatus, SkillManifest, SkillPolicy,
-    SkillRedactionStatus, SkillReferenceSource, SkillRequirements, SkillSource, SkillSourceKind,
-    SkillStepKind, SkillStepStatus, SnapshotId, SnapshotKind, TaskId, TaskKind, TaskOwnerHeartbeat,
-    TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskPauseCheckpoint,
-    TaskPauseCheckpointId, TaskReattachMode, TaskReattachRecord, TaskStatus, ThreadId, Timestamp,
-    ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId, ToolPermission, ToolPolicyDecision,
-    ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolSideEffect, TraceRecord,
-    TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    ArtifactKind, ClientInstanceId, CodingWorkflowId, ContextBudget, ContextId, ContextPlacement,
+    ContextReference, ContextSource, ContextSourceKind, Diagnostic, DiagnosticReport,
+    DiagnosticReportId, EventFrame, EventRange, ExtensionMap, InstructionLoadStatus,
+    InstructionRedactionStatus, InstructionSource, InstructionSourceKind, ItemId, ModelProfileId,
+    NoProgressAction, NoProgressLoop, NoProgressSignalKind, OsSandboxFilesystem, OsSandboxMode,
+    OsSandboxNetwork, OsSandboxProfile, OsSandboxProfileId, OsSandboxShell, PolicyDecisionId,
+    PolicyOutcome, ProviderCapability, ProviderId, ResumeMode, RouteDecision, RouteDecisionId,
+    RouteStrategy, RunEvent, RuntimeApiEventStreamRequest, RuntimeInstanceId, SandboxDecision,
+    SandboxDecisionId, SandboxDecisionKind, SkillActivation, SkillActivationStatus,
+    SkillActivationStep, SkillEntrypoint, SkillEntrypointFormat, SkillId, SkillLoadStatus,
+    SkillManifest, SkillPolicy, SkillRedactionStatus, SkillReferenceSource, SkillRequirements,
+    SkillSource, SkillSourceKind, SkillStepKind, SkillStepStatus, SnapshotId, SnapshotKind, TaskId,
+    TaskKind, TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
+    TaskPauseCheckpoint, TaskPauseCheckpointId, TaskReattachMode, TaskReattachRecord, TaskStatus,
+    ThreadId, Timestamp, ToolCallRequest, ToolDescriptor, ToolDispatch, ToolId, ToolPermission,
+    ToolPolicyDecision, ToolRepairId, ToolRepairKind, ToolRepairReport, ToolResult, ToolSideEffect,
+    TraceRecord, TurnId, WorkspaceAccess, WorkspaceCheckpoint, WorkspaceGuardrail, WorkspaceScope,
+    WorkspaceWorktreeId, WorkspaceWorktreeLifecycleRecord, WorkspaceWorktreeLifecycleStatus,
 };
 use tessera_providers::{ChatProvider, ProviderError, ProviderMessage, ProviderRequest};
 use tessera_storage::TraceStore;
@@ -3083,6 +3084,63 @@ pub struct RuntimePauseCheckpointSummary {
     pub created_at: Option<Timestamp>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeWorktreeLifecycleSummary {
+    pub worktree_id: WorkspaceWorktreeId,
+    pub workflow_id: CodingWorkflowId,
+    pub task_id: TaskId,
+    pub trace_id: String,
+    pub first_event_seq: u64,
+    pub latest_event_seq: u64,
+    pub source_commit: String,
+    pub source_branch_label: Option<String>,
+    pub worktree_root_label: String,
+    pub worktree_base_key: String,
+    pub latest_status: WorkspaceWorktreeLifecycleStatus,
+    pub latest_reason: Option<String>,
+    pub created_for_request_id: Option<tessera_protocol::MutationRequestId>,
+    pub created_for_patch_id: Option<tessera_protocol::PatchProposalId>,
+    pub evidence: Vec<tessera_protocol::HandoffEvidenceRef>,
+}
+
+impl RuntimeWorktreeLifecycleSummary {
+    fn from_record(record: &TraceRecord, lifecycle: WorkspaceWorktreeLifecycleRecord) -> Self {
+        Self {
+            worktree_id: lifecycle.worktree_id,
+            workflow_id: lifecycle.workflow_id,
+            task_id: lifecycle.task_id,
+            trace_id: lifecycle.trace_id,
+            first_event_seq: record.seq,
+            latest_event_seq: record.seq,
+            source_commit: lifecycle.source_commit,
+            source_branch_label: lifecycle.source_branch_label,
+            worktree_root_label: lifecycle.worktree_root_label,
+            worktree_base_key: lifecycle.worktree_base_key,
+            latest_status: lifecycle.lifecycle_status,
+            latest_reason: Some(lifecycle.reason),
+            created_for_request_id: lifecycle.created_for_request_id,
+            created_for_patch_id: lifecycle.created_for_patch_id,
+            evidence: lifecycle.evidence,
+        }
+    }
+
+    fn apply_record(&mut self, record: &TraceRecord, lifecycle: WorkspaceWorktreeLifecycleRecord) {
+        self.workflow_id = lifecycle.workflow_id;
+        self.task_id = lifecycle.task_id;
+        self.trace_id = lifecycle.trace_id;
+        self.latest_event_seq = record.seq;
+        self.source_commit = lifecycle.source_commit;
+        self.source_branch_label = lifecycle.source_branch_label;
+        self.worktree_root_label = lifecycle.worktree_root_label;
+        self.worktree_base_key = lifecycle.worktree_base_key;
+        self.latest_status = lifecycle.lifecycle_status;
+        self.latest_reason = Some(lifecycle.reason);
+        self.created_for_request_id = lifecycle.created_for_request_id;
+        self.created_for_patch_id = lifecycle.created_for_patch_id;
+        self.evidence = lifecycle.evidence;
+    }
+}
+
 impl RuntimePauseCheckpointSummary {
     fn from_checkpoint(record: &TraceRecord, checkpoint: TaskPauseCheckpoint) -> Self {
         Self {
@@ -3309,6 +3367,24 @@ impl RuntimeReader {
         }
         checkpoints.sort_by_key(|checkpoint| checkpoint.event_seq);
         Ok(checkpoints)
+    }
+
+    pub fn list_worktree_lifecycles(
+        &self,
+        trace_id: &str,
+    ) -> Result<Vec<RuntimeWorktreeLifecycleSummary>> {
+        let records = self.store.read_trace_records(trace_id)?;
+        let mut lifecycles = Vec::new();
+        for record in records {
+            apply_worktree_lifecycle_record(&mut lifecycles, &record)?;
+        }
+        lifecycles.sort_by(|left, right| {
+            left.first_event_seq
+                .cmp(&right.first_event_seq)
+                .then_with(|| left.latest_event_seq.cmp(&right.latest_event_seq))
+                .then_with(|| left.worktree_id.as_str().cmp(right.worktree_id.as_str()))
+        });
+        Ok(lifecycles)
     }
 
     pub fn find_pause_checkpoint(
@@ -4041,6 +4117,36 @@ fn apply_pause_checkpoint_record(
     }
 
     checkpoints.push(summary);
+    Ok(())
+}
+
+fn apply_worktree_lifecycle_record(
+    lifecycles: &mut Vec<RuntimeWorktreeLifecycleSummary>,
+    record: &TraceRecord,
+) -> Result<()> {
+    if record.event_kind != "workspace_worktree_lifecycle_recorded" {
+        return Ok(());
+    }
+
+    let Some(lifecycle_payload) = record.payload.get("record") else {
+        return Ok(());
+    };
+    let lifecycle: WorkspaceWorktreeLifecycleRecord =
+        serde_json::from_value(lifecycle_payload.clone())?;
+
+    if let Some(index) = lifecycles
+        .iter()
+        .position(|existing| existing.worktree_id == lifecycle.worktree_id)
+    {
+        if lifecycles[index].latest_event_seq <= record.seq {
+            lifecycles[index].apply_record(record, lifecycle);
+        }
+        return Ok(());
+    }
+
+    lifecycles.push(RuntimeWorktreeLifecycleSummary::from_record(
+        record, lifecycle,
+    ));
     Ok(())
 }
 

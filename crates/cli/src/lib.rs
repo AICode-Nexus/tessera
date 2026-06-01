@@ -20,10 +20,10 @@ use tessera_core::{
     MutationEnforcementPlan, MutationEnforcementPlanRequest, MutationEnforcementPlanner,
     ReplayRunner, ReplaySummary, RunCancellationToken, RunControls, RunPauseToken,
     RuntimeEventQuery, RuntimePauseCheckpointSummary, RuntimeReader, RuntimeSessionSummary,
-    RuntimeTaskOwnerSummary, RuntimeTaskResumer, SkillActivationRequest, SkillDiscoveryOptions,
-    SkillDiscoveryReport, SkillRuntimeOptions, SkillRuntimePlanner, TraceApplyPatchResolveRequest,
-    TraceApplyPatchResolvedEnvelope, TraceApplyPatchResolver, TraceApplyPatchSelector,
-    WorktreeRetentionPolicy,
+    RuntimeTaskOwnerSummary, RuntimeTaskResumer, RuntimeWorktreeLifecycleSummary,
+    SkillActivationRequest, SkillDiscoveryOptions, SkillDiscoveryReport, SkillRuntimeOptions,
+    SkillRuntimePlanner, TraceApplyPatchResolveRequest, TraceApplyPatchResolvedEnvelope,
+    TraceApplyPatchResolver, TraceApplyPatchSelector, WorktreeRetentionPolicy,
 };
 use tessera_protocol::{
     AgentHandoffId, AgentProfile, AgentProfileId, AgentRunSummary, ApplyPatchDryRunOperationKind,
@@ -219,6 +219,31 @@ pub struct CliWorktreeCleanupOptions {
     pub worktree_path: PathBuf,
     pub source_root: Option<PathBuf>,
     pub dry_run: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CliWorktreeListOptions {
+    pub trace_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliWorktreeListOutput {
+    pub trace_id: String,
+    pub worktree_id: String,
+    pub workflow_id: String,
+    pub task_id: String,
+    pub first_event_seq: u64,
+    pub latest_event_seq: u64,
+    pub latest_status: String,
+    pub source_commit: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_branch_label: Option<String>,
+    pub worktree_root_label: String,
+    pub worktree_base_key: String,
+    pub created_for_request_id: Option<String>,
+    pub created_for_patch_id: Option<String>,
+    pub trace_cleanup_candidate: bool,
+    pub trace_cleanup_candidate_note: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -2315,6 +2340,49 @@ pub fn run_worktree_cleanup_options(
     ))
 }
 
+pub fn run_worktree_list_options(
+    data_dir: impl AsRef<Path>,
+    options: CliWorktreeListOptions,
+) -> Result<Vec<CliWorktreeListOutput>> {
+    validate_worktree_list_options(&options)?;
+    let data_dir = data_dir.as_ref();
+    let created_worktree_ids_with_refs =
+        worktree_lifecycle_created_ids_with_refs(data_dir, &options.trace_id)?;
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    let lifecycles = reader.list_worktree_lifecycles(&options.trace_id)?;
+    Ok(lifecycles
+        .iter()
+        .map(|lifecycle| {
+            CliWorktreeListOutput::from_lifecycle(
+                lifecycle,
+                created_worktree_ids_with_refs.contains(lifecycle.worktree_id.as_str()),
+            )
+        })
+        .collect())
+}
+
+pub fn format_worktree_list_lines(lifecycles: &[CliWorktreeListOutput]) -> Vec<String> {
+    if lifecycles.is_empty() {
+        return vec!["worktree lifecycle records: none".to_string()];
+    }
+
+    lifecycles
+        .iter()
+        .map(|lifecycle| {
+            format!(
+                "worktree {} status={} root_label={} base_key={} source_commit={} trace_cleanup_candidate={} ({})",
+                lifecycle.worktree_id,
+                lifecycle.latest_status,
+                lifecycle.worktree_root_label,
+                lifecycle.worktree_base_key,
+                lifecycle.source_commit,
+                lifecycle.trace_cleanup_candidate,
+                lifecycle.trace_cleanup_candidate_note,
+            )
+        })
+        .collect()
+}
+
 struct ResolvedTraceApplyPatchInput {
     resolved: TraceApplyPatchResolvedEnvelope,
     patch_body: String,
@@ -2379,6 +2447,8 @@ fn resolve_retained_worktree_record(
     let store = TraceStore::open(data_dir)?;
     let records = store.read_trace_records(trace_id)?;
     let mut saw_created = false;
+    let mut saw_created_with_refs = false;
+    let mut saw_retained = false;
     let mut latest = None;
 
     for trace_record in records {
@@ -2392,20 +2462,69 @@ fn resolve_retained_worktree_record(
         }
         if record.lifecycle_status == WorkspaceWorktreeLifecycleStatus::Created {
             saw_created = true;
+            if record.created_for_request_id.is_some() && record.created_for_patch_id.is_some() {
+                saw_created_with_refs = true;
+            }
+        }
+        if record.lifecycle_status == WorkspaceWorktreeLifecycleStatus::Retained {
+            saw_retained = true;
         }
         latest = Some(record);
     }
 
     let Some(record) = latest else {
-        anyhow::bail!("retained worktree lifecycle evidence not found");
+        anyhow::bail!("no matching worktree lifecycle records found");
     };
-    if !saw_created || record.lifecycle_status != WorkspaceWorktreeLifecycleStatus::Retained {
-        anyhow::bail!("retained worktree lifecycle evidence not found");
+    if !saw_created {
+        anyhow::bail!("worktree lifecycle was never created");
+    }
+    if !saw_created_with_refs {
+        anyhow::bail!("created worktree lifecycle record is missing request or patch refs");
+    }
+    match record.lifecycle_status {
+        WorkspaceWorktreeLifecycleStatus::Retained => {}
+        WorkspaceWorktreeLifecycleStatus::CleanupCompleted => {
+            anyhow::bail!("worktree lifecycle was already cleaned");
+        }
+        WorkspaceWorktreeLifecycleStatus::CleanupFailed => {
+            anyhow::bail!("worktree lifecycle latest cleanup failed");
+        }
+        _ => {
+            anyhow::bail!("worktree lifecycle is not retained");
+        }
+    }
+    if !saw_retained {
+        anyhow::bail!("worktree lifecycle is not retained");
     }
     if !record.worktree_root_label.starts_with("worktree:") {
-        anyhow::bail!("retained worktree lifecycle evidence is not for a generated worktree");
+        anyhow::bail!("retained worktree lifecycle is not generated");
     }
     Ok(record)
+}
+
+fn worktree_lifecycle_created_ids_with_refs(
+    data_dir: &Path,
+    trace_id: &str,
+) -> Result<HashSet<String>> {
+    let store = TraceStore::open(data_dir)?;
+    let records = store.read_trace_records(trace_id)?;
+    let mut ids = HashSet::new();
+
+    for trace_record in records {
+        if trace_record.event_kind != "workspace_worktree_lifecycle_recorded" {
+            continue;
+        }
+        let record: WorkspaceWorktreeLifecycleRecord =
+            serde_json::from_value(trace_record.payload["record"].clone())?;
+        if record.lifecycle_status == WorkspaceWorktreeLifecycleStatus::Created
+            && record.created_for_request_id.is_some()
+            && record.created_for_patch_id.is_some()
+        {
+            ids.insert(record.worktree_id.to_string());
+        }
+    }
+
+    Ok(ids)
 }
 
 fn resolve_auto_worktree_source_root(source_root: Option<&Path>) -> Result<PathBuf> {
@@ -2776,6 +2895,13 @@ fn validate_worktree_cleanup_options(options: &CliWorktreeCleanupOptions) -> Res
     }
     if options.worktree_path.as_os_str().is_empty() {
         anyhow::bail!("--worktree-path must not be empty");
+    }
+    Ok(())
+}
+
+fn validate_worktree_list_options(options: &CliWorktreeListOptions) -> Result<()> {
+    if options.trace_id.trim().is_empty() {
+        anyhow::bail!("--trace must not be empty");
     }
     Ok(())
 }
@@ -3309,6 +3435,42 @@ impl CliWorktreeCleanupOutput {
             worktree_lifecycle_status: status.to_string(),
             source_commit: created.plan.source_commit.clone(),
             worktree_root_label: created.plan.worktree_root_label.clone(),
+        }
+    }
+}
+
+impl CliWorktreeListOutput {
+    fn from_lifecycle(lifecycle: &RuntimeWorktreeLifecycleSummary, saw_created: bool) -> Self {
+        let trace_cleanup_candidate = saw_created
+            && lifecycle.latest_status == WorkspaceWorktreeLifecycleStatus::Retained
+            && lifecycle.worktree_root_label.starts_with("worktree:")
+            && lifecycle.created_for_request_id.is_some()
+            && lifecycle.created_for_patch_id.is_some();
+
+        Self {
+            trace_id: lifecycle.trace_id.clone(),
+            worktree_id: lifecycle.worktree_id.to_string(),
+            workflow_id: lifecycle.workflow_id.to_string(),
+            task_id: lifecycle.task_id.to_string(),
+            first_event_seq: lifecycle.first_event_seq,
+            latest_event_seq: lifecycle.latest_event_seq,
+            latest_status: worktree_lifecycle_status_label(lifecycle.latest_status).to_string(),
+            source_commit: lifecycle.source_commit.clone(),
+            source_branch_label: lifecycle.source_branch_label.clone(),
+            worktree_root_label: lifecycle.worktree_root_label.clone(),
+            worktree_base_key: lifecycle.worktree_base_key.clone(),
+            created_for_request_id: lifecycle
+                .created_for_request_id
+                .as_ref()
+                .map(ToString::to_string),
+            created_for_patch_id: lifecycle
+                .created_for_patch_id
+                .as_ref()
+                .map(ToString::to_string),
+            trace_cleanup_candidate,
+            trace_cleanup_candidate_note:
+                "trace evidence only; cleanup still requires explicit --worktree-path validation"
+                    .to_string(),
         }
     }
 }

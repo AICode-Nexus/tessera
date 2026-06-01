@@ -1,5 +1,6 @@
 export type {
   ClientArtifact,
+  ClientCodingWorkflow,
   ClientIntent,
   ClientMessage,
   ClientMessageRole,
@@ -8,6 +9,7 @@ export type {
   ClientStatus,
   ClientTask,
   ClientTelemetrySummary,
+  ClientWorktreeLifecycle,
   GuiCommandOutcome,
   GuiEvent,
   GuiProfile,
@@ -21,4 +23,32 @@ export type {
 export interface ShellMetric {
   label: string
   value: string
+}
+
+export interface CodingWorkflowRow {
+  id: string
+  taskId: string
+  active: boolean
+  scopeRootLabel: string
+  allowedPathCount: number
+  deniedPathCount: number
+  mutationMode: string
+  worktreeRequired: boolean
+  patchCount: number
+  reviewCount: number
+  testPlanCount: number
+  testRunCount: number
+  testEvidenceCount: number
+  failedTestEvidenceCount: number
+  blockedTestEvidenceCount: number
+  restoreCount: number
+  blockedRestoreCount: number
+}
+
+export interface WorktreeLifecycleRow {
+  id: string
+  workflowId: string
+  status: string
+  rootLabel: string
+  baseKey: string
 }
