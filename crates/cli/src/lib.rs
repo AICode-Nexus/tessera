@@ -235,8 +235,6 @@ pub struct CliWorktreeListOutput {
     pub first_event_seq: u64,
     pub latest_event_seq: u64,
     pub latest_status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub latest_reason: Option<String>,
     pub source_commit: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_branch_label: Option<String>,
@@ -2449,6 +2447,7 @@ fn resolve_retained_worktree_record(
     let store = TraceStore::open(data_dir)?;
     let records = store.read_trace_records(trace_id)?;
     let mut saw_created = false;
+    let mut saw_created_with_refs = false;
     let mut saw_retained = false;
     let mut latest = None;
 
@@ -2463,6 +2462,9 @@ fn resolve_retained_worktree_record(
         }
         if record.lifecycle_status == WorkspaceWorktreeLifecycleStatus::Created {
             saw_created = true;
+            if record.created_for_request_id.is_some() && record.created_for_patch_id.is_some() {
+                saw_created_with_refs = true;
+            }
         }
         if record.lifecycle_status == WorkspaceWorktreeLifecycleStatus::Retained {
             saw_retained = true;
@@ -2475,6 +2477,9 @@ fn resolve_retained_worktree_record(
     };
     if !saw_created {
         anyhow::bail!("worktree lifecycle was never created");
+    }
+    if !saw_created_with_refs {
+        anyhow::bail!("created worktree lifecycle record is missing request or patch refs");
     }
     match record.lifecycle_status {
         WorkspaceWorktreeLifecycleStatus::Retained => {}
@@ -3450,7 +3455,6 @@ impl CliWorktreeListOutput {
             first_event_seq: lifecycle.first_event_seq,
             latest_event_seq: lifecycle.latest_event_seq,
             latest_status: worktree_lifecycle_status_label(lifecycle.latest_status).to_string(),
-            latest_reason: lifecycle.latest_reason.clone(),
             source_commit: lifecycle.source_commit.clone(),
             source_branch_label: lifecycle.source_branch_label.clone(),
             worktree_root_label: lifecycle.worktree_root_label.clone(),

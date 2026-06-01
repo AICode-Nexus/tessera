@@ -17,7 +17,8 @@ describe('GUI shell smoke path', () => {
     render(<App />)
 
     expect(await screen.findByText('Mock/replay projection loaded')).toBeInTheDocument()
-    expect(screen.getByLabelText('Coding workflows')).toHaveTextContent(
+    expect(screen.getByLabelText('Coding workflows')).toHaveTextContent('workflow_web_read_only')
+    expect(screen.getByLabelText('Coding workflows')).not.toHaveTextContent(
       'Project read-only workflow metadata',
     )
     expect(screen.getByLabelText('Coding workflows')).toHaveTextContent('Allowed2')

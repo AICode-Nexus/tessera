@@ -191,7 +191,7 @@ function App() {
               workflowRows.map((row) => (
                 <article className="metadata-row" key={row.id}>
                   <div className="metadata-title">
-                    <strong>{row.objective}</strong>
+                    <strong>{row.id}</strong>
                     <span>{row.active ? 'active' : 'inactive'}</span>
                   </div>
                   <dl className="metadata-grid">

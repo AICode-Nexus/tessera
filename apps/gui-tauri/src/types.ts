@@ -28,7 +28,6 @@ export interface ShellMetric {
 export interface CodingWorkflowRow {
   id: string
   taskId: string
-  objective: string
   active: boolean
   scopeRootLabel: string
   allowedPathCount: number

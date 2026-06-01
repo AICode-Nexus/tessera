@@ -1270,6 +1270,65 @@ fn worktree_list_command_emits_json_for_trace_lifecycle() {
 }
 
 #[test]
+fn worktree_list_command_omits_free_form_lifecycle_reasons_from_text_and_json() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let sensitive_path = "/Users/admin/work/tessera/.env";
+    let sensitive_token = "sk-secret-list-reason";
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+    write_trace_worktree_lifecycle_records(
+        &data_dir,
+        vec![
+            trace_worktree_lifecycle_record(
+                WorkspaceWorktreeLifecycleStatus::Planned,
+                "planning generated worktree",
+            ),
+            trace_worktree_lifecycle_record(
+                WorkspaceWorktreeLifecycleStatus::Created,
+                "created generated worktree",
+            ),
+            trace_worktree_lifecycle_record(
+                WorkspaceWorktreeLifecycleStatus::Retained,
+                &format!("retained at {sensitive_path} with token {sensitive_token}"),
+            ),
+        ],
+    );
+
+    let text_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_list_args(&data_dir, false))
+        .output()
+        .unwrap();
+
+    assert!(
+        text_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&text_output.stderr)
+    );
+    let text_stdout = String::from_utf8(text_output.stdout).unwrap();
+    assert!(!text_stdout.contains(sensitive_path));
+    assert!(!text_stdout.contains(sensitive_token));
+
+    let json_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(worktree_list_args(&data_dir, true))
+        .output()
+        .unwrap();
+
+    assert!(
+        json_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&json_output.stderr)
+    );
+    let json_stdout = String::from_utf8(json_output.stdout).unwrap();
+    assert!(!json_stdout.contains("latest_reason"));
+    assert!(!json_stdout.contains(sensitive_path));
+    assert!(!json_stdout.contains(sensitive_token));
+    let lifecycles: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
+    assert!(lifecycles.as_array().unwrap()[0]
+        .get("latest_reason")
+        .is_none());
+}
+
+#[test]
 fn worktree_list_command_requires_created_record_refs_for_cleanup_candidate() {
     let temp = tempfile::tempdir().unwrap();
     let data_dir = temp.path().join("data");
@@ -1307,6 +1366,61 @@ fn worktree_list_command_requires_created_record_refs_for_cleanup_candidate() {
     assert_eq!(lifecycle["latest_status"], "retained");
     assert_eq!(lifecycle["trace_cleanup_candidate"], false);
     assert!(lifecycle.get("worktree_path").is_none());
+}
+
+#[test]
+fn worktree_cleanup_command_requires_created_record_refs_before_dry_run() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = temp.path().join("data");
+    let source_root = temp.path().join("source");
+    let worktree_leaf = format!(
+        "cli-trace-apply-patch-{}",
+        "17bd0f1c0ffee17bd0f1c0ffee17bd0f1c0ffee17bd0f1"
+            .chars()
+            .take(12)
+            .collect::<String>()
+    );
+    let worktree_path = temp.path().join("worktrees").join(worktree_leaf);
+    init_apply_patch_source_repo(&source_root);
+    std::fs::create_dir_all(&worktree_path).unwrap();
+    write_trace_apply_patch_bundle(&data_dir, true, ArtifactBodyRedactionStatus::Clean);
+    write_trace_worktree_lifecycle_records(
+        &data_dir,
+        vec![
+            trace_worktree_lifecycle_record(
+                WorkspaceWorktreeLifecycleStatus::Planned,
+                "isolated worktree planned",
+            ),
+            trace_worktree_lifecycle_record_without_refs(
+                WorkspaceWorktreeLifecycleStatus::Created,
+                "isolated worktree created without request refs",
+            ),
+            trace_worktree_lifecycle_record(
+                WorkspaceWorktreeLifecycleStatus::Retained,
+                "isolated worktree retained with latest refs only",
+            ),
+        ],
+    );
+
+    let mut args = worktree_cleanup_args(
+        &data_dir,
+        &source_root,
+        trace_worktree_id().as_str(),
+        &worktree_path,
+    );
+    args.push("--dry-run".to_string());
+    let cleanup_output = std::process::Command::new(env!("CARGO_BIN_EXE_tessera"))
+        .args(args)
+        .output()
+        .unwrap();
+
+    assert!(!cleanup_output.status.success());
+    assert!(worktree_path.exists());
+    let stderr = String::from_utf8_lossy(&cleanup_output.stderr);
+    assert!(stderr.contains("created worktree lifecycle record is missing request or patch refs"));
+    let trace =
+        std::fs::read_to_string(data_dir.join("traces/trace_cli_trace_apply_patch.jsonl")).unwrap();
+    assert!(!trace.contains("\"lifecycle_status\":\"cleanup_started\""));
 }
 
 #[test]

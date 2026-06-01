@@ -133,6 +133,8 @@ describe('GUI shell view model', () => {
   })
 
   it('builds read-only coding workflow rows from snapshot metadata', () => {
+    const sensitiveObjective =
+      'Fix /Users/admin/work/tessera/.env with token sk-secret-workflow-objective'
     const workflowSnapshot: ClientSnapshot = {
       ...snapshot,
       artifacts: [
@@ -151,7 +153,7 @@ describe('GUI shell view model', () => {
         {
           workflow_id: 'workflow_read_only',
           task_id: 'task_workflow',
-          objective: 'Add read-only workflow panels',
+          objective: sensitiveObjective,
           active: true,
           workspace_scope: {
             workflow_id: 'workflow_read_only',
@@ -252,7 +254,6 @@ describe('GUI shell view model', () => {
       {
         id: 'workflow_read_only',
         taskId: 'task_workflow',
-        objective: 'Add read-only workflow panels',
         active: true,
         scopeRootLabel: 'repo:tessera',
         allowedPathCount: 2,
@@ -272,6 +273,12 @@ describe('GUI shell view model', () => {
     ])
     expect(JSON.stringify(buildCodingWorkflowRows(workflowSnapshot))).not.toContain(
       'apps/gui-tauri/src/App.tsx',
+    )
+    expect(JSON.stringify(buildCodingWorkflowRows(workflowSnapshot))).not.toContain(
+      '/Users/admin/work/tessera/.env',
+    )
+    expect(JSON.stringify(buildCodingWorkflowRows(workflowSnapshot))).not.toContain(
+      'sk-secret-workflow-objective',
     )
     expect(JSON.stringify(buildCodingWorkflowRows(workflowSnapshot))).not.toContain(
       'Needs helper implementation',

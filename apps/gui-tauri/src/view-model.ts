@@ -32,7 +32,6 @@ export function buildCodingWorkflowRows(snapshot: ClientSnapshot): CodingWorkflo
     return {
       id: workflow.workflow_id,
       taskId: workflow.task_id,
-      objective: workflow.objective ?? 'Untitled workflow',
       active: workflow.active,
       scopeRootLabel: workflow.workspace_scope?.root_label ?? 'unscoped',
       allowedPathCount: workflow.workspace_scope?.allowed_paths.length ?? 0,
