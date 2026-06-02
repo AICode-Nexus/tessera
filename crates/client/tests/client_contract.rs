@@ -11,28 +11,28 @@ use tessera_protocol::{
     ApplyPatchDryRunOperationKind, ApplyPatchDryRunOperationSummary, ApplyPatchExecutionBlocker,
     ApplyPatchExecutionId, ApplyPatchExecutionRecord, ApplyPatchExecutionStatus,
     ApplyPatchPreflightBlocker, ApplyPatchPreflightId, ApplyPatchPreflightRecord,
-    ApplyPatchPreflightStatus, ApprovalId, ApprovalStatus, ArtifactId, ArtifactKind,
-    ClientInstanceId, CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextId,
-    ContextPlacement, ContextReference, ContextSource, ContextSourceKind, CostEstimate,
-    ErrorSource, EventFrame, EventRange, HandoffEvidenceKind, HandoffEvidenceRef, ItemId,
-    MemoryProposal, MemoryProposalId, MemoryProposalStatus, MutationMode, MutationRequestId,
-    MutationRequestOperationKind, MutationRequestProposal, MutationRequestStatus, NormalizedError,
-    PatchApplicationOutcome, PatchApplicationRecord, PatchProposal, PatchProposalId,
-    PolicyDecisionId, PolicyOutcome, ProviderCapability, ProviderId, RestorePlanId,
-    RestorePlanRecord, ReviewBundle, ReviewBundleId, ReviewerDecisionKind, ReviewerGateDecision,
-    ReviewerGateId, ReviewerGateRequest, RunEvent, RuntimeInstanceId, SnapshotId,
-    SubagentApprovalForwarding, SubagentApprovalForwardingRecord, SubagentApprovalForwardingStatus,
-    SubagentCancellationCascade, SubagentCancellationRecord, SubagentInactiveParentAction,
-    SubagentInactivePolicy, SubagentInactivePolicyRecord, SubagentRuntimeDecision,
-    SubagentRuntimeDecisionKind, SubagentSessionCaps, SubagentSessionDescriptor, SubagentSessionId,
-    SubagentSessionStatus, SubagentTranscriptArtifactLifecycleRecord,
-    SubagentTranscriptArtifactRecord, SubagentTranscriptArtifactStatus, TaskId, TaskKind,
-    TaskOwnerHeartbeat, TaskOwnerKind, TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId,
-    TaskReattachMode, TaskStatus, TestEvidenceSummaryId, TestEvidenceSummaryRecord,
-    TestEvidenceSummaryStatus, TestPlanId, TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus,
-    Timestamp, ToolApproval, ToolCallId, ToolId, ToolPermission, ToolPolicyDecision,
-    ToolSideEffect, WorkspaceMutationScope, WorkspaceWorktreeId, WorkspaceWorktreeLifecycleRecord,
-    WorkspaceWorktreeLifecycleStatus,
+    ApplyPatchPreflightStatus, ApprovalId, ApprovalStatus, ArtifactBodyRecord,
+    ArtifactBodyRedactionStatus, ArtifactId, ArtifactKind, ClientInstanceId,
+    CodingWorkflowEvidenceRedactionStatus, CodingWorkflowId, ContextId, ContextPlacement,
+    ContextReference, ContextSource, ContextSourceKind, CostEstimate, ErrorSource, EventFrame,
+    EventRange, HandoffEvidenceKind, HandoffEvidenceRef, ItemId, MemoryProposal, MemoryProposalId,
+    MemoryProposalStatus, MutationMode, MutationRequestId, MutationRequestOperationKind,
+    MutationRequestProposal, MutationRequestStatus, NormalizedError, PatchApplicationOutcome,
+    PatchApplicationRecord, PatchProposal, PatchProposalId, PolicyDecisionId, PolicyOutcome,
+    ProviderCapability, ProviderId, RestorePlanId, RestorePlanRecord, ReviewBundle, ReviewBundleId,
+    ReviewerDecisionKind, ReviewerGateDecision, ReviewerGateId, ReviewerGateRequest, RunEvent,
+    RuntimeInstanceId, SnapshotId, SubagentApprovalForwarding, SubagentApprovalForwardingRecord,
+    SubagentApprovalForwardingStatus, SubagentCancellationCascade, SubagentCancellationRecord,
+    SubagentInactiveParentAction, SubagentInactivePolicy, SubagentInactivePolicyRecord,
+    SubagentRuntimeDecision, SubagentRuntimeDecisionKind, SubagentSessionCaps,
+    SubagentSessionDescriptor, SubagentSessionId, SubagentSessionStatus,
+    SubagentTranscriptArtifactLifecycleRecord, SubagentTranscriptArtifactRecord,
+    SubagentTranscriptArtifactStatus, TaskId, TaskKind, TaskOwnerHeartbeat, TaskOwnerKind,
+    TaskOwnerLease, TaskOwnerStatus, TaskOwnershipId, TaskReattachMode, TaskStatus,
+    TestEvidenceSummaryId, TestEvidenceSummaryRecord, TestEvidenceSummaryStatus, TestPlanId,
+    TestPlanRecord, TestRunId, TestRunRecord, TestRunStatus, Timestamp, ToolApproval, ToolCallId,
+    ToolId, ToolPermission, ToolPolicyDecision, ToolSideEffect, WorkspaceMutationScope,
+    WorkspaceWorktreeId, WorkspaceWorktreeLifecycleRecord, WorkspaceWorktreeLifecycleStatus,
 };
 
 #[test]
@@ -825,6 +825,571 @@ fn apply_patch_execution(status: ApplyPatchExecutionStatus) -> ApplyPatchExecuti
         artifact_refs: vec![ArtifactId::from_static("artifact_apply_patch_execution")],
         evidence: vec![coding_diff_evidence()],
     }
+}
+
+fn workflow_inspection_workflow_id() -> CodingWorkflowId {
+    CodingWorkflowId::from("/Users/admin/work/tessera/.env::sk-secret-workflow-id")
+}
+
+fn workflow_inspection_task_id() -> TaskId {
+    TaskId::from("/Users/admin/work/tessera/.env::sk-secret-task-id")
+}
+
+fn workflow_inspection_gate_id(suffix: &str) -> ReviewerGateId {
+    ReviewerGateId::from(format!(
+        "/Users/admin/work/tessera/.env::sk-secret-gate-{suffix}"
+    ))
+}
+
+fn workflow_inspection_evidence(label: &str, summary: &str) -> HandoffEvidenceRef {
+    HandoffEvidenceRef {
+        kind: HandoffEvidenceKind::DiffArtifact,
+        artifact_id: Some(ArtifactId::from(format!(
+            "/Users/admin/work/tessera/.env::sk-secret-artifact-{label}"
+        ))),
+        trace_id: Some(format!(
+            "/Users/admin/work/tessera/.env::sk-secret-trace-{label}"
+        )),
+        event_range: Some(EventRange {
+            start_seq: 3,
+            end_seq: 8,
+        }),
+        label: Some(label.to_string()),
+        summary: Some(summary.to_string()),
+    }
+}
+
+fn workflow_inspection_scope() -> WorkspaceMutationScope {
+    WorkspaceMutationScope {
+        workflow_id: workflow_inspection_workflow_id(),
+        task_id: workflow_inspection_task_id(),
+        root_label: "/Users/admin/work/tessera/.env::sk-secret-root-label".to_string(),
+        allowed_paths: vec!["/Users/admin/work/tessera/.env::sk-secret-allowed".to_string()],
+        denied_paths: vec!["/Users/admin/work/tessera/.env::sk-secret-denied".to_string()],
+        mutation_mode: MutationMode::WorktreeFirst,
+        worktree_required: true,
+        reason: Some("/Users/admin/work/tessera/.env::sk-secret-scope-reason".to_string()),
+    }
+}
+
+fn workflow_inspection_patch_proposal() -> PatchProposal {
+    PatchProposal {
+        patch_id: PatchProposalId::from("/Users/admin/work/tessera/.env::sk-secret-patch-id"),
+        workflow_id: workflow_inspection_workflow_id(),
+        task_id: workflow_inspection_task_id(),
+        summary: "/Users/admin/work/tessera/.env::sk-secret-patch-summary".to_string(),
+        touched_paths: vec!["/Users/admin/work/tessera/.env::sk-secret-touched-path".to_string()],
+        diff_artifacts: vec![
+            workflow_inspection_evidence(
+                "/Users/admin/work/tessera/.env::sk-secret-diff-label",
+                "/Users/admin/work/tessera/.env::sk-secret-diff-summary",
+            ),
+            HandoffEvidenceRef {
+                kind: HandoffEvidenceKind::TraceRange,
+                artifact_id: None,
+                trace_id: Some(
+                    "/Users/admin/work/tessera/.env::sk-secret-trace-only-diff-trace".to_string(),
+                ),
+                event_range: Some(EventRange {
+                    start_seq: 21,
+                    end_seq: 34,
+                }),
+                label: Some(
+                    "/Users/admin/work/tessera/.env::sk-secret-trace-only-diff-label".to_string(),
+                ),
+                summary: Some(
+                    "/Users/admin/work/tessera/.env::sk-secret-trace-only-diff-summary".to_string(),
+                ),
+            },
+        ],
+        risk_labels: vec!["/Users/admin/work/tessera/.env::sk-secret-risk-label".to_string()],
+        required_checkpoint_id: Some(SnapshotId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-checkpoint-id",
+        )),
+        reviewer_gate_id: Some(workflow_inspection_gate_id("accepted")),
+    }
+}
+
+fn workflow_inspection_mutation_request() -> MutationRequestProposal {
+    MutationRequestProposal {
+        request_id: MutationRequestId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-mutation-request-id",
+        ),
+        workflow_id: workflow_inspection_workflow_id(),
+        task_id: workflow_inspection_task_id(),
+        operation: MutationRequestOperationKind::PatchApplication,
+        status: MutationRequestStatus::ReviewerPending,
+        summary: "/Users/admin/work/tessera/.env::sk-secret-mutation-summary".to_string(),
+        requested_paths: vec![
+            "/Users/admin/work/tessera/.env::sk-secret-requested-path".to_string()
+        ],
+        required_checkpoint_id: Some(SnapshotId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-checkpoint-id",
+        )),
+        reviewer_gate_id: Some(workflow_inspection_gate_id("accepted")),
+        policy_decision_id: Some(PolicyDecisionId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-policy-id",
+        )),
+        sandbox_profile_label: Some(
+            "/Users/admin/work/tessera/.env::sk-secret-sandbox-label".to_string(),
+        ),
+        worktree_required: true,
+        evidence: vec![workflow_inspection_evidence(
+            "/Users/admin/work/tessera/.env::sk-secret-mutation-evidence-label",
+            "/Users/admin/work/tessera/.env::sk-secret-mutation-evidence-summary",
+        )],
+    }
+}
+
+fn workflow_inspection_review_bundle(gate_suffix: &str) -> ReviewBundle {
+    ReviewBundle {
+        review_bundle_id: ReviewBundleId::from(format!(
+            "/Users/admin/work/tessera/.env::sk-secret-review-bundle-{gate_suffix}"
+        )),
+        workflow_id: workflow_inspection_workflow_id(),
+        task_id: workflow_inspection_task_id(),
+        reviewer_gate_id: workflow_inspection_gate_id(gate_suffix),
+        patch_ids: vec![PatchProposalId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-patch-id",
+        )],
+        test_run_ids: vec![TestRunId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-test-run-id",
+        )],
+        evidence: vec![workflow_inspection_evidence(
+            "/Users/admin/work/tessera/.env::sk-secret-review-evidence-label",
+            "/Users/admin/work/tessera/.env::sk-secret-review-evidence-summary",
+        )],
+        summary: "/Users/admin/work/tessera/.env::sk-secret-review-summary".to_string(),
+    }
+}
+
+fn workflow_inspection_gate_request(gate_suffix: &str) -> ReviewerGateRequest {
+    ReviewerGateRequest {
+        gate_id: workflow_inspection_gate_id(gate_suffix),
+        handoff_id: AgentHandoffId::from(format!(
+            "/Users/admin/work/tessera/.env::sk-secret-handoff-{gate_suffix}"
+        )),
+        parent_task_id: workflow_inspection_task_id(),
+        requested_decisions: vec![
+            ReviewerDecisionKind::Accept,
+            ReviewerDecisionKind::Reject,
+            ReviewerDecisionKind::RequestRevision,
+        ],
+        evidence: vec![workflow_inspection_evidence(
+            "/Users/admin/work/tessera/.env::sk-secret-gate-evidence-label",
+            "/Users/admin/work/tessera/.env::sk-secret-gate-evidence-summary",
+        )],
+    }
+}
+
+fn workflow_inspection_gate_decision(
+    gate_suffix: &str,
+    decision: ReviewerDecisionKind,
+) -> ReviewerGateDecision {
+    ReviewerGateDecision {
+        gate_id: workflow_inspection_gate_id(gate_suffix),
+        handoff_id: AgentHandoffId::from(format!(
+            "/Users/admin/work/tessera/.env::sk-secret-handoff-{gate_suffix}"
+        )),
+        decision,
+        reviewer: "/Users/admin/work/tessera/.env::sk-secret-reviewer".to_string(),
+        reason_code: "/Users/admin/work/tessera/.env::sk-secret-reviewer-reason".to_string(),
+        comment: Some("/Users/admin/work/tessera/.env::sk-secret-reviewer-comment".to_string()),
+    }
+}
+
+fn workflow_inspection_pending_approval_event() -> RunEvent {
+    RunEvent::ToolPolicyDecisionRecorded {
+        decision: ToolPolicyDecision {
+            decision_id: PolicyDecisionId::from(
+                "/Users/admin/work/tessera/.env::sk-secret-policy-id",
+            ),
+            call_id: ToolCallId::from("/Users/admin/work/tessera/.env::sk-secret-tool-call-id"),
+            tool_id: ToolId::from("/Users/admin/work/tessera/.env::sk-secret-tool-id"),
+            outcome: PolicyOutcome::AskUser,
+            reason: "/Users/admin/work/tessera/.env::sk-secret-approval-reason".to_string(),
+            required_permissions: vec![ToolPermission::FilesystemWrite],
+            side_effects: vec![ToolSideEffect::WritesWorkspace],
+            approval_id: Some(ApprovalId::from(
+                "/Users/admin/work/tessera/.env::sk-secret-approval-id",
+            )),
+        },
+    }
+}
+
+fn workflow_inspection_approval_forwarding_event() -> RunEvent {
+    RunEvent::SubagentApprovalForwardingRecorded {
+        forwarding: SubagentApprovalForwardingRecord {
+            session_id: SubagentSessionId::from(
+                "/Users/admin/work/tessera/.env::sk-secret-session-id",
+            ),
+            parent_task_id: workflow_inspection_task_id(),
+            approval_id: ApprovalId::from("/Users/admin/work/tessera/.env::sk-secret-approval-id"),
+            reviewer_gate_id: Some(workflow_inspection_gate_id("accepted")),
+            status: SubagentApprovalForwardingStatus::QueuedForReviewer,
+            reason: "/Users/admin/work/tessera/.env::sk-secret-forwarding-reason".to_string(),
+        },
+    }
+}
+
+fn workflow_inspection_apply_patch_preflight() -> ApplyPatchPreflightRecord {
+    ApplyPatchPreflightRecord {
+        preflight_id: ApplyPatchPreflightId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-preflight-id",
+        ),
+        workflow_id: workflow_inspection_workflow_id(),
+        task_id: workflow_inspection_task_id(),
+        request_id: MutationRequestId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-mutation-request-id",
+        ),
+        patch_id: PatchProposalId::from("/Users/admin/work/tessera/.env::sk-secret-patch-id"),
+        status: ApplyPatchPreflightStatus::Blocked,
+        blockers: vec![ApplyPatchPreflightBlocker::ExecutorUnavailable],
+        affected_paths: vec![
+            "/Users/admin/work/tessera/.env::sk-secret-preflight-affected-path".to_string(),
+        ],
+        operations: vec![ApplyPatchDryRunOperationSummary {
+            path: "/Users/admin/work/tessera/.env::sk-secret-preflight-operation-path".to_string(),
+            operation: ApplyPatchDryRunOperationKind::Modify,
+        }],
+        executor_blocked: true,
+        executor_block_reason: "/Users/admin/work/tessera/.env::sk-secret-executor-block-reason"
+            .to_string(),
+        evidence: vec![workflow_inspection_evidence(
+            "/Users/admin/work/tessera/.env::sk-secret-preflight-evidence-label",
+            "/Users/admin/work/tessera/.env::sk-secret-preflight-evidence-summary",
+        )],
+    }
+}
+
+fn workflow_inspection_apply_patch_execution() -> ApplyPatchExecutionRecord {
+    ApplyPatchExecutionRecord {
+        execution_id: ApplyPatchExecutionId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-execution-id",
+        ),
+        preflight_id: ApplyPatchPreflightId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-preflight-id",
+        ),
+        workflow_id: workflow_inspection_workflow_id(),
+        task_id: workflow_inspection_task_id(),
+        request_id: MutationRequestId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-mutation-request-id",
+        ),
+        patch_id: PatchProposalId::from("/Users/admin/work/tessera/.env::sk-secret-patch-id"),
+        checkpoint_id: Some(SnapshotId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-checkpoint-id",
+        )),
+        reviewer_gate_id: Some(workflow_inspection_gate_id("accepted")),
+        policy_decision_id: Some(PolicyDecisionId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-policy-id",
+        )),
+        sandbox_profile_label: Some(
+            "/Users/admin/work/tessera/.env::sk-secret-sandbox-label".to_string(),
+        ),
+        isolated_root_label: "/Users/admin/work/tessera/.env::sk-secret-isolated-root".to_string(),
+        executor_label: "/Users/admin/work/tessera/.env::sk-secret-executor-label".to_string(),
+        status: ApplyPatchExecutionStatus::Failed,
+        blockers: vec![ApplyPatchExecutionBlocker::HunkConflict],
+        affected_paths: vec![
+            "/Users/admin/work/tessera/.env::sk-secret-execution-affected-path".to_string(),
+        ],
+        conflict_paths: vec![
+            "/Users/admin/work/tessera/.env::sk-secret-execution-conflict-path".to_string(),
+        ],
+        artifact_refs: vec![ArtifactId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-execution-artifact",
+        )],
+        evidence: vec![workflow_inspection_evidence(
+            "/Users/admin/work/tessera/.env::sk-secret-execution-evidence-label",
+            "/Users/admin/work/tessera/.env::sk-secret-execution-evidence-summary",
+        )],
+    }
+}
+
+fn workflow_inspection_restore_plan() -> RestorePlanRecord {
+    RestorePlanRecord {
+        restore_plan_id: RestorePlanId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-restore-plan-id",
+        ),
+        workflow_id: workflow_inspection_workflow_id(),
+        task_id: workflow_inspection_task_id(),
+        checkpoint_id: SnapshotId::from("/Users/admin/work/tessera/.env::sk-secret-checkpoint-id"),
+        target_paths: vec![
+            "/Users/admin/work/tessera/.env::sk-secret-restore-target-path".to_string(),
+        ],
+        reason: "/Users/admin/work/tessera/.env::sk-secret-restore-reason".to_string(),
+        execution_blocked: true,
+    }
+}
+
+fn workflow_inspection_test_plan() -> TestPlanRecord {
+    TestPlanRecord {
+        test_plan_id: TestPlanId::from("/Users/admin/work/tessera/.env::sk-secret-test-plan-id"),
+        workflow_id: workflow_inspection_workflow_id(),
+        task_id: workflow_inspection_task_id(),
+        command_labels: vec![
+            "/Users/admin/work/tessera/.env::sk-secret-test-command-label".to_string(),
+        ],
+        affected_paths: vec!["/Users/admin/work/tessera/.env::sk-secret-test-path".to_string()],
+        required_artifact_kinds: vec![ArtifactKind::TestReport],
+    }
+}
+
+fn workflow_inspection_test_run() -> TestRunRecord {
+    TestRunRecord {
+        test_run_id: TestRunId::from("/Users/admin/work/tessera/.env::sk-secret-test-run-id"),
+        workflow_id: workflow_inspection_workflow_id(),
+        task_id: workflow_inspection_task_id(),
+        test_plan_id: Some(TestPlanId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-test-plan-id",
+        )),
+        command_label: "/Users/admin/work/tessera/.env::sk-secret-test-run-command".to_string(),
+        status: TestRunStatus::Failed,
+        exit_code: Some(101),
+        duration_ms: Some(500),
+        stdout_artifact_id: Some(ArtifactId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-stdout-artifact-label",
+        )),
+        stderr_artifact_id: Some(ArtifactId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-stderr-artifact-label",
+        )),
+        diagnostics: vec![workflow_inspection_evidence(
+            "/Users/admin/work/tessera/.env::sk-secret-diagnostic-label",
+            "/Users/admin/work/tessera/.env::sk-secret-diagnostic-summary",
+        )],
+        redaction_status: CodingWorkflowEvidenceRedactionStatus::Redacted,
+    }
+}
+
+fn workflow_inspection_test_evidence_summary() -> TestEvidenceSummaryRecord {
+    TestEvidenceSummaryRecord {
+        summary_id: TestEvidenceSummaryId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-test-summary-id",
+        ),
+        workflow_id: workflow_inspection_workflow_id(),
+        task_id: workflow_inspection_task_id(),
+        test_plan_ids: vec![TestPlanId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-test-plan-id",
+        )],
+        test_run_ids: vec![TestRunId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-test-run-id",
+        )],
+        status: TestEvidenceSummaryStatus::Failed,
+        total_runs: 1,
+        passed_runs: 0,
+        failed_runs: 1,
+        cancelled_runs: 0,
+        error_runs: 0,
+        required_artifact_kinds: vec![ArtifactKind::TestReport],
+        artifact_refs: vec![ArtifactId::from(
+            "/Users/admin/work/tessera/.env::sk-secret-test-artifact-body-text",
+        )],
+        diagnostics: vec![workflow_inspection_evidence(
+            "/Users/admin/work/tessera/.env::sk-secret-test-evidence-diagnostic-label",
+            "/Users/admin/work/tessera/.env::sk-secret-test-evidence-diagnostic-summary",
+        )],
+        redaction_status: CodingWorkflowEvidenceRedactionStatus::Redacted,
+        summary: "/Users/admin/work/tessera/.env::sk-secret-test-evidence-summary".to_string(),
+        execution_blocked: true,
+    }
+}
+
+fn workflow_inspection_artifact_body_event() -> RunEvent {
+    RunEvent::ArtifactBodyRecorded {
+        record: ArtifactBodyRecord {
+            artifact_id: ArtifactId::from(
+                "/Users/admin/work/tessera/.env::sk-secret-artifact-body-id",
+            ),
+            kind: ArtifactKind::Patch,
+            task_id: Some(workflow_inspection_task_id()),
+            media_type: "text/x-patch".to_string(),
+            byte_len: 42,
+            storage_uri: "/Users/admin/work/tessera/.env::sk-secret-artifact-body-storage"
+                .to_string(),
+            redaction_status: ArtifactBodyRedactionStatus::Redacted,
+            summary: Some(
+                "/Users/admin/work/tessera/.env::sk-secret-artifact-body-summary".to_string(),
+            ),
+            metadata: None,
+        },
+    }
+}
+
+fn workflow_inspection_events() -> Vec<RunEvent> {
+    vec![
+        RunEvent::CodingWorkflowStarted {
+            workflow_id: workflow_inspection_workflow_id(),
+            task_id: workflow_inspection_task_id(),
+            objective: "/Users/admin/work/tessera/.env::sk-secret-objective".to_string(),
+        },
+        RunEvent::WorkspaceMutationScopeRecorded {
+            scope: workflow_inspection_scope(),
+        },
+        RunEvent::PatchProposalRecorded {
+            proposal: workflow_inspection_patch_proposal(),
+        },
+        RunEvent::MutationRequestProposalRecorded {
+            proposal: workflow_inspection_mutation_request(),
+        },
+        RunEvent::ReviewBundleRecorded {
+            bundle: workflow_inspection_review_bundle("accepted"),
+        },
+        RunEvent::ReviewBundleRecorded {
+            bundle: workflow_inspection_review_bundle("rejected"),
+        },
+        RunEvent::ReviewBundleRecorded {
+            bundle: workflow_inspection_review_bundle("revision"),
+        },
+        RunEvent::ReviewBundleRecorded {
+            bundle: workflow_inspection_review_bundle("pending"),
+        },
+        RunEvent::ReviewerGateRequested {
+            request: workflow_inspection_gate_request("accepted"),
+        },
+        RunEvent::ReviewerGateRequested {
+            request: workflow_inspection_gate_request("rejected"),
+        },
+        RunEvent::ReviewerGateRequested {
+            request: workflow_inspection_gate_request("revision"),
+        },
+        RunEvent::ReviewerGateRequested {
+            request: workflow_inspection_gate_request("pending"),
+        },
+        RunEvent::ReviewerGateResolved {
+            decision: workflow_inspection_gate_decision("accepted", ReviewerDecisionKind::Accept),
+        },
+        RunEvent::ReviewerGateResolved {
+            decision: workflow_inspection_gate_decision("rejected", ReviewerDecisionKind::Reject),
+        },
+        RunEvent::ReviewerGateResolved {
+            decision: workflow_inspection_gate_decision(
+                "revision",
+                ReviewerDecisionKind::RequestRevision,
+            ),
+        },
+        workflow_inspection_pending_approval_event(),
+        workflow_inspection_approval_forwarding_event(),
+        RunEvent::ApplyPatchPreflightRecorded {
+            record: workflow_inspection_apply_patch_preflight(),
+        },
+        RunEvent::ApplyPatchExecutionRecorded {
+            record: workflow_inspection_apply_patch_execution(),
+        },
+        RunEvent::RestorePlanRecorded {
+            plan: workflow_inspection_restore_plan(),
+        },
+        RunEvent::TestPlanRecorded {
+            plan: workflow_inspection_test_plan(),
+        },
+        RunEvent::TestRunRecorded {
+            record: workflow_inspection_test_run(),
+        },
+        RunEvent::TestEvidenceSummaryRecorded {
+            record: workflow_inspection_test_evidence_summary(),
+        },
+        workflow_inspection_artifact_body_event(),
+    ]
+}
+
+fn assert_workflow_inspection_projection(snapshot: &ClientSnapshot) {
+    assert_eq!(snapshot.workflow_inspections.len(), 1);
+    let row = &snapshot.workflow_inspections[0];
+    assert_eq!(row.workflow_ref, "workflow:1");
+    assert_eq!(row.task_ref, "task:1");
+    assert!(row.active);
+    assert_eq!(row.mutation_mode.as_deref(), Some("worktree_first"));
+    assert!(row.worktree_required);
+    assert_eq!(row.patch_count, 1);
+    assert_eq!(row.diff_artifact_ref_count, 1);
+    assert_eq!(row.patches_requiring_review_count, 1);
+    assert_eq!(row.review_bundle_count, 4);
+    assert_eq!(row.review_evidence_ref_count, 4);
+    assert_eq!(row.reviewer_gate_count, 4);
+    assert_eq!(row.accepted_reviewer_gate_count, 1);
+    assert_eq!(row.rejected_reviewer_gate_count, 1);
+    assert_eq!(row.revision_requested_reviewer_gate_count, 1);
+    assert_eq!(row.pending_reviewer_gate_count, 1);
+    assert_eq!(row.approval_count, 1);
+    assert_eq!(row.pending_approval_count, 1);
+    assert_eq!(row.resolved_approval_count, 0);
+    assert_eq!(row.apply_patch_preflight_count, 1);
+    assert_eq!(row.executor_ready_preflight_count, 0);
+    assert_eq!(row.executor_blocked_preflight_count, 1);
+    assert_eq!(row.apply_patch_execution_count, 1);
+    assert_eq!(row.successful_apply_patch_execution_count, 0);
+    assert_eq!(row.failed_apply_patch_execution_count, 1);
+    assert_eq!(
+        snapshot.status.workflow_inspection_summary,
+        "inspection workflows 1 / review gates 4 accepted 1 rejected 1 revision_requested 1 pending 1 / approvals 1 pending / diff refs 1"
+    );
+
+    let inspection_json = serde_json::to_string(&snapshot.workflow_inspections).unwrap();
+    for leaked in [
+        "/Users/admin/work/tessera/.env",
+        "sk-secret",
+        "root-label",
+        "allowed",
+        "denied",
+        "objective",
+        "patch-summary",
+        "mutation-summary",
+        "requested-path",
+        "review-summary",
+        "diff-label",
+        "diff-summary",
+        "trace-only-diff-label",
+        "trace-only-diff-summary",
+        "review-evidence-label",
+        "review-evidence-summary",
+        "reviewer-comment",
+        "reviewer-reason",
+        "test-command-label",
+        "stdout-artifact-label",
+        "stderr-artifact-label",
+        "preflight-affected-path",
+        "preflight-operation-path",
+        "execution-affected-path",
+        "execution-conflict-path",
+        "restore-target-path",
+        "restore-reason",
+        "diagnostic",
+        "test-artifact-body-text",
+        "artifact-body-storage",
+        "artifact-body-summary",
+        "executor-block-reason",
+    ] {
+        assert!(
+            !inspection_json.contains(leaked),
+            "workflow inspection JSON leaked {leaked}: {inspection_json}"
+        );
+    }
+}
+
+#[test]
+fn workflow_inspection_projects_safe_metadata_from_live_events() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    for (index, event) in workflow_inspection_events().into_iter().enumerate() {
+        snapshot.apply_event(&EventFrame::new(
+            "trace_workflow_inspection_live",
+            index as u64 + 1,
+            event,
+        ));
+    }
+
+    assert_workflow_inspection_projection(&snapshot);
+}
+
+#[test]
+fn workflow_inspection_projects_safe_metadata_from_replayed_records() {
+    let mut snapshot = ClientSnapshot::new("mock-default");
+    for (index, event) in workflow_inspection_events().into_iter().enumerate() {
+        snapshot.apply_trace_record(
+            &EventFrame::new("trace_workflow_inspection_replay", index as u64 + 1, event)
+                .to_trace_record(),
+        );
+    }
+
+    assert_workflow_inspection_projection(&snapshot);
 }
 
 #[test]

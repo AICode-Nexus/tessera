@@ -1,4 +1,4 @@
-use tessera_client::ClientContextBudgetSummary;
+use tessera_client::{ClientContextBudgetSummary, ClientWorkflowInspection};
 use tessera_protocol::{
     ApprovalId, ArtifactId, ArtifactKind, ContextId, ContextPlacement, ContextReference,
     ContextSource, ContextSourceKind, CostEstimate, EventFrame, ItemId, MemoryProposal,
@@ -186,6 +186,53 @@ fn tui_status_line_renders_coding_workflow_and_worktree_summaries() {
 
     assert!(rendered.contains("workflow 1 active / patches 2 / reviews 1 / tests 1 blocked"));
     assert!(rendered.contains("worktrees 2 retained / 1 cleanup_failed"));
+}
+
+#[test]
+fn tui_status_line_renders_workflow_inspection_summary_only() {
+    let mut state = ChatViewState::new("mock-default");
+    state.status.workflow_inspection_summary =
+        "inspection workflows 1 / review gates 1 accepted / approvals 0 pending / diff refs 1"
+            .to_string();
+    state.workflow_inspections.push(ClientWorkflowInspection {
+        workflow_ref: "workflow:/Users/admin/work/tessera/.env".to_string(),
+        task_ref: "task:sk-secret".to_string(),
+        active: true,
+        mutation_mode: Some("requested-path".to_string()),
+        worktree_required: true,
+        patch_count: 1,
+        diff_artifact_ref_count: 1,
+        patches_requiring_review_count: 1,
+        review_bundle_count: 1,
+        review_evidence_ref_count: 1,
+        reviewer_gate_count: 1,
+        accepted_reviewer_gate_count: 1,
+        rejected_reviewer_gate_count: 0,
+        revision_requested_reviewer_gate_count: 0,
+        pending_reviewer_gate_count: 0,
+        approval_count: 0,
+        pending_approval_count: 0,
+        resolved_approval_count: 0,
+        apply_patch_preflight_count: 1,
+        executor_ready_preflight_count: 1,
+        executor_blocked_preflight_count: 0,
+        apply_patch_execution_count: 1,
+        successful_apply_patch_execution_count: 1,
+        failed_apply_patch_execution_count: 0,
+    });
+
+    let rendered = status_line(&state)
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+
+    assert!(rendered.contains(
+        "inspection workflows 1 / review gates 1 accepted / approvals 0 pending / diff refs 1"
+    ));
+    assert!(!rendered.contains("/Users/admin/work/tessera/.env"));
+    assert!(!rendered.contains("sk-secret"));
+    assert!(!rendered.contains("requested-path"));
 }
 
 #[test]

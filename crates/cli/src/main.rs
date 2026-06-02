@@ -104,6 +104,10 @@ enum Commands {
         #[command(subcommand)]
         command: WorktreeCommands,
     },
+    Workflow {
+        #[command(subcommand)]
+        command: WorkflowCommands,
+    },
     ApplyPatch(Box<ApplyPatchCommandOptions>),
     Chat {
         #[arg(long, default_value = "mock")]
@@ -207,6 +211,11 @@ enum WorktreeCommands {
     Cleanup(WorktreeCleanupCommandOptions),
 }
 
+#[derive(Subcommand)]
+enum WorkflowCommands {
+    Inspect(WorkflowInspectCommandOptions),
+}
+
 #[derive(Args)]
 struct WorktreeListCommandOptions {
     #[arg(long)]
@@ -231,6 +240,18 @@ struct WorktreeCleanupCommandOptions {
     source_root: Option<PathBuf>,
     #[arg(long)]
     dry_run: bool,
+    #[arg(long)]
+    json: bool,
+    #[arg(long)]
+    config: Option<PathBuf>,
+    #[arg(long)]
+    data_dir: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct WorkflowInspectCommandOptions {
+    #[arg(long)]
+    trace: String,
     #[arg(long)]
     json: bool,
     #[arg(long)]
@@ -605,6 +626,26 @@ async fn main() -> anyhow::Result<()> {
                         output.worktree_id,
                         output.worktree_path
                     );
+                }
+            }
+        },
+        Some(Commands::Workflow { command }) => match command {
+            WorkflowCommands::Inspect(options) => {
+                let config = tessera_cli::resolve_config(options.config)?;
+                let data_dir =
+                    tessera_cli::resolve_data_dir_with_config(options.data_dir, &config)?;
+                let output = tessera_cli::run_workflow_inspect_options(
+                    data_dir,
+                    tessera_cli::CliWorkflowInspectOptions {
+                        trace_id: options.trace,
+                    },
+                )?;
+                if options.json {
+                    println!("{}", serde_json::to_string_pretty(&output)?);
+                } else {
+                    for line in tessera_cli::format_workflow_inspection_lines(&output) {
+                        println!("{line}");
+                    }
                 }
             }
         },

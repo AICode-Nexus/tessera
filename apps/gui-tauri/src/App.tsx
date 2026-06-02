@@ -11,6 +11,7 @@ import type { ClientMessage, ClientSnapshot, GuiProfile, GuiShellState } from '.
 import {
   buildCodingWorkflowRows,
   buildShellMetrics,
+  buildWorkflowInspectionRows,
   buildWorktreeLifecycleRows,
   visibleMessages,
 } from './view-model'
@@ -26,6 +27,10 @@ function App() {
   const messages = useMemo(() => (snapshot ? visibleMessages(snapshot) : []), [snapshot])
   const workflowRows = useMemo(
     () => (snapshot ? buildCodingWorkflowRows(snapshot) : []),
+    [snapshot],
+  )
+  const workflowInspectionRows = useMemo(
+    () => (snapshot ? buildWorkflowInspectionRows(snapshot) : []),
     [snapshot],
   )
   const worktreeRows = useMemo(
@@ -250,6 +255,118 @@ function App() {
                     <div>
                       <dt>Blocked Restores</dt>
                       <dd>{row.blockedRestoreCount}</dd>
+                    </div>
+                  </dl>
+                </article>
+              ))
+            )}
+          </div>
+
+          <div className="metadata-panel" aria-label="Review Inspection">
+            <div className="metadata-heading">
+              <h2>Review Inspection</h2>
+              <span>
+                {snapshot?.status.workflow_inspection_summary ??
+                  'inspection workflows 0 / review gates 0 accepted 0 rejected 0 revision_requested 0 pending 0 / approvals 0 pending / diff refs 0'}
+              </span>
+            </div>
+            {workflowInspectionRows.length === 0 ? (
+              <p className="empty-metadata">No review inspection metadata projected.</p>
+            ) : (
+              workflowInspectionRows.map((row) => (
+                <article className="metadata-row" key={`${row.workflowRef}-${row.taskRef}`}>
+                  <div className="metadata-title">
+                    <strong>{row.workflowRef}</strong>
+                    <span>{row.active ? 'active' : 'inactive'}</span>
+                  </div>
+                  <dl className="metadata-grid">
+                    <div>
+                      <dt>Task</dt>
+                      <dd>{row.taskRef}</dd>
+                    </div>
+                    <div>
+                      <dt>Mode</dt>
+                      <dd>{row.mutationMode}</dd>
+                    </div>
+                    <div>
+                      <dt>Required</dt>
+                      <dd>{row.worktreeRequired ? 'yes' : 'no'}</dd>
+                    </div>
+                    <div>
+                      <dt>Patches</dt>
+                      <dd>{row.patchCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Diff Refs</dt>
+                      <dd>{row.diffArtifactRefCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Needs Review</dt>
+                      <dd>{row.patchesRequiringReviewCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Review Bundles</dt>
+                      <dd>{row.reviewBundleCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Review Evidence</dt>
+                      <dd>{row.reviewEvidenceRefCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Reviewer Gates</dt>
+                      <dd>{row.reviewerGateCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Accepted</dt>
+                      <dd>{row.acceptedReviewerGateCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Rejected</dt>
+                      <dd>{row.rejectedReviewerGateCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Revisions</dt>
+                      <dd>{row.revisionRequestedReviewerGateCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Pending</dt>
+                      <dd>{row.pendingReviewerGateCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Approvals</dt>
+                      <dd>{row.approvalCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Pending Approvals</dt>
+                      <dd>{row.pendingApprovalCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Resolved Approvals</dt>
+                      <dd>{row.resolvedApprovalCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Preflights</dt>
+                      <dd>{row.applyPatchPreflightCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Executor Ready</dt>
+                      <dd>{row.executorReadyPreflightCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Executor Blocked</dt>
+                      <dd>{row.executorBlockedPreflightCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Executions</dt>
+                      <dd>{row.applyPatchExecutionCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Successful Executions</dt>
+                      <dd>{row.successfulApplyPatchExecutionCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Failed Executions</dt>
+                      <dd>{row.failedApplyPatchExecutionCount}</dd>
                     </div>
                   </dl>
                 </article>

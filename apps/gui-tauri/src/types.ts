@@ -9,6 +9,7 @@ export type {
   ClientStatus,
   ClientTask,
   ClientTelemetrySummary,
+  ClientWorkflowInspection,
   ClientWorktreeLifecycle,
   GuiCommandOutcome,
   GuiEvent,
@@ -51,4 +52,31 @@ export interface WorktreeLifecycleRow {
   status: string
   rootLabel: string
   baseKey: string
+}
+
+export interface WorkflowInspectionRow {
+  workflowRef: string
+  taskRef: string
+  active: boolean
+  mutationMode: string
+  worktreeRequired: boolean
+  patchCount: number
+  diffArtifactRefCount: number
+  patchesRequiringReviewCount: number
+  reviewBundleCount: number
+  reviewEvidenceRefCount: number
+  reviewerGateCount: number
+  acceptedReviewerGateCount: number
+  rejectedReviewerGateCount: number
+  revisionRequestedReviewerGateCount: number
+  pendingReviewerGateCount: number
+  approvalCount: number
+  pendingApprovalCount: number
+  resolvedApprovalCount: number
+  applyPatchPreflightCount: number
+  executorReadyPreflightCount: number
+  executorBlockedPreflightCount: number
+  applyPatchExecutionCount: number
+  successfulApplyPatchExecutionCount: number
+  failedApplyPatchExecutionCount: number
 }

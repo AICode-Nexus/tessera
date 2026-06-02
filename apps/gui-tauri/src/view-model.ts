@@ -3,6 +3,7 @@ import type {
   ClientSnapshot,
   CodingWorkflowRow,
   ShellMetric,
+  WorkflowInspectionRow,
   WorktreeLifecycleRow,
 } from './types'
 
@@ -49,6 +50,35 @@ export function buildCodingWorkflowRows(snapshot: ClientSnapshot): CodingWorkflo
       blockedRestoreCount: blockedRestores.length,
     }
   })
+}
+
+export function buildWorkflowInspectionRows(snapshot: ClientSnapshot): WorkflowInspectionRow[] {
+  return snapshot.workflow_inspections.map((inspection) => ({
+    workflowRef: inspection.workflow_ref,
+    taskRef: inspection.task_ref,
+    active: inspection.active,
+    mutationMode: inspection.mutation_mode ?? 'unscoped',
+    worktreeRequired: inspection.worktree_required,
+    patchCount: inspection.patch_count,
+    diffArtifactRefCount: inspection.diff_artifact_ref_count,
+    patchesRequiringReviewCount: inspection.patches_requiring_review_count,
+    reviewBundleCount: inspection.review_bundle_count,
+    reviewEvidenceRefCount: inspection.review_evidence_ref_count,
+    reviewerGateCount: inspection.reviewer_gate_count,
+    acceptedReviewerGateCount: inspection.accepted_reviewer_gate_count,
+    rejectedReviewerGateCount: inspection.rejected_reviewer_gate_count,
+    revisionRequestedReviewerGateCount: inspection.revision_requested_reviewer_gate_count,
+    pendingReviewerGateCount: inspection.pending_reviewer_gate_count,
+    approvalCount: inspection.approval_count,
+    pendingApprovalCount: inspection.pending_approval_count,
+    resolvedApprovalCount: inspection.resolved_approval_count,
+    applyPatchPreflightCount: inspection.apply_patch_preflight_count,
+    executorReadyPreflightCount: inspection.executor_ready_preflight_count,
+    executorBlockedPreflightCount: inspection.executor_blocked_preflight_count,
+    applyPatchExecutionCount: inspection.apply_patch_execution_count,
+    successfulApplyPatchExecutionCount: inspection.successful_apply_patch_execution_count,
+    failedApplyPatchExecutionCount: inspection.failed_apply_patch_execution_count,
+  }))
 }
 
 export function buildWorktreeLifecycleRows(snapshot: ClientSnapshot): WorktreeLifecycleRow[] {

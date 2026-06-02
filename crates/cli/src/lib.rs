@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tessera_client::{ClientMessage, ClientMessageRole, ClientSnapshot};
+use tessera_client::{ClientMessage, ClientMessageRole, ClientSnapshot, ClientWorkflowInspection};
 use tessera_config::{ProviderProfile, TesseraConfig};
 use tessera_core::{
     AgentLoop, AgentRunOutcome, AgentRunRequest, ApplyPatchDryRunInput, ApplyPatchDryRunOperation,
@@ -224,6 +224,39 @@ pub struct CliWorktreeCleanupOptions {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CliWorktreeListOptions {
     pub trace_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CliWorkflowInspectOptions {
+    pub trace_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CliWorkflowInspectionOutput {
+    pub workflow_ref: String,
+    pub task_ref: String,
+    pub active: bool,
+    pub mutation_mode: Option<String>,
+    pub worktree_required: bool,
+    pub patch_count: usize,
+    pub diff_artifact_ref_count: usize,
+    pub patches_requiring_review_count: usize,
+    pub review_bundle_count: usize,
+    pub review_evidence_ref_count: usize,
+    pub reviewer_gate_count: usize,
+    pub accepted_reviewer_gate_count: usize,
+    pub rejected_reviewer_gate_count: usize,
+    pub revision_requested_reviewer_gate_count: usize,
+    pub pending_reviewer_gate_count: usize,
+    pub approval_count: usize,
+    pub pending_approval_count: usize,
+    pub resolved_approval_count: usize,
+    pub apply_patch_preflight_count: usize,
+    pub executor_ready_preflight_count: usize,
+    pub executor_blocked_preflight_count: usize,
+    pub apply_patch_execution_count: usize,
+    pub successful_apply_patch_execution_count: usize,
+    pub failed_apply_patch_execution_count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -471,6 +504,39 @@ impl From<RuntimePauseCheckpointSummary> for CliResumableTaskSummary {
             created_at: checkpoint
                 .created_at
                 .map(|timestamp| timestamp.as_str().to_string()),
+        }
+    }
+}
+
+impl From<&ClientWorkflowInspection> for CliWorkflowInspectionOutput {
+    fn from(inspection: &ClientWorkflowInspection) -> Self {
+        Self {
+            workflow_ref: inspection.workflow_ref.clone(),
+            task_ref: inspection.task_ref.clone(),
+            active: inspection.active,
+            mutation_mode: inspection.mutation_mode.clone(),
+            worktree_required: inspection.worktree_required,
+            patch_count: inspection.patch_count,
+            diff_artifact_ref_count: inspection.diff_artifact_ref_count,
+            patches_requiring_review_count: inspection.patches_requiring_review_count,
+            review_bundle_count: inspection.review_bundle_count,
+            review_evidence_ref_count: inspection.review_evidence_ref_count,
+            reviewer_gate_count: inspection.reviewer_gate_count,
+            accepted_reviewer_gate_count: inspection.accepted_reviewer_gate_count,
+            rejected_reviewer_gate_count: inspection.rejected_reviewer_gate_count,
+            revision_requested_reviewer_gate_count: inspection
+                .revision_requested_reviewer_gate_count,
+            pending_reviewer_gate_count: inspection.pending_reviewer_gate_count,
+            approval_count: inspection.approval_count,
+            pending_approval_count: inspection.pending_approval_count,
+            resolved_approval_count: inspection.resolved_approval_count,
+            apply_patch_preflight_count: inspection.apply_patch_preflight_count,
+            executor_ready_preflight_count: inspection.executor_ready_preflight_count,
+            executor_blocked_preflight_count: inspection.executor_blocked_preflight_count,
+            apply_patch_execution_count: inspection.apply_patch_execution_count,
+            successful_apply_patch_execution_count: inspection
+                .successful_apply_patch_execution_count,
+            failed_apply_patch_execution_count: inspection.failed_apply_patch_execution_count,
         }
     }
 }
@@ -839,6 +905,61 @@ pub fn list_task_owners(
         .into_iter()
         .map(CliTaskOwnerSummary::from)
         .collect())
+}
+
+pub fn run_workflow_inspect_options(
+    data_dir: impl AsRef<Path>,
+    options: CliWorkflowInspectOptions,
+) -> Result<Vec<CliWorkflowInspectionOutput>> {
+    let snapshot = load_workflow_inspect_snapshot(data_dir, &options.trace_id)?;
+    Ok(snapshot
+        .workflow_inspections
+        .iter()
+        .map(CliWorkflowInspectionOutput::from)
+        .collect())
+}
+
+pub fn format_workflow_inspection_lines(
+    inspections: &[CliWorkflowInspectionOutput],
+) -> Vec<String> {
+    if inspections.is_empty() {
+        return vec!["workflow inspection records: none".to_string()];
+    }
+
+    let mut lines = vec![format!(
+        "workflow inspection records: {}",
+        inspections.len()
+    )];
+    lines.extend(inspections.iter().map(|inspection| {
+        format!(
+            "{} {} active={} mutation={} worktree_required={} patches={} diff_refs={} patches_requiring_review={} review_bundles={} review_evidence_refs={} review_gates={} accepted={} rejected={} revision_requested={} pending={} approvals={} pending_approvals={} resolved_approvals={} preflights={} executor_ready={} executor_blocked={} executions={} successful={} failed={}",
+            inspection.workflow_ref,
+            inspection.task_ref,
+            inspection.active,
+            inspection.mutation_mode.as_deref().unwrap_or("none"),
+            inspection.worktree_required,
+            inspection.patch_count,
+            inspection.diff_artifact_ref_count,
+            inspection.patches_requiring_review_count,
+            inspection.review_bundle_count,
+            inspection.review_evidence_ref_count,
+            inspection.reviewer_gate_count,
+            inspection.accepted_reviewer_gate_count,
+            inspection.rejected_reviewer_gate_count,
+            inspection.revision_requested_reviewer_gate_count,
+            inspection.pending_reviewer_gate_count,
+            inspection.approval_count,
+            inspection.pending_approval_count,
+            inspection.resolved_approval_count,
+            inspection.apply_patch_preflight_count,
+            inspection.executor_ready_preflight_count,
+            inspection.executor_blocked_preflight_count,
+            inspection.apply_patch_execution_count,
+            inspection.successful_apply_patch_execution_count,
+            inspection.failed_apply_patch_execution_count,
+        )
+    }));
+    lines
 }
 
 pub fn format_session_lines(sessions: &[CliSessionSummary]) -> Vec<String> {
@@ -1255,13 +1376,34 @@ fn config_validation_error(
 }
 
 fn load_transcript_snapshot(data_dir: impl AsRef<Path>, trace_id: &str) -> Result<ClientSnapshot> {
+    load_trace_snapshot(data_dir, trace_id, "transcript")
+}
+
+fn load_workflow_inspect_snapshot(
+    data_dir: impl AsRef<Path>,
+    trace_id: &str,
+) -> Result<ClientSnapshot> {
+    let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
+    let page = reader.list_events(RuntimeEventQuery::new(trace_id))?;
+    let mut snapshot = ClientSnapshot::new("workflow-inspect");
+    for record in &page.records {
+        snapshot.apply_trace_record(record);
+    }
+    Ok(snapshot)
+}
+
+fn load_trace_snapshot(
+    data_dir: impl AsRef<Path>,
+    trace_id: &str,
+    projection_profile: &str,
+) -> Result<ClientSnapshot> {
     let reader = RuntimeReader::new(TraceStore::open(data_dir)?);
     let page = reader.list_events(RuntimeEventQuery::new(trace_id))?;
     if page.records.is_empty() {
         return Err(anyhow::anyhow!("trace not found or empty: {trace_id}"));
     }
 
-    let mut snapshot = ClientSnapshot::new("transcript");
+    let mut snapshot = ClientSnapshot::new(projection_profile);
     for record in &page.records {
         snapshot.apply_trace_record(record);
     }
